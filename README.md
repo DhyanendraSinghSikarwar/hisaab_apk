@@ -1,11 +1,11 @@
 # Hisaab
 
 An offline-first personal finance app for Android. It reads bank transaction alerts from SMS and
-Gmail, parses them with rules (no AI, no API keys), and records each transaction once, even when
+email, parses them with rules (no AI, no API keys), and records each transaction once, even when
 an SMS and an email both describe it.
 
 All data stays on the phone: there is no account, no server and no analytics. The only network
-traffic is to the Gmail API, read-only, and only after you connect Gmail.
+traffic is to your email provider, and only after you connect email.
 
 ## Install the APK
 
@@ -13,14 +13,14 @@ A ready-built APK is in `apk/`:
 
 | File | Use |
 |------|-----|
-| `apk/Hisaab-1.0.0.apk` | Release build: R8 full mode, shrunk, about 10.6 MB. **Install this one.** |
-| `apk/Hisaab-1.0.0-debug.apk` | Debug build, for development. |
+| `apk/Hisaab-1.1.0.apk` | Release build: R8 full mode, shrunk. **Install this one.** |
+| `apk/Hisaab-1.1.0-debug.apk` | Debug build, for development. |
 
 To install:
 
 1. Copy the APK to your phone.
 2. Open it and allow **Install unknown apps** for your file manager.
-3. Or, over USB with debugging on: `adb install apk/Hisaab-1.0.0.apk`
+3. Or, over USB with debugging on: `adb install -r apk/Hisaab-1.1.0.apk`
 
 On first launch, tap **Allow SMS access**. The app scans the inbox, and new bank SMS appear as they arrive.
 
@@ -29,12 +29,29 @@ phone. Sign it with your own key before sharing it or publishing it (see
 [Release signing](#release-signing)). Signing a different way later means uninstalling first,
 because Android refuses an update signed with another key.
 
+## What's new in 1.1.0
+
+- **Card spends made online now count.** The SMS reader used to drop every sender without a dedicated
+  parser, so the generic bank parser never ran for SMS. It now also reads banks and card issuers such as
+  IndusInd, AMEX, HSBC, RBL, OneCard and Standard Chartered, and understands alerts worded
+  "Transaction of Rs…", "Txn Rs…" and "has been used for…". OTP messages are still ignored.
+- **Connect email by address.** Enter your email, sign in with an app password, and type in the 6-digit
+  code Hisaab mails you. Works with Gmail, Outlook, Yahoo, iCloud, Zoho and most IMAP providers, and
+  needs no Google Cloud project. Google sign-in is still there as an advanced option.
+- **One fetch window for SMS and email.** **Settings → Fetch history** (7, 30, 90, 180 or 365 days) sets how
+  far back both the SMS scan and email sync read.
+- **Monthly totals.** Home shows spent and income for one calendar month, with arrows to step back through earlier months.
+- **Set an account's balance (optional).** **Accounts → edit** takes a current balance (or a card's available limit).
+  Later transactions move it on, and a newer balance from a bank message replaces it.
+- **The SMS permission card goes away** once access is granted, including when it was granted in system
+  settings. It offers **Open App settings** when Android won't show the prompt, and **Not now** to hide it.
+
 ## What it does
 
 | Area | Features |
 |------|----------|
 | SMS | Inbox scan in a WorkManager job (batches of 500, parsed in parallel, one database transaction per batch); real-time parsing of new SMS; only known bank senders are read |
-| Gmail | Sign-in through Credential Manager and AuthorizationClient; `gmail.readonly` scope; server-side sender filter; first sync, then incremental sync with `history.list`; hourly background sync plus **Sync now**; text and HTML bodies; PDF attachments |
+| Email | By address: IMAP with an app password, verified by a 6-digit code sent to the address; the password is sealed with an Android Keystore key. Or Gmail API: sign-in through Credential Manager and AuthorizationClient; `gmail.readonly` scope; server-side sender filter; first sync, then incremental sync with `history.list`; hourly background sync plus **Sync now**; text and HTML bodies; PDF attachments |
 | Parser | 10 banks (HDFC, ICICI, SBI, Axis, Kotak, IDFC First, Yes, BoB, PNB, AU) for both SMS and email, plus a fallback for other banks. It rejects OTPs, promotions, failed transactions, reminders and mandate setups |
 | Dedup | Reference number, then SHA-256 hash, then a near-duplicate match within ±30 minutes. Duplicates are merged, and the record keeps every source. Unsure matches go to a review screen with **Merge**, **Keep both**, and **Split** on the detail screen |
 | Screens | Home, Transactions (search and filters), transaction detail, Analytics (pie, monthly bars, daily line), Accounts, Budgets, Review, Settings, parser test tool |
@@ -129,9 +146,15 @@ With the emulator running, you can send it a bank SMS:
 
 Test reports are written to `<module>/build/reports/`.
 
-### 5. Gmail (optional)
+### 5. Email (optional)
 
-SMS works without this. Gmail needs a Google Cloud OAuth client tied to your signing key.
+SMS works without this. The simple way needs no setup: **Settings → Email → Connect**, enter your address,
+sign in with an app password (Gmail: [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords);
+2-Step Verification must be on), then type the 6-digit code Hisaab emails you. The first sync starts at once and
+then runs every hour.
+
+The rest of this section is only for the advanced **Google sign-in** option, which uses the Gmail API.
+It needs a Google Cloud OAuth client tied to your signing key.
 
 `gmail.readonly` is a restricted scope. It works for your own account and for up to 100 test users you list.
 A public Play Store release needs Google's OAuth verification and a third-party security assessment.
@@ -166,15 +189,15 @@ A public Play Store release needs Google's OAuth verification and a third-party 
    ```
 
    Rebuild after changing this.
-7. In the app, go to **Settings → Gmail → Connect** and approve read access. The first sync starts at once.
+7. In the app, go to **Settings → Email → Connect → Advanced: Google sign-in** and approve read access. The first sync starts at once.
    After that it runs every hour on any network, and **Sync now** runs it on demand.
 
-Other Gmail settings:
+Other email settings:
 
-- **Look back:** 30, 90, 180 or 365 days.
+- **Fetch history** (top of Settings): 7, 30, 90, 180 or 365 days, for both SMS and email.
 - **Bank senders:** edit the whitelist; one address or domain per line.
 - **Read PDF statements:** on or off. Password-protected PDFs are skipped.
-- **Sign out and wipe tokens:** revokes access, deletes the encrypted token and its Android Keystore key, and forgets the account.
+- **Disconnect / Sign out:** deletes the encrypted app password or token and its Android Keystore key, and forgets the account.
   Transactions that were already found stay.
 
 ### Release signing
@@ -254,5 +277,9 @@ a payment as an investment ("ZERODHA") while the other only says "ACH". Both are
 | `App not installed` when updating | The installed copy is signed with a different key. Uninstall it first. |
 | Gmail: "Sign in again" | Google revoked the grant, or the SHA-1 or package name doesn't match the OAuth client. |
 | Gmail: consent screen says "app not verified" | Expected in Testing mode. Continue, and make sure the account is listed under Test users. |
-| No SMS transactions | Check SMS permission, and use Settings → Rescan. Only senders known to the parser are read. |
+| No SMS transactions | Check SMS permission, and use Settings → Rescan. Only bank and card-issuer senders are read. |
+| SMS permission greyed out | Android restricts SMS for apps installed from an APK: App info → ⋮ → **Allow restricted settings**, then allow SMS. |
+| A card spend is still missing | Paste the SMS into **Settings → Test the parser** to see why, and add the sender or wording to the parser. |
+| Email: "Sign-in was refused" | Use an app password, not your normal password. Gmail needs 2-Step Verification on to create one. |
+| No verification code | Check spam. The code is sent from your own address to itself; tap **Resend code**. |
 | Build killed (exit 137) | Out of memory. Close the emulator while building, or lower `org.gradle.jvmargs`. |

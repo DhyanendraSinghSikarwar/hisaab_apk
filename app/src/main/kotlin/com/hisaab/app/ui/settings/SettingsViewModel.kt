@@ -16,9 +16,11 @@ import com.hisaab.app.settings.ThemeMode
 import com.hisaab.app.sms.SmsScanScheduler
 import com.hisaab.email.auth.ConnectResult
 import com.hisaab.email.auth.GmailAuthManager
+import com.hisaab.email.imap.MailConnector
 import com.hisaab.email.sync.GmailScheduler
 import com.hisaab.email.sync.GmailSettings
 import com.hisaab.email.sync.GmailSettingsStore
+import com.hisaab.email.sync.MailConnection
 import com.hisaab.shared.db.ProcessedEmailDao
 import com.hisaab.shared.db.TransactionDao
 import com.hisaab.shared.repo.TransactionRepository
@@ -49,6 +51,7 @@ class SettingsViewModel @Inject constructor(
     private val appSettings: AppSettingsStore,
     private val gmail: GmailSettingsStore,
     private val auth: GmailAuthManager,
+    private val mail: MailConnector,
     processed: ProcessedEmailDao,
     private val transactions: TransactionDao,
     private val repository: TransactionRepository,
@@ -88,8 +91,13 @@ class SettingsViewModel @Inject constructor(
 
     fun disconnectGmail() = viewModelScope.launch {
         GmailScheduler.cancel(context)
-        auth.signOut()
-        say("Signed out of Gmail. Access revoked and tokens deleted.")
+        if (gmail.read().connection == MailConnection.IMAP) {
+            mail.signOut()
+            say("Email disconnected. The saved app password and its key were deleted.")
+        } else {
+            auth.signOut()
+            say("Signed out of Gmail. Access revoked and tokens deleted.")
+        }
     }
 
     fun setGmailEnabled(enabled: Boolean) = viewModelScope.launch {
@@ -97,7 +105,14 @@ class SettingsViewModel @Inject constructor(
         if (enabled) GmailScheduler.schedulePeriodic(context) else GmailScheduler.cancel(context)
     }
 
-    fun setLookback(days: Int) = viewModelScope.launch { gmail.setLookbackDays(days) }
+    /** One window for both sources: SMS is rescanned and email re-synced over the new period. */
+    fun setLookback(days: Int) = viewModelScope.launch {
+        gmail.setLookbackDays(days)
+        SmsScanScheduler.scanIfPermitted(context, full = true)
+        val g = gmail.read()
+        if (g.connected && g.enabled) GmailScheduler.syncNow(context)
+        say("Fetching the last $days days of SMS" + if (g.connected && g.enabled) " and email" else "")
+    }
     fun setSenders(list: List<String>) = viewModelScope.launch { gmail.setSenders(list) }
     fun resetSenders() = viewModelScope.launch { gmail.resetSenders() }
     fun setReadPdf(value: Boolean) = viewModelScope.launch { gmail.setReadPdf(value) }

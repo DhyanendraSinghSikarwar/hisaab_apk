@@ -10,7 +10,8 @@ import com.hisaab.parser.text.rx
 object RejectionRules {
     /** Past-tense money movement. Its presence rescues messages that merely mention OTPs or dues. */
     private val PAST_MOVEMENT = rx(
-        """\b(?:debited|credited|spent|withdrawn|deposited|received|sent|paid|deducted|transferred|refunded|reversed)\b""",
+        """\b(?:debited|credited|spent|withdrawn|deposited|received|sent|paid|deducted|transferred|refunded|reversed|charged|""" +
+            """(?:has\s+been|was)\s+used)\b""",
     )
 
     private val OTP_WORD = Guarded(
@@ -19,7 +20,9 @@ object RejectionRules {
     )
     private val OTP_CODE = rx(
         """(?:otp|code|password)\s*(?:is|:|-)?\s*\d{4,8}\b|\b\d{4,8}\s+is\s+(?:your\s+|the\s+)?(?:otp|one[\s-]time|code|verification)|""" +
-            """\b(?:otp|code)\s+for\b|\buse\s+(?:otp\s+)?\d{4,8}\b""",
+            """\b(?:otp|code)\s+for\b|\buse\s+(?:otp\s+)?\d{4,8}\b|""" +
+            // "Your OTP to complete the purchase of INR 1,100.00 at ZOMATO ... is 482910"
+            """\b(?:otp|code)\b.{0,100}?\bis\s*:?\s*\d{4,8}\b""",
     )
 
     private val FAILED = Guarded(

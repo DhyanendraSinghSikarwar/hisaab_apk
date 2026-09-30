@@ -15,8 +15,8 @@ android {
         applicationId = "com.hisaab"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -58,7 +58,9 @@ android {
     packaging {
         resources.excludes += setOf("META-INF/INDEX.LIST", "META-INF/DEPENDENCIES", "META-INF/io.netty.versions.properties", "META-INF/*.kotlin_module",
             // Post-quantum parameter tables that BouncyCastle (via PdfBox) ships; the app never uses them.
-            "org/bouncycastle/pqc/**")
+            "org/bouncycastle/pqc/**",
+            // Licence texts that JavaMail and its dependencies each ship; the mailcap/javamail.* files stay.
+            "META-INF/NOTICE.md", "META-INF/LICENSE.md", "META-INF/NOTICE.txt", "META-INF/LICENSE.txt")
     }
 }
 

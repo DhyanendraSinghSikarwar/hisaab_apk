@@ -3,6 +3,8 @@ package com.hisaab.shared.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 
 @Database(
     entities = [
@@ -24,15 +26,22 @@ abstract class HisaabDatabase : RoomDatabase() {
 
     companion object {
         const val NAME = "hisaab.db"
-        const val VERSION = 1
+        const val VERSION = 2
     }
 }
 
 /**
- * Schema migrations. Version 1 is the first released schema, so the list is empty.
- * Each schema change bumps [HisaabDatabase.VERSION], adds a Migration here (or an AutoMigration
- * on @Database), and exports the new JSON under shared/schemas, which MigrationTest checks.
+ * Schema migrations. Each schema change bumps [HisaabDatabase.VERSION], adds a Migration here, and
+ * exports the new JSON under shared/schemas, which MigrationTest checks.
  */
 object Migrations {
-    val ALL: Array<Migration> = emptyArray()
+    /** 1 -> 2: an optional balance the user sets on an account. */
+    val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN manualBalanceMinor INTEGER DEFAULT NULL")
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN manualBalanceAt INTEGER DEFAULT NULL")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
 }

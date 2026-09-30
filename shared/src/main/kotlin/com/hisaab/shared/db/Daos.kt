@@ -179,15 +179,30 @@ interface AccountDao {
     @Query("UPDATE accounts SET nickname = :nickname, colorArgb = :colorArgb WHERE id = :id")
     suspend fun rename(id: Long, nickname: String?, colorArgb: Int?)
 
+    /** Sets, or with nulls clears, the balance the user typed in. */
+    @Query("UPDATE accounts SET manualBalanceMinor = :balance, manualBalanceAt = :at WHERE id = :id")
+    suspend fun setManualBalance(id: Long, balance: Long?, at: Long?)
+
+    /**
+     * Accounts with their spend in [from, to). changeSinceManual is what the transactions after the
+     * user's own balance did to it: credits add, spends subtract, and a card bill payment (TRANSFER)
+     * frees up card limit. Transactions still waiting in review are left out.
+     */
     @Query(
         """SELECT a.id, a.bankName, a.last4, a.kind, a.nickname, a.colorArgb, a.latestBalanceMinor, a.availableLimitMinor,
-                  a.balanceUpdatedAt,
+                  a.balanceUpdatedAt, a.manualBalanceMinor, a.manualBalanceAt,
                   COALESCE((SELECT SUM(t.amountMinor) FROM transactions t WHERE t.accountId = a.id
-                            AND t.type IN ('DEBIT', 'INVESTMENT') AND t.timestamp >= :monthStart), 0) AS monthSpent,
-                  (SELECT COUNT(*) FROM transactions t WHERE t.accountId = a.id) AS transactionCount
+                            AND t.type IN ('DEBIT', 'INVESTMENT') AND t.timestamp >= :from AND t.timestamp < :to), 0) AS monthSpent,
+                  (SELECT COUNT(*) FROM transactions t WHERE t.accountId = a.id) AS transactionCount,
+                  COALESCE((SELECT SUM(CASE WHEN t.type = 'CREDIT' THEN t.amountMinor
+                                            WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.amountMinor
+                                            WHEN t.type = 'TRANSFER' AND a.kind = 'CARD' THEN t.amountMinor
+                                            ELSE 0 END)
+                            FROM transactions t WHERE t.accountId = a.id AND a.manualBalanceAt IS NOT NULL
+                            AND t.timestamp > a.manualBalanceAt AND t.needsReview = 0 AND t.currency = 'INR'), 0) AS changeSinceManual
            FROM accounts a ORDER BY a.bankName, a.last4""",
     )
-    fun observeWithActivity(monthStart: Long): Flow<List<AccountWithActivity>>
+    fun observeWithActivity(from: Long, to: Long = Long.MAX_VALUE): Flow<List<AccountWithActivity>>
 
     @Query("SELECT * FROM accounts ORDER BY bankName, last4")
     fun observeAll(): Flow<List<AccountEntity>>

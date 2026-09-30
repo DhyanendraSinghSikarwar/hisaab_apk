@@ -22,6 +22,15 @@ object Money {
         return f.format(minor / 100.0)
     }
 
+    /** "12,500.50", "₹ 12500", "-300" typed by the user, in paise. Null when it is not an amount. */
+    fun parseInput(text: String): Long? {
+        val cleaned = text.replace("₹", "").replace(",", "").replace(" ", "").trim()
+        if (cleaned.isEmpty() || !INPUT.matches(cleaned)) return null
+        return cleaned.toBigDecimal().movePointRight(2).toLong()
+    }
+
+    private val INPUT = Regex("""-?\d+(?:\.\d{1,2})?""")
+
     /** ₹1.2L, ₹45K: for chart axes and tight cards. */
     fun compact(minor: Long): String {
         val rupees = minor / 100.0

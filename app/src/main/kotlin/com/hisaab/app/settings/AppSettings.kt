@@ -23,6 +23,8 @@ data class AppSettings(
     val smsEnabled: Boolean,
     val lastSmsScanAt: Long?,
     val lastSmsResult: String?,
+    /** The user tapped "Not now" on the Home SMS permission card. */
+    val smsPromptDismissed: Boolean = false,
 )
 
 private val Context.appStore: DataStore<Preferences> by preferencesDataStore(name = "app_settings")
@@ -38,6 +40,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
             smsEnabled = p[SMS_ENABLED] ?: true,
             lastSmsScanAt = p[LAST_SMS_SCAN],
             lastSmsResult = p[LAST_SMS_RESULT],
+            smsPromptDismissed = p[SMS_PROMPT_DISMISSED] ?: false,
         )
     }
 
@@ -54,6 +57,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
     suspend fun setAppLock(value: Boolean) = store.edit { it[APP_LOCK] = value }
     suspend fun setTheme(mode: ThemeMode) = store.edit { it[THEME] = mode.name }
     suspend fun setSmsEnabled(value: Boolean) = store.edit { it[SMS_ENABLED] = value }
+    suspend fun setSmsPromptDismissed(value: Boolean) = store.edit { it[SMS_PROMPT_DISMISSED] = value }
 
     private companion object {
         val APP_LOCK = booleanPreferencesKey("app_lock")
@@ -62,5 +66,6 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
         val SMS_CURSOR = longPreferencesKey("sms_cursor")
         val LAST_SMS_SCAN = longPreferencesKey("last_sms_scan")
         val LAST_SMS_RESULT = stringPreferencesKey("last_sms_result")
+        val SMS_PROMPT_DISMISSED = booleanPreferencesKey("sms_prompt_dismissed")
     }
 }

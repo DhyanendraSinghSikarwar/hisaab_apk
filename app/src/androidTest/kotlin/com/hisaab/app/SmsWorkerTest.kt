@@ -15,6 +15,7 @@ import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.sms.InboxSms
 import com.hisaab.app.sms.OptimizedSmsReaderWorker
 import com.hisaab.app.sms.SmsInboxSource
+import com.hisaab.email.sync.GmailSettingsStore
 import com.hisaab.parser.registry.ParserRegistry
 import com.hisaab.shared.db.HisaabDatabase
 import com.hisaab.shared.repo.TransactionRepository
@@ -55,9 +56,10 @@ class SmsWorkerTest {
     private fun worker(inbox: SmsInboxSource, full: Boolean = true): OptimizedSmsReaderWorker {
         val repo = TransactionRepository(db, registry)
         val settings = AppSettingsStore(context)
+        val mailSettings = GmailSettingsStore(context, registry)
         val factory = object : WorkerFactory() {
             override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker =
-                OptimizedSmsReaderWorker(appContext, workerParameters, inbox, registry, repo, settings) { notified++ }
+                OptimizedSmsReaderWorker(appContext, workerParameters, inbox, registry, repo, settings, mailSettings) { notified++ }
         }
         return TestListenableWorkerBuilder<OptimizedSmsReaderWorker>(context).setWorkerFactory(factory)
             .setInputData(workDataOf(OptimizedSmsReaderWorker.KEY_FULL to full)).build()

@@ -18,11 +18,16 @@ import com.hisaab.shared.db.TransactionDao
 import com.hisaab.shared.db.TransactionEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.time.YearMonth
 import javax.inject.Inject
 
@@ -32,6 +37,7 @@ data class ScanProgress(val running: Boolean, val scanned: Int, val found: Int)
 
 data class HomeState(
     val month: YearMonth = YearMonth.now(),
+    val isCurrentMonth: Boolean = true,
     val spent: Long = 0,
     val income: Long = 0,
     val balance: Long? = null,
@@ -42,29 +48,44 @@ data class HomeState(
     val reviewCount: Int = 0,
     val scan: ScanProgress = ScanProgress(false, 0, 0),
     val lastScanResult: String? = null,
+    val smsPromptDismissed: Boolean = false,
     val loaded: Boolean = false,
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     transactions: TransactionDao,
     accounts: AccountDao,
     budgets: BudgetDao,
-    settings: AppSettingsStore,
+    private val settings: AppSettingsStore,
 ) : ViewModel() {
-    private val monthStart = Periods.startOfMonth(System.currentTimeMillis())
     private val spendTypes = listOf("DEBIT", "INVESTMENT")
 
-    private val totals = combine(
-        transactions.observeTotal(spendTypes, monthStart, Long.MAX_VALUE),
-        transactions.observeTotal(listOf("CREDIT"), monthStart, Long.MAX_VALUE),
-        accounts.observeWithActivity(monthStart),
-    ) { spent, income, accs -> Triple(spent, income, accs) }
+    /** The month Home shows. Spent, income, categories, account spend and the list all cover just this month. */
+    private val month = MutableStateFlow(YearMonth.now(Periods.zone))
 
-    private val categories = combine(transactions.observeCategoryTotals(monthStart, Long.MAX_VALUE), budgets.observeAll()) { totals, b ->
-        val limits = b.associate { it.category to it.monthlyLimitMinor }
-        totals.map { CategorySpend(it.category, it.total, limits[it.category]) }
+    private val totals = month.flatMapLatest { m ->
+        val r = Periods.range(m)
+        combine(
+            transactions.observeTotal(spendTypes, r.first, r.last),
+            transactions.observeTotal(listOf("CREDIT"), r.first, r.last),
+            accounts.observeWithActivity(r.first, r.last + 1),
+        ) { spent, income, accs -> Triple(spent, income, accs) }
+    }
+
+    private val categories = month.flatMapLatest { m ->
+        val r = Periods.range(m)
+        combine(transactions.observeCategoryTotals(r.first, r.last), budgets.observeAll()) { totals, b ->
+            val limits = b.associate { it.category to it.monthlyLimitMinor }
+            totals.map { CategorySpend(it.category, it.total, limits[it.category]) }
+        }
+    }
+
+    private val recent = month.flatMapLatest { m ->
+        val r = Periods.range(m)
+        transactions.observe(null, null, null, null, null, r.first, r.last, RECENT)
     }
 
     private val scan = WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(SmsScanScheduler.WORK_NAME).map { infos ->
@@ -77,17 +98,27 @@ class HomeViewModel @Inject constructor(
     }
 
     val state: StateFlow<HomeState> = combine(
-        totals, categories, transactions.observeRecent(8), transactions.observeReviewCount(),
-        combine(scan, settings.settings) { s, a -> s to a.lastSmsResult },
-    ) { (spent, income, accs), cats, recent, review, (scanState, last) ->
-        val bank = accs.filter { it.kind == AccountKind.ACCOUNT && it.latestBalanceMinor != null }
+        combine(month, totals) { m, t -> m to t }, categories, recent, transactions.observeReviewCount(),
+        combine(scan, settings.settings) { s, a -> Triple(s, a.lastSmsResult, a.smsPromptDismissed) },
+    ) { (m, t), cats, recent, review, (scanState, last, dismissed) ->
+        val (spent, income, accs) = t
+        val bank = accs.filter { it.kind == AccountKind.ACCOUNT && it.currentBalanceMinor != null }
         HomeState(
+            month = m, isCurrentMonth = m >= YearMonth.now(Periods.zone),
             spent = spent, income = income,
-            balance = bank.takeIf { it.isNotEmpty() }?.sumOf { it.latestBalanceMinor!! }, balanceAccounts = bank.size,
+            balance = bank.takeIf { it.isNotEmpty() }?.sumOf { it.currentBalanceMinor!! }, balanceAccounts = bank.size,
             accounts = accs, categories = cats, recent = recent, reviewCount = review, scan = scanState, lastScanResult = last,
-            loaded = true,
+            smsPromptDismissed = dismissed, loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
+    fun previousMonth() = month.update { it.minusMonths(1) }
+    fun nextMonth() = month.update { m -> m.plusMonths(1).takeIf { it <= YearMonth.now(Periods.zone) } ?: m }
+
     fun scanInbox(full: Boolean = false) = SmsScanScheduler.scan(context, full)
+    fun dismissSmsPrompt() = viewModelScope.launch { settings.setSmsPromptDismissed(true) }
+
+    private companion object {
+        const val RECENT = 8
+    }
 }

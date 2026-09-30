@@ -20,8 +20,8 @@ object SmsScanScheduler {
         WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, if (full) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, request)
     }
 
-    /** Catches up on SMS that arrived while the app was not running. */
-    fun scanIfPermitted(context: Context) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) scan(context)
+    /** Catches up on SMS that arrived while the app was not running, or with [full], rescans the look-back window. */
+    fun scanIfPermitted(context: Context, full: Boolean = false) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) scan(context, full)
     }
 }

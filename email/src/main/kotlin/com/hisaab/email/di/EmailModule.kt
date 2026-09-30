@@ -3,6 +3,11 @@ package com.hisaab.email.di
 import com.hisaab.email.api.AccessTokenProvider
 import com.hisaab.email.api.GmailApi
 import com.hisaab.email.auth.GmailAuthManager
+import com.hisaab.email.imap.ImapSyncEngine
+import com.hisaab.email.imap.ImapSyncState
+import com.hisaab.email.imap.JavaMailClient
+import com.hisaab.email.imap.MailAccountStore
+import com.hisaab.email.imap.MailClient
 import com.hisaab.email.mime.PdfTextExtractor
 import com.hisaab.email.sync.EmailSink
 import com.hisaab.email.sync.GmailSettingsStore
@@ -54,4 +59,23 @@ object EmailModule {
     @Provides
     fun syncEngine(api: GmailApi, settings: GmailSettingsStore, sink: EmailSink, registry: ParserRegistry, pdf: PdfTextExtractor) =
         GmailSyncEngine(api, settings, sink, registry, pdf)
+
+    @Provides
+    fun mailClient(impl: JavaMailClient): MailClient = impl
+
+    @Provides
+    fun imapSyncEngine(
+        client: MailClient, settings: GmailSettingsStore, accounts: MailAccountStore, sink: EmailSink, registry: ParserRegistry, pdf: PdfTextExtractor,
+    ): ImapSyncEngine {
+        val state = object : ImapSyncState {
+            override suspend fun login() = accounts.login()
+            override suspend fun lookbackDays() = settings.read().lookbackDays
+            override suspend fun senders() = settings.read().senders
+            override suspend fun readPdfStatements() = settings.read().readPdfStatements
+            override suspend fun enabled() = settings.read().enabled
+            override suspend fun lastSyncAt() = settings.read().imapSyncedAt
+            override suspend fun saveSync(at: Long, result: String) = settings.saveImapSync(at, result)
+        }
+        return ImapSyncEngine(client, state, sink, registry, pdf)
+    }
 }

@@ -4,3 +4,13 @@
 # Ktor references JVM-only logging.
 -dontwarn org.slf4j.**
 -dontwarn java.lang.management.**
+# JavaMail finds its IMAP/SMTP providers and MIME content handlers by reflection (META-INF/javamail.* and mailcap).
+-keep class com.sun.mail.** { *; }
+-keep class javax.mail.** { *; }
+-keep class javax.activation.** { *; }
+-keep class com.sun.activation.** { *; }
+-keep class myjava.awt.datatransfer.** { *; }
+-dontwarn java.awt.**
+-dontwarn javax.security.sasl.**
+-dontwarn javax.naming.**
+-dontwarn java.beans.**

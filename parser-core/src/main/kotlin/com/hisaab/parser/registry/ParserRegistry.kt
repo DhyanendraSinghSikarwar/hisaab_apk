@@ -34,8 +34,14 @@ class ParserRegistry(
         return null
     }
 
-    /** SMS pre-filter: true only for senders a dedicated parser claims. Cheap enough to run on every inbox row. */
+    /** True only for senders a dedicated parser claims. */
     fun isKnownSender(sender: String): Boolean = resolve(sender) != null
+
+    /**
+     * SMS pre-filter: senders a dedicated parser claims, plus bank and card-issuer senders the generic
+     * parser takes. Looks at the sender only, so it is cheap enough to run on every inbox row.
+     */
+    fun accepts(sender: String): Boolean = isKnownSender(sender) || fallback?.canHandle(sender, "") == true
 
     fun parse(body: String, sender: String, timestamp: Long, source: Source): ParsedTransaction? {
         val parser = resolve(sender) ?: fallback?.takeIf { it.canHandle(sender, body) } ?: return null

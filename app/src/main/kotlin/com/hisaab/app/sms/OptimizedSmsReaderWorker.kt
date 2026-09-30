@@ -9,6 +9,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.hisaab.app.settings.AppSettingsStore
+import com.hisaab.email.sync.GmailSettingsStore
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.registry.ParserRegistry
 import com.hisaab.shared.repo.IncomingMessage
@@ -21,11 +22,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import java.util.concurrent.TimeUnit
 
 /**
- * Scans the SMS inbox. Senders are filtered against the known bank headers before any body is read;
+ * Scans the SMS inbox. Senders are filtered against bank and card-issuer headers before any body is read;
  * each batch of 500 is parsed in parallel on Dispatchers.Default and written in one Room transaction.
- * Incremental by default: it resumes after the newest SMS the previous run saw.
+ * Incremental by default: it resumes after the newest SMS the previous run saw. A full scan reads the
+ * same look-back window as email sync (Settings, "Fetch history").
  */
 @HiltWorker
 class OptimizedSmsReaderWorker @AssistedInject constructor(
@@ -35,6 +38,7 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
     private val registry: ParserRegistry,
     private val repository: TransactionRepository,
     private val settings: AppSettingsStore,
+    private val mailSettings: GmailSettingsStore,
     private val notifier: TransactionsChangedNotifier,
 ) : CoroutineWorker(context, params) {
 
@@ -43,14 +47,18 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
             return Result.failure(workDataOf(KEY_ERROR to "permission"))
         }
         val full = inputData.getBoolean(KEY_FULL, false)
-        val since = if (full) 0L else settings.smsCursor()
+        val since = if (full) {
+            System.currentTimeMillis() - TimeUnit.DAYS.toMillis(mailSettings.read().lookbackDays.toLong())
+        } else {
+            settings.smsCursor()
+        }
         val start = System.currentTimeMillis()
         var cursor = since
         var bankMessages = 0
         var parsed = 0
         var report = IngestReport.EMPTY
 
-        val examined = inbox.readBatches(since, BATCH_SIZE, registry::isKnownSender) { batch ->
+        val examined = inbox.readBatches(since, BATCH_SIZE, registry::accepts) { batch ->
             bankMessages += batch.size
             cursor = maxOf(cursor, batch.maxOf { it.receivedAt })
             val incoming = parseInParallel(batch)

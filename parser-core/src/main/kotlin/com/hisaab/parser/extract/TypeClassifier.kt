@@ -8,7 +8,9 @@ import com.hisaab.parser.text.rx
 object TypeClassifier {
     private val DEBIT = rx(
         """\b(?:debited|debit\s+(?:by|for|of|alert)|spent|withdrawn|withdrawal|paid|sent|purchased?|deducted|charged|""" +
-            """transferred\s+to|txn\s+of|used\s+(?:for|at)|thank\s+you\s+for\s+using)\b""",
+            """transferred\s+to|txn\s+of|used\s+(?:for|at|on)|thank\s+you\s+for\s+using|""" +
+            // Card alerts: "Transaction of Rs.899 on Kotak Credit Card", "Txn Rs.1,250.00 On HDFC Bank Card".
+            """(?:transaction|trxn|txn)\s+(?:of\s+)?(?:INR|USD|EUR|GBP|AED|SGD)|made\s+a\s+(?:transaction|purchase|payment))\b""",
     )
     private val CREDIT = rx("""\b(?:credited|credit\s+(?:by|of|alert|with)|received|deposited|refund(?:ed)?|reversed|reversal)\b""")
 

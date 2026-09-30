@@ -41,7 +41,7 @@ class SmsReceiver : BroadcastReceiver() {
         // A long SMS arrives as several parts; join them per sender.
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
         val bySender = messages.filter { it.originatingAddress != null }.groupBy { it.originatingAddress!! }
-            .filterKeys(registry::isKnownSender)
+            .filterKeys(registry::accepts)
         if (bySender.isEmpty()) return
 
         val pending = goAsync()

@@ -1,9 +1,5 @@
 package com.hisaab.app.ui.home
 
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +17,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallReceived
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Inbox
@@ -31,6 +29,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -39,21 +38,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hisaab.app.ui.components.CategoryBadge
 import com.hisaab.app.ui.components.EmptyState
 import com.hisaab.app.ui.components.SectionHeader
+import com.hisaab.app.ui.components.rememberSmsPermission
 import com.hisaab.app.ui.components.StatCard
 import com.hisaab.app.ui.components.TransactionRow
 import com.hisaab.app.ui.format.Money
@@ -74,19 +69,13 @@ fun HomeRoute(
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    var hasSms by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED)
-    }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        hasSms = granted[Manifest.permission.READ_SMS] == true
-        if (hasSms) vm.scanInbox(full = true)
-    }
+    val sms = rememberSmsPermission(onGranted = { vm.scanInbox(full = true) })
     HomeScreen(
-        state = state, hasSmsPermission = hasSms,
-        onGrantSms = { launcher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS)) },
+        state = state, hasSmsPermission = sms.granted, smsBlocked = sms.blocked,
+        onGrantSms = sms::request, onDismissSms = vm::dismissSmsPrompt,
         onOpenTransaction = onOpenTransaction, onSeeAllTransactions = onSeeAllTransactions, onOpenAccounts = onOpenAccounts,
         onOpenReview = onOpenReview, onOpenBudgets = onOpenBudgets, contentPadding = contentPadding,
+        onPreviousMonth = vm::previousMonth, onNextMonth = vm::nextMonth,
     )
 }
 
@@ -102,34 +91,45 @@ fun HomeScreen(
     onOpenReview: () -> Unit,
     onOpenBudgets: () -> Unit,
     contentPadding: PaddingValues,
+    smsBlocked: Boolean = false,
+    onDismissSms: () -> Unit = {},
+    onPreviousMonth: () -> Unit = {},
+    onNextMonth: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = {
-                Column {
-                    Text("Hisaab")
-                    Text(Periods.month(state.month), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            })
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Hisaab")
+                        Text(Periods.month(state.month), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onPreviousMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month") }
+                    IconButton(onClick = onNextMonth, enabled = !state.isCurrentMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month") }
+                },
+            )
         },
     ) { inner ->
         LazyColumn(
             modifier = Modifier.testTag("home"),
             contentPadding = PaddingValues(top = inner.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding() + 16.dp),
         ) {
-            if (!hasSmsPermission) item { PermissionCard(onGrantSms) }
+            if (!hasSmsPermission && !state.smsPromptDismissed) item { PermissionCard(smsBlocked, onGrantSms, onDismissSms) }
             if (state.scan.running) item { ScanCard(state.scan) }
             if (state.reviewCount > 0) item { ReviewBanner(state.reviewCount, onOpenReview) }
 
             item {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard("Spent", Money.format(state.spent, showPaise = false), Modifier.weight(1f), MoneyColors.debit, Icons.AutoMirrored.Filled.CallMade)
-                    StatCard("Income", Money.format(state.income, showPaise = false), Modifier.weight(1f), MoneyColors.credit, Icons.AutoMirrored.Filled.CallReceived)
+                    val monthName = Periods.monthShort(state.month)
+                    StatCard("Spent in $monthName", Money.format(state.spent, showPaise = false), Modifier.weight(1f), MoneyColors.debit, Icons.AutoMirrored.Filled.CallMade)
+                    StatCard("Income in $monthName", Money.format(state.income, showPaise = false), Modifier.weight(1f), MoneyColors.credit, Icons.AutoMirrored.Filled.CallReceived)
                 }
             }
             item {
                 val label = if (state.balanceAccounts > 0) "Balance across ${state.balanceAccounts} account${if (state.balanceAccounts > 1) "s" else ""}"
-                else "Balance (shown once a bank message includes it)"
+                else "Balance (from bank messages, or set it in Accounts)"
                 StatCard(label, state.balance?.let { Money.format(it) } ?: "—",
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp), icon = Icons.Filled.AccountBalanceWallet)
             }
@@ -148,10 +148,14 @@ fun HomeScreen(
                 items(state.categories.take(5), key = { it.category }) { c -> CategoryLine(c, state.spent) }
             }
 
-            item { SectionHeader("Recent") { TextButton(onClick = onSeeAllTransactions) { Text("See all") } } }
+            item {
+                SectionHeader(if (state.isCurrentMonth) "Recent" else "Latest in ${Periods.monthShort(state.month)}") {
+                    TextButton(onClick = onSeeAllTransactions) { Text("See all") }
+                }
+            }
             if (state.recent.isEmpty() && state.loaded) {
                 item {
-                    EmptyState(Icons.Filled.Inbox, "No transactions yet",
+                    EmptyState(Icons.Filled.Inbox, if (state.isCurrentMonth) "No transactions this month" else "No transactions in ${Periods.month(state.month)}",
                         if (hasSmsPermission) "Bank SMS will appear here as soon as they are read. Connect Gmail in Settings for email alerts."
                         else "Allow SMS access to read bank alerts from your inbox.")
                 }
@@ -163,7 +167,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun PermissionCard(onGrant: () -> Unit) {
+private fun PermissionCard(blocked: Boolean, onGrant: () -> Unit, onDismiss: () -> Unit) {
     Card(Modifier.fillMaxWidth().padding(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -175,7 +179,17 @@ private fun PermissionCard(onGrant: () -> Unit) {
                 "Hisaab reads SMS only from known bank senders, on this phone. Nothing is uploaded; there is no server.",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Button(onClick = onGrant, modifier = Modifier.testTag("grant-sms")) { Text("Allow SMS access") }
+            if (blocked) {
+                Text(
+                    "Android didn't show the permission prompt. Open App settings, then Permissions, SMS, Allow. " +
+                        "If SMS is greyed out, first tap the menu at the top right of App info and choose Allow restricted settings.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onGrant, modifier = Modifier.testTag("grant-sms")) { Text(if (blocked) "Open App settings" else "Allow SMS access") }
+                TextButton(onClick = onDismiss) { Text("Not now") }
+            }
         }
     }
 }
@@ -219,7 +233,7 @@ private fun AccountChip(a: AccountWithActivity, onClick: () -> Unit) {
                 Text(a.nickname ?: a.bankName, style = MaterialTheme.typography.labelLarge, maxLines = 1)
             }
             Text("•• ${a.last4}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            val value = if (a.kind == AccountKind.CARD) a.availableLimitMinor?.let { "Limit left " + Money.compact(it) } else a.latestBalanceMinor?.let { Money.format(it, showPaise = false) }
+            val value = a.currentBalanceMinor?.let { if (a.kind == AccountKind.CARD) "Limit left " + Money.compact(it) else Money.format(it, showPaise = false) }
             Text(value ?: "Spent ${Money.compact(a.monthSpent)}", style = MaterialTheme.typography.titleSmall)
         }
     }

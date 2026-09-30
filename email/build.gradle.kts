@@ -51,6 +51,8 @@ dependencies {
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.play.services.auth)
     implementation(libs.googleid)
+    implementation(libs.android.mail)
+    implementation(libs.android.activation)
 
     implementation(libs.datastore.preferences)
     implementation(libs.work.runtime.ktx)

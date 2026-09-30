@@ -18,9 +18,13 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** How the inbox is reached: Google sign-in (Gmail API) or an email address and app password (IMAP). */
+enum class MailConnection { NONE, GOOGLE, IMAP }
+
 data class GmailSettings(
     val enabled: Boolean,
     val accountEmail: String?,
+    /** How many days back SMS inbox scans and email syncs read. */
     val lookbackDays: Int,
     /** Sender addresses or domains; the Gmail query's `from:` list. */
     val senders: List<String>,
@@ -29,9 +33,14 @@ data class GmailSettings(
     val lastSyncAt: Long?,
     val needsReauth: Boolean,
     val lastResult: String?,
+    val connection: MailConnection = MailConnection.NONE,
+    /** IMAP only: the start time of the last successful sync; null means the next sync is a full one. */
+    val imapSyncedAt: Long? = null,
 ) {
+    val connected: Boolean get() = connection != MailConnection.NONE
+
     companion object {
-        val LOOKBACK_CHOICES = listOf(30, 90, 180, 365)
+        val LOOKBACK_CHOICES = listOf(7, 30, 90, 180, 365)
         const val DEFAULT_LOOKBACK = 90
     }
 }
@@ -64,6 +73,10 @@ class GmailSettingsStore @Inject constructor(
             lastSyncAt = p[LAST_SYNC],
             needsReauth = p[NEEDS_REAUTH] ?: false,
             lastResult = p[LAST_RESULT],
+            // Installs from before IMAP support have no CONNECTION key; an account there came from Google sign-in.
+            connection = p[CONNECTION]?.let { runCatching { MailConnection.valueOf(it) }.getOrNull() }
+                ?: if (p[ACCOUNT] != null || p[ENABLED] == true) MailConnection.GOOGLE else MailConnection.NONE,
+            imapSyncedAt = p[IMAP_SYNCED_AT],
         )
     }
 
@@ -73,31 +86,37 @@ class GmailSettingsStore @Inject constructor(
         store.edit { it[HISTORY_ID] = historyId; it[LAST_SYNC] = at; it[LAST_RESULT] = result; it[NEEDS_REAUTH] = false }
     }
 
+    suspend fun saveImapSync(at: Long, result: String) {
+        store.edit { it[IMAP_SYNCED_AT] = at; it[LAST_SYNC] = at; it[LAST_RESULT] = result; it[NEEDS_REAUTH] = false }
+    }
+
     override suspend fun setNeedsReauth(value: Boolean) {
         store.edit { it[NEEDS_REAUTH] = value }
     }
 
-    suspend fun connected(email: String?) = store.edit {
+    suspend fun connected(email: String?, connection: MailConnection = MailConnection.GOOGLE) = store.edit {
         it[ENABLED] = true
         if (email != null) it[ACCOUNT] = email
+        it[CONNECTION] = connection.name
         it[NEEDS_REAUTH] = false
+        it.remove(IMAP_SYNCED_AT)
     }
 
     suspend fun setEnabled(value: Boolean) = store.edit { it[ENABLED] = value }
 
-    /** A longer lookback needs the older mail, so the next sync starts over from a full sync. */
+    /** A longer look-back needs the older mail, so the next sync starts over from a full sync. */
     suspend fun setLookbackDays(days: Int) = store.edit {
         val previous = it[LOOKBACK] ?: GmailSettings.DEFAULT_LOOKBACK
         it[LOOKBACK] = days
-        if (days > previous) it.remove(HISTORY_ID)
+        if (days > previous) forgetPosition(it)
     }
 
     suspend fun setSenders(senders: List<String>) = store.edit {
         it[SENDERS] = senders.map { s -> s.trim().lowercase() }.filter { s -> s.isNotEmpty() }.toSet()
-        it.remove(HISTORY_ID) // new senders: look back over their older mail too
+        forgetPosition(it) // new senders: look back over their older mail too
     }
 
-    suspend fun resetSenders() = store.edit { it.remove(SENDERS); it.remove(HISTORY_ID) }
+    suspend fun resetSenders() = store.edit { it.remove(SENDERS); forgetPosition(it) }
 
     suspend fun setReadPdf(value: Boolean) = store.edit { it[READ_PDF] = value }
 
@@ -107,6 +126,13 @@ class GmailSettingsStore @Inject constructor(
     suspend fun clearAccount() = store.edit {
         it[ENABLED] = false
         it.remove(ACCOUNT); it.remove(HISTORY_ID); it.remove(LAST_SYNC); it.remove(NEEDS_REAUTH); it.remove(LAST_RESULT)
+        it.remove(IMAP_SYNCED_AT)
+        it[CONNECTION] = MailConnection.NONE.name
+    }
+
+    private fun forgetPosition(p: androidx.datastore.preferences.core.MutablePreferences) {
+        p.remove(HISTORY_ID)
+        p.remove(IMAP_SYNCED_AT)
     }
 
     private companion object {
@@ -119,5 +145,7 @@ class GmailSettingsStore @Inject constructor(
         val LAST_SYNC = longPreferencesKey("last_sync")
         val NEEDS_REAUTH = booleanPreferencesKey("needs_reauth")
         val LAST_RESULT = stringPreferencesKey("last_result")
+        val CONNECTION = stringPreferencesKey("connection")
+        val IMAP_SYNCED_AT = longPreferencesKey("imap_synced_at")
     }
 }

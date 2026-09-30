@@ -14,6 +14,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.hisaab.email.api.AuthRequiredException
+import com.hisaab.email.imap.ImapSyncEngine
+import com.hisaab.email.imap.MailAuthException
 import com.hisaab.shared.repo.TransactionsChangedNotifier
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -25,17 +27,26 @@ class GmailSyncWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val engine: GmailSyncEngine,
+    private val imap: ImapSyncEngine,
     private val settings: GmailSettingsStore,
     private val notifier: TransactionsChangedNotifier,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = try {
-        val report = engine.sync()
+        val report = when (settings.read().connection) {
+            MailConnection.IMAP -> imap.sync()
+            MailConnection.GOOGLE -> engine.sync()
+            MailConnection.NONE -> SyncReport(SyncMode.DISABLED)
+        }
         if (report.parsed > 0) notifier.onTransactionsChanged()
         Result.success(workDataOf(KEY_SUMMARY to report.summary()))
     } catch (_: AuthRequiredException) {
         settings.setNeedsReauth(true)
         settings.lastResult("Gmail needs you to sign in again")
+        Result.failure(workDataOf(KEY_SUMMARY to "auth"))
+    } catch (e: MailAuthException) {
+        settings.setNeedsReauth(true)
+        settings.lastResult("Email sign-in failed: ${e.message}. Sign in again with a new app password.")
         Result.failure(workDataOf(KEY_SUMMARY to "auth"))
     } catch (e: IOException) {
         settings.lastResult("Sync failed: ${e.message}; will retry")

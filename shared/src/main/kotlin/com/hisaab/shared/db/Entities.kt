@@ -102,6 +102,10 @@ data class AccountEntity(
     val availableLimitMinor: Long? = null,
     val balanceUpdatedAt: Long? = null,
     val createdAt: Long,
+    /** Balance (or a card's available limit) the user typed in. Optional; see [AccountBalances]. */
+    @ColumnInfo(defaultValue = "NULL") val manualBalanceMinor: Long? = null,
+    /** When the user set [manualBalanceMinor]; later transactions move it on. */
+    @ColumnInfo(defaultValue = "NULL") val manualBalanceAt: Long? = null,
 )
 
 @Entity(tableName = "budgets")
@@ -127,4 +131,38 @@ data class AccountWithActivity(
     val balanceUpdatedAt: Long?,
     val monthSpent: Long,
     val transactionCount: Int,
-)
+    val manualBalanceMinor: Long? = null,
+    val manualBalanceAt: Long? = null,
+    /** Net effect on the balance of the transactions after [manualBalanceAt]: credits minus spends. */
+    val changeSinceManual: Long = 0,
+) {
+    /** A bank account's balance, or a card's available limit. Null when neither the bank nor the user gave one. */
+    val currentBalanceMinor: Long?
+        get() = AccountBalances.current(kind, latestBalanceMinor, availableLimitMinor, balanceUpdatedAt, manualBalanceMinor, manualBalanceAt, changeSinceManual)
+
+    /** True when [currentBalanceMinor] comes from the balance the user set rather than a bank message. */
+    val balanceIsManual: Boolean
+        get() = AccountBalances.usesManual(kind, latestBalanceMinor, availableLimitMinor, balanceUpdatedAt, manualBalanceMinor, manualBalanceAt)
+
+    /** When [currentBalanceMinor] was last stated, by the bank or the user. */
+    val balanceAsOf: Long?
+        get() = if (balanceIsManual) manualBalanceAt else balanceUpdatedAt
+}
+
+/**
+ * Picks the balance to show. A bank message's balance wins when it is newer than the one the user set;
+ * otherwise the user's figure is carried forward by every transaction on the account since then.
+ */
+object AccountBalances {
+    fun usesManual(kind: AccountKind, reportedBalance: Long?, reportedLimit: Long?, reportedAt: Long?, manual: Long?, manualAt: Long?): Boolean {
+        if (manual == null || manualAt == null) return false
+        val reported = if (kind == AccountKind.CARD) reportedLimit else reportedBalance
+        return reported == null || reportedAt == null || manualAt >= reportedAt
+    }
+
+    fun current(
+        kind: AccountKind, reportedBalance: Long?, reportedLimit: Long?, reportedAt: Long?,
+        manual: Long?, manualAt: Long?, changeSinceManual: Long,
+    ): Long? = if (usesManual(kind, reportedBalance, reportedLimit, reportedAt, manual, manualAt)) manual!! + changeSinceManual
+    else if (kind == AccountKind.CARD) reportedLimit else reportedBalance
+}

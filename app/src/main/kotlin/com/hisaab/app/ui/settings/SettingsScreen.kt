@@ -50,9 +50,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hisaab.app.security.AppLockGate
 import com.hisaab.app.settings.ThemeMode
+import com.hisaab.app.ui.components.rememberSmsPermission
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.email.auth.ConnectResult
 import com.hisaab.email.sync.GmailSettings
+import com.hisaab.email.sync.MailConnection
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -74,71 +76,88 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::import) }
     var editingSenders by remember { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
+    var connectingEmail by remember { mutableStateOf(false) }
+    val sms = rememberSmsPermission(onGranted = vm::rescanSms)
+    val connectGoogle: () -> Unit = {
+        scope.launch {
+            AppLockGate.skipNextLock()
+            (vm.connect(activity) as? ConnectResult.NeedsConsent)?.let { r ->
+                pendingEmail = r.email
+                AppLockGate.skipNextLock()
+                consent.launch(IntentSenderRequest.Builder(r.intent.intentSender).build())
+            }
+        }
+    }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }, snackbarHost = { SnackbarHost(snackbar) }) { inner ->
         val app = s.app
         val g = s.gmail
         Column(Modifier.padding(top = inner.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding()).verticalScroll(rememberScrollState())) {
+            val lookback = g?.lookbackDays ?: GmailSettings.DEFAULT_LOOKBACK
+            Section("Fetch history")
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text("How far back to read SMS and email", style = MaterialTheme.typography.bodyLarge)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                    GmailSettings.LOOKBACK_CHOICES.forEachIndexed { i, days ->
+                        SegmentedButton(selected = lookback == days, onClick = { vm.setLookback(days) },
+                            shape = SegmentedButtonDefaults.itemShape(i, GmailSettings.LOOKBACK_CHOICES.size)) { Text("${days}d") }
+                    }
+                }
+                Text("Changing it rescans the SMS inbox and re-syncs email for the new period. Transactions already found stay.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+            }
+
             Section("SMS")
+            if (!sms.granted) {
+                ListItem(
+                    headlineContent = { Text("SMS access is off", color = MaterialTheme.colorScheme.error) },
+                    supportingContent = {
+                        Text(if (sms.blocked) "Allow SMS in App settings. If it is greyed out, use the menu in App info: Allow restricted settings."
+                        else "Needed to read bank alerts from your inbox.")
+                    },
+                    trailingContent = { Button(onClick = sms::request) { Text(if (sms.blocked) "Settings" else "Allow") } },
+                )
+            }
             SwitchRow("Read bank SMS", "Real-time for new messages, plus inbox scans", app?.smsEnabled ?: true, vm::setSmsEnabled)
             ListItem(
-                headlineContent = { Text(if (s.smsScanning) "Scanning inbox…" else "Rescan whole inbox") },
+                headlineContent = { Text(if (s.smsScanning) "Scanning inbox…" else "Rescan last $lookback days") },
                 supportingContent = { Text(app?.lastSmsResult ?: "Not scanned yet") },
-                trailingContent = { OutlinedButton(onClick = vm::rescanSms, enabled = !s.smsScanning) { Text("Rescan") } },
+                trailingContent = { OutlinedButton(onClick = vm::rescanSms, enabled = !s.smsScanning && sms.granted) { Text("Rescan") } },
             )
 
-            Section("Gmail")
-            if (g == null || g.accountEmail == null && !g.enabled) {
+            Section("Email")
+            if (g == null || !g.connected) {
                 ListItem(
-                    headlineContent = { Text("Connect Gmail") },
-                    supportingContent = { Text("Read-only access to bank alert emails. Used only on this phone; nothing is sent anywhere.") },
-                    trailingContent = {
-                        Button(onClick = {
-                            scope.launch {
-                                AppLockGate.skipNextLock()
-                                when (val r = vm.connect(activity)) {
-                                    is ConnectResult.NeedsConsent -> {
-                                        pendingEmail = r.email
-                                        AppLockGate.skipNextLock()
-                                        consent.launch(IntentSenderRequest.Builder(r.intent.intentSender).build())
-                                    }
-                                    else -> Unit
-                                }
-                            }
-                        }) { Text("Connect") }
-                    },
+                    headlineContent = { Text("Connect email") },
+                    supportingContent = { Text("Enter your email, sign in, and confirm the code we mail you. Bank alerts are then read on this phone only.") },
+                    trailingContent = { Button(onClick = { connectingEmail = true }) { Text("Connect") } },
                 )
             } else {
+                val imap = g.connection == MailConnection.IMAP
                 if (g.needsReauth) {
                     ListItem(headlineContent = { Text("Sign in again", color = MaterialTheme.colorScheme.error) },
-                        supportingContent = { Text("Google needs you to approve Gmail access again.") },
-                        trailingContent = { Button(onClick = { scope.launch { (vm.connect(activity) as? ConnectResult.NeedsConsent)?.let { AppLockGate.skipNextLock(); consent.launch(IntentSenderRequest.Builder(it.intent.intentSender).build()) } } }) { Text("Sign in") } })
+                        supportingContent = { Text(if (imap) "Your email provider refused the saved app password." else "Google needs you to approve Gmail access again.") },
+                        trailingContent = { Button(onClick = { if (imap) connectingEmail = true else connectGoogle() }) { Text("Sign in") } })
                 }
-                SwitchRow("Sync Gmail", g.accountEmail ?: "Connected", g.enabled, vm::setGmailEnabled)
+                SwitchRow("Sync email", (g.accountEmail ?: "Connected") + if (imap) " · email sign-in" else " · Google sign-in", g.enabled, vm::setGmailEnabled)
                 ListItem(
                     headlineContent = { Text(if (s.gmailSyncing) "Syncing…" else "Sync now") },
                     supportingContent = { Text((g.lastResult ?: "Not synced yet") + (g.lastSyncAt?.let { "\nLast: " + Periods.dateTime(it) } ?: "") + "\n${s.processedEmails} emails processed") },
                     trailingContent = { OutlinedButton(onClick = vm::syncGmailNow, enabled = g.enabled && !s.gmailSyncing) { Text("Sync") } },
                 )
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text("Look back", style = MaterialTheme.typography.bodyLarge)
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                        GmailSettings.LOOKBACK_CHOICES.forEachIndexed { i, days ->
-                            SegmentedButton(selected = g.lookbackDays == days, onClick = { vm.setLookback(days) },
-                                shape = SegmentedButtonDefaults.itemShape(i, GmailSettings.LOOKBACK_CHOICES.size)) { Text("${days}d") }
-                        }
-                    }
-                }
                 ListItem(
                     headlineContent = { Text("Bank senders") },
-                    supportingContent = { Text("${g.senders.size} addresses and domains in the Gmail filter") },
+                    supportingContent = { Text("${g.senders.size} addresses and domains in the email filter") },
                     modifier = Modifier.clickable { editingSenders = true },
                     trailingContent = { TextButton(onClick = { editingSenders = true }) { Text("Edit") } },
                 )
                 SwitchRow("Read PDF statements", "Unlocked PDF attachments go through the same parser", g.readPdfStatements, vm::setReadPdf)
                 ListItem(
-                    headlineContent = { Text("Sign out and wipe tokens") },
-                    supportingContent = { Text("Revokes access and deletes the encrypted token and its key. Transactions stay.") },
+                    headlineContent = { Text(if (imap) "Disconnect email" else "Sign out and wipe tokens") },
+                    supportingContent = {
+                        Text(if (imap) "Deletes the saved app password and its key. Transactions stay."
+                        else "Revokes access and deletes the encrypted token and its key. Transactions stay.")
+                    },
                     trailingContent = { OutlinedButton(onClick = { confirmSignOut = true }) { Text("Sign out") } },
                 )
             }
@@ -173,7 +192,8 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
             Section("Privacy")
             Text(
                 "Everything stays on this phone: no account, no server, no analytics. The internet permission is used only to talk to " +
-                    "Gmail, with read-only access, when you connect it. Backups of the app's data are disabled.",
+                    "your email provider when you connect it: to read bank alerts, and once to mail you a verification code. " +
+                    "Backups of the app's data are disabled.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp),
             )
         }
@@ -183,9 +203,12 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
         SendersDialog(s.gmail!!.senders, onDismiss = { editingSenders = false }, onSave = { vm.setSenders(it); editingSenders = false },
             onReset = { vm.resetSenders(); editingSenders = false })
     }
+    if (connectingEmail) {
+        EmailConnectDialog(onDismiss = { connectingEmail = false }, onUseGoogle = { connectingEmail = false; connectGoogle() })
+    }
     if (confirmSignOut) {
-        AlertDialog(onDismissRequest = { confirmSignOut = false }, title = { Text("Sign out of Gmail?") },
-            text = { Text("Hisaab will stop reading email, revoke its access, and delete the stored token. Transactions already found are kept.") },
+        AlertDialog(onDismissRequest = { confirmSignOut = false }, title = { Text("Disconnect email?") },
+            text = { Text("Hisaab will stop reading email and delete the stored sign-in. Transactions already found are kept.") },
             confirmButton = { TextButton(onClick = { confirmSignOut = false; vm.disconnectGmail() }) { Text("Sign out") } },
             dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } })
     }
