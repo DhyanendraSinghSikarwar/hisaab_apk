@@ -23,11 +23,84 @@ To install:
 3. Or, over USB with debugging on: `adb install -r apk/Hisaab-1.1.0.apk`
 
 On first launch, tap **Allow SMS access**. The app scans the inbox, and new bank SMS appear as they arrive.
+If Android blocks it, see [Allow SMS access](#1-allow-sms-access) below.
 
 The included release APK is signed with the **debug key**, which is fine for installing on your own
 phone. Sign it with your own key before sharing it or publishing it (see
 [Release signing](#release-signing)). Signing a different way later means uninstalling first,
 because Android refuses an update signed with another key.
+
+## Set up on your phone
+
+### 1. Allow SMS access
+
+Tap **Allow SMS access** on the Home screen and choose **Allow**.
+
+On Android 13 and later, an app installed from an APK file (not the Play Store) may get the message
+**"App was denied access"** or show SMS greyed out. This is Android's *restricted settings* protection. Unlock it once:
+
+1. Open the phone's **Settings → Apps → Hisaab** (App info).
+2. Tap **⋮** (top right) → **Allow restricted settings**, and confirm with your fingerprint or PIN.
+3. On the same screen: **Permissions → SMS → Allow**.
+4. Open Hisaab again. The permission card disappears on its own and the SMS scan starts.
+
+If **Allow restricted settings** isn't in the ⋮ menu, tap **Allow SMS access** in Hisaab once more so Android shows
+the block message, then go back to App info; the option appears after that. On Xiaomi, Redmi and POCO phones, also check
+**Settings → Apps → Manage apps → Hisaab → Other permissions**. If the option never appears, install the APK from
+**Files by Google** or with `adb install -r Hisaab-1.1.0.apk`; those installers are not restricted.
+
+### 2. Connect your email (optional)
+
+Hisaab reads bank alert emails too. It signs in with an **app password**: a separate 16-character password your
+email provider creates for one app. Google and most providers don't let other apps use your normal password, so:
+
+- Hisaab never sees your real password.
+- The app password is stored encrypted on the phone only (sealed with an Android Keystore key).
+- You can delete it at any time, and Hisaab loses access at once.
+
+**Create a Gmail app password (about 2 minutes):**
+
+1. **Turn on 2-Step Verification.** Google only offers app passwords when it is on.
+   Go to [myaccount.google.com/security](https://myaccount.google.com/security) → *How you sign in to Google* →
+   **2-Step Verification** → turn it on
+   ([Google's help page](https://support.google.com/accounts/answer/185839)).
+2. **Create the app password** at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
+   Sign in if asked, type a name such as `Hisaab`, and tap **Create**
+   ([Google's help page](https://support.google.com/accounts/answer/185833)).
+3. **Copy the 16-letter password** (like `abcd efgh ijkl mnop`). Google shows it only once. Spaces don't matter.
+
+**Connect in Hisaab:**
+
+1. **Settings → Email → Connect**, enter your email address, and tap **Continue**.
+2. Paste the app password and tap **Sign in & send code**.
+3. Open your mailbox: an email titled **"Hisaab verification code: 123456"** arrives from your own address.
+   Type the 6 digits into Hisaab and tap **Verify**. The code expires after 10 minutes; **Resend code** sends a new one.
+4. The first fetch starts at once and covers the **Fetch history** period (Settings, 7 to 365 days). After that it runs every hour.
+
+**App password pages for other providers:**
+
+| Provider | Create an app password |
+|----------|------------------------|
+| Gmail | [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (2-Step Verification on first) |
+| Outlook, Hotmail, Live | [account.live.com/proofs/AppPassword](https://account.live.com/proofs/AppPassword) (two-step verification on first) |
+| Yahoo Mail | [login.yahoo.com/account/security](https://login.yahoo.com/account/security) → *Generate app password* |
+| iCloud Mail | [account.apple.com](https://account.apple.com/account/manage) → *Sign-In and Security* → *App-Specific Passwords* |
+| Zoho Mail | [accounts.zoho.com](https://accounts.zoho.com/home#security/app_password) → *Security* → *App Passwords* |
+
+The **Create an app password** button in the Hisaab dialog opens the right page for your provider.
+
+**If something goes wrong:**
+
+| Problem | Fix |
+|---------|-----|
+| The app passwords page says the setting isn't available | Turn on 2-Step Verification first. Work and school accounts are often blocked by their administrator; use a personal account. |
+| "Sign-in was refused" | You entered your normal password, or the app password was mistyped. Create a new one and paste it. |
+| No verification email | Check Spam and the Promotions/Updates tabs, then tap **Resend code**. |
+| "Sign in again" later on | The app password was deleted or changed. Create a new one and connect again. |
+
+**To disconnect:** **Settings → Email → Disconnect** deletes the stored app password. To revoke access from Google's
+side as well, delete the "Hisaab" entry at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
+Transactions already found stay in the app either way.
 
 ## What's new in 1.1.0
 
@@ -148,10 +221,8 @@ Test reports are written to `<module>/build/reports/`.
 
 ### 5. Email (optional)
 
-SMS works without this. The simple way needs no setup: **Settings → Email → Connect**, enter your address,
-sign in with an app password (Gmail: [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords);
-2-Step Verification must be on), then type the 6-digit code Hisaab emails you. The first sync starts at once and
-then runs every hour.
+SMS works without this. The usual way to connect email needs no developer setup; see
+[Connect your email](#2-connect-your-email-optional) under "Set up on your phone".
 
 The rest of this section is only for the advanced **Google sign-in** option, which uses the Gmail API.
 It needs a Google Cloud OAuth client tied to your signing key.
