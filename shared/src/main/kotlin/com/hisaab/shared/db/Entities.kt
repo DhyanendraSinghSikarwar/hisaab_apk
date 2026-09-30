@@ -1,0 +1,130 @@
+package com.hisaab.shared.db
+
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+import com.hisaab.parser.model.AccountKind
+import com.hisaab.parser.model.Category
+import com.hisaab.parser.model.Channel
+import com.hisaab.parser.model.TransactionType
+
+@Entity(
+    tableName = "transactions",
+    indices = [
+        Index(value = ["transactionHash"], unique = true),
+        // Keeps findPotentialDuplicates an index range scan instead of a table scan.
+        Index(value = ["amountMinor", "accountLast4", "timestamp"]),
+        Index(value = ["referenceNumber"]),
+        Index(value = ["timestamp"]),
+        Index(value = ["accountId"]),
+        Index(value = ["needsReview"]),
+    ],
+    foreignKeys = [
+        ForeignKey(entity = AccountEntity::class, parentColumns = ["id"], childColumns = ["accountId"], onDelete = ForeignKey.SET_NULL),
+    ],
+)
+data class TransactionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val amountMinor: Long,
+    val currency: String,
+    val type: TransactionType,
+    val bankName: String,
+    val accountLast4: String?,
+    val accountKind: AccountKind,
+    val accountId: Long?,
+    val merchant: String?,
+    val upiId: String?,
+    val referenceNumber: String?,
+    val channel: Channel,
+    val balanceMinor: Long?,
+    val availableLimitMinor: Long?,
+    /** When the money moved, epoch millis. */
+    val timestamp: Long,
+    val hasExplicitTime: Boolean,
+    val category: Category,
+    val transactionHash: String,
+    val confidence: Float,
+    /** Set when the dedup layer was not sure; the review screen clears it. */
+    val needsReview: Boolean = false,
+    val duplicateOfId: Long? = null,
+    val reviewReason: String? = null,
+    val note: String? = null,
+    val createdAt: Long,
+)
+
+/** Every message that contributed to a transaction. One transaction can have an SMS and an email. */
+@Entity(
+    tableName = "transaction_sources",
+    indices = [
+        Index(value = ["source", "sourceMessageId"], unique = true),
+        Index(value = ["transactionId"]),
+        Index(value = ["parsedHash"]),
+    ],
+    foreignKeys = [
+        ForeignKey(entity = TransactionEntity::class, parentColumns = ["id"], childColumns = ["transactionId"], onDelete = ForeignKey.CASCADE),
+    ],
+)
+data class TransactionSourceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val transactionId: Long,
+    /** SMS, EMAIL, CSV or MANUAL. */
+    val source: String,
+    val sourceMessageId: String,
+    val sender: String,
+    /** The hash this message produced, so a later third copy still matches after a merge. */
+    val parsedHash: String,
+    /** Kept, capped, for re-parsing when the user splits a merge. Stays on the device. */
+    val rawText: String?,
+    val receivedAt: Long,
+)
+
+/** Gmail message ids already handled, whatever the outcome, so no email is parsed twice. */
+@Entity(tableName = "processed_emails")
+data class ProcessedEmailEntity(
+    @PrimaryKey val messageId: String,
+    val processedAt: Long,
+    /** PARSED, REJECTED, DUPLICATE, or ERROR. */
+    val outcome: String,
+    val transactionId: Long?,
+)
+
+@Entity(tableName = "accounts", indices = [Index(value = ["bankName", "last4"], unique = true)])
+data class AccountEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bankName: String,
+    val last4: String,
+    val kind: AccountKind,
+    val nickname: String? = null,
+    @ColumnInfo(defaultValue = "NULL") val colorArgb: Int? = null,
+    val latestBalanceMinor: Long? = null,
+    val availableLimitMinor: Long? = null,
+    val balanceUpdatedAt: Long? = null,
+    val createdAt: Long,
+)
+
+@Entity(tableName = "budgets")
+data class BudgetEntity(
+    @PrimaryKey val category: Category,
+    val monthlyLimitMinor: Long,
+)
+
+// Query result shapes.
+data class CategoryTotal(val category: Category, val total: Long)
+data class DayTotal(val day: Long, val total: Long)
+data class MonthTotal(val month: String, val spent: Long, val income: Long)
+data class SourceOfTransaction(val transactionId: Long, val source: String)
+data class AccountWithActivity(
+    val id: Long,
+    val bankName: String,
+    val last4: String,
+    val kind: AccountKind,
+    val nickname: String?,
+    val colorArgb: Int?,
+    val latestBalanceMinor: Long?,
+    val availableLimitMinor: Long?,
+    val balanceUpdatedAt: Long?,
+    val monthSpent: Long,
+    val transactionCount: Int,
+)

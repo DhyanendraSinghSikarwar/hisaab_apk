@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Hisaab</string>
+    <string name="widget_name">Hisaab spend</string>
+    <string name="widget_description">Today\'s and this month\'s spending</string>
+</resources>

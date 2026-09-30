@@ -1,0 +1,6 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- A ledger page with a rupee mark. -->
+    <path android:fillColor="#FFFFFF" android:pathData="M36,30h36a4,4 0,0 1,4 4v40a4,4 0,0 1,-4 4h-36a4,4 0,0 1,-4 -4v-40a4,4 0,0 1,4 -4z" />
+    <path android:fillColor="#1B6E4F" android:pathData="M44,40h20v4h-7.2c1,1.1 1.7,2.5 2,4h5.2v4h-5.2c-0.9,4.3 -4.4,7.4 -8.8,7.9l10.4,10.1h-6l-11.4,-11v-3h4c2.6,0 4.8,-1.7 5.6,-4h-9.6v-4h9.6c-0.8,-2.3 -3,-4 -5.6,-4h-4z" />
+</vector>
