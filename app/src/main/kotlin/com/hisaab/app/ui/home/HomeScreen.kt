@@ -122,7 +122,7 @@ fun HomeRoute(
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     val profile by vm.profile.collectAsStateWithLifecycle()
     val customSpend by vm.customSpend.collectAsStateWithLifecycle()
-    val savingsTrend by vm.savingsTrend.collectAsStateWithLifecycle()
+    val sections by vm.sections.collectAsStateWithLifecycle()
     var setupDismissed by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var addingRecurring by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     if (addingRecurring) com.hisaab.app.ui.plan.RecurringSheet(existing = null, onDismiss = { addingRecurring = false })
@@ -147,7 +147,7 @@ fun HomeRoute(
         activity = activity, syncing = syncing, onSync = vm::syncAll, onAddRecurring = { addingRecurring = true },
         photoPath = profile?.first?.photoPath, onOpenProfile = onOpenProfile,
         customSpend = customSpend, onOpenCategoryKey = { onOpenCategoryKey("$it?month=${state.month}") },
-        savingsTrend = savingsTrend,
+        sections = sections,
     )
 }
 
@@ -186,7 +186,7 @@ fun HomeScreen(
     customSpend: List<Pair<com.hisaab.shared.db.CustomCategoryEntity, Long>> = emptyList(),
     onOpenCategoryKey: (String) -> Unit = {},
     onAddRecurring: () -> Unit = {},
-    savingsTrend: List<com.hisaab.shared.db.MonthTotal> = emptyList(),
+    sections: List<String> = emptyList(),
 ) {
     var showNotices by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     val notices = buildList {
@@ -220,57 +220,49 @@ fun HomeScreen(
             if (!hasSmsPermission && !state.smsPromptDismissed) item { PermissionCard(smsBlocked, onGrantSms, onDismissSms) }
             if (state.scan.running) item { ScanCard(state.scan) }
 
-            // Budgets
-            item(key = "budgets-h") { HomeSection("Budgets", "View All", onOpenBudgets) }
-            item(key = "budgets") {
-                val budgeted = state.categories.filter { it.budget != null }
-                when {
-                    budgetSummary == null -> CreateBudgetCard(onOpenBudgets)
-                    budgeted.isEmpty() -> BudgetsCard(budgetSummary, onOpenBudgets)
-                    else -> BudgetLines(budgeted.sortedByDescending { it.spent.toFloat() / (it.budget ?: 1) }.take(3), onOpenBudgets)
+            // Sections in the order (and visibility) set under Settings → Customize tabs. All follow the month above.
+            sections.forEach { section ->
+                when (section) {
+                    "budgets" -> {
+                        item(key = "budgets-h") { HomeSection("Budgets", "View All", onOpenBudgets) }
+                        item(key = "budgets") {
+                            val budgeted = state.categories.filter { it.budget != null }
+                            when {
+                                budgetSummary == null -> CreateBudgetCard(onOpenBudgets)
+                                budgeted.isEmpty() -> BudgetsCard(budgetSummary, onOpenBudgets)
+                                else -> BudgetLines(budgeted.sortedByDescending { it.spent.toFloat() / (it.budget ?: 1) }.take(3), onOpenBudgets)
+                            }
+                        }
+                    }
+                    "subscriptions" -> {
+                        val regular = plan.recurring.filter { !it.income }
+                        if (regular.isNotEmpty() || plan.policies.isNotEmpty()) {
+                            item(key = "subs-h") { HomeSection("Upcoming Subscriptions", "View All", onOpenBills) }
+                            item(key = "subs") { SubscriptionsSummary(regular.size, regular.filter { !it.yearly }.sumOf { it.amountMinor }, onOpenBills) }
+                            val soon = plan.upcoming.filter { it.daysLeft in 0..14 }
+                            items(soon.take(3), key = { "up-${it.name}-${it.due}" }) { u -> UpcomingRow(u, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+                        }
+                    }
+                    "categories" -> if (state.categories.isNotEmpty()) {
+                        item(key = "cats-h") { HomeSection("Where it went", "Analytics", onOpenAnalytics) }
+                        // Categories only; tapping one drills down into its sub-categories. The user's own categories
+                        // are counted in Other by the built-in totals, so they are taken out of it here.
+                        val ownTotal = customSpend.sumOf { it.second }
+                        val lines = (state.categories.map { c ->
+                            val spent = if (c.category == Category.OTHER) (c.spent - ownTotal).coerceAtLeast(0) else c.spent
+                            Triple(com.hisaab.app.ui.category.CategoryLook.of(c.category), spent, c.budget)
+                        } + customSpend.map { (c, t) -> Triple(com.hisaab.app.ui.category.CategoryLook.of(c), t, null) })
+                            .filter { it.second > 0 }.sortedByDescending { it.second }.take(6)
+                        items(lines, key = { it.first.key }) { (look, spent, budget) ->
+                            LookLine(look, spent, budget, state.spent, onClick = { onOpenCategoryKey(look.key) })
+                        }
+                    }
+                    "activity" -> {
+                        item(key = "activity-h") { HomeSection("Activity") }
+                        item(key = "activity") { ActivityHeatmap(activity, until = state.month.atEndOfMonth()) }
+                    }
                 }
             }
-
-            // Savings, and the accounts as cards
-            item(key = "savings-h") { HomeSection("Savings & accounts", "Manage", onOpenAccounts) }
-            item(key = "savings") {
-                val deposits = state.accounts.filter { it.accountType?.liquid == false && it.accountType != com.hisaab.shared.db.AccountType.LOAN }
-                    .sumOf { it.currentBalanceMinor ?: 0 }
-                SavingsOverview(savingsTrend, state.balance, deposits)
-            }
-            val cardAccounts = state.accounts.filter { it.kind == com.hisaab.parser.model.AccountKind.ACCOUNT && it.accountType != com.hisaab.shared.db.AccountType.LOAN }
-            if (cardAccounts.isNotEmpty()) {
-                item(key = "account-cards") { Spacer(Modifier.height(12.dp)); AccountCardsRow(cardAccounts, onOpenAccounts) }
-            }
-
-            // Upcoming subscriptions and payments
-            val regular = plan.recurring.filter { !it.income }
-            if (regular.isNotEmpty() || plan.policies.isNotEmpty()) {
-                item(key = "subs-h") { HomeSection("Upcoming Subscriptions", "View All", onOpenBills) }
-                item(key = "subs") { SubscriptionsSummary(regular.size, regular.filter { !it.yearly }.sumOf { it.amountMinor }, onOpenBills) }
-                val soon = plan.upcoming.filter { it.daysLeft in 0..14 }
-                items(soon.take(3), key = { "up-${it.name}-${it.due}" }) { u -> UpcomingRow(u, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
-            }
-
-            // Where it went
-            if (state.categories.isNotEmpty()) {
-                item(key = "cats-h") { HomeSection("Where it went", "Analytics", onOpenAnalytics) }
-                // Categories only; tapping one drills down into its sub-categories. The user's own categories
-                // are counted in Other by the built-in totals, so they are taken out of it here.
-                val ownTotal = customSpend.sumOf { it.second }
-                val lines = (state.categories.map { c ->
-                    val spent = if (c.category == Category.OTHER) (c.spent - ownTotal).coerceAtLeast(0) else c.spent
-                    Triple(com.hisaab.app.ui.category.CategoryLook.of(c.category), spent, c.budget)
-                } + customSpend.map { (c, t) -> Triple(com.hisaab.app.ui.category.CategoryLook.of(c), t, null) })
-                    .filter { it.second > 0 }.sortedByDescending { it.second }.take(6)
-                items(lines, key = { it.first.key }) { (look, spent, budget) ->
-                    LookLine(look, spent, budget, state.spent, onClick = { onOpenCategoryKey(look.key) })
-                }
-            }
-
-            // Activity
-            item(key = "activity-h") { HomeSection("Activity") }
-            item(key = "activity") { ActivityHeatmap(activity) }
 
         }
 

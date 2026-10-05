@@ -148,6 +148,21 @@ interface TransactionDao {
     @Query("SELECT MIN(timestamp) FROM transactions")
     suspend fun firstTimestamp(): Long?
 
+    /** Spending and income per month for one account (and the debit cards that draw from it). */
+    @Query(
+        """SELECT strftime('%Y-%m', (timestamp + :offsetMillis) / 1000, 'unixepoch') AS month,
+                  SUM(CASE WHEN type IN ('DEBIT', 'INVESTMENT') THEN amountMinor ELSE 0 END) AS spent,
+                  SUM(CASE WHEN type = 'CREDIT' THEN amountMinor ELSE 0 END) AS income
+           FROM transactions
+           WHERE currency = 'INR' AND timestamp BETWEEN :from AND :to
+             AND (accountId = :accountId OR accountId IN (SELECT id FROM accounts WHERE linkedAccountId = :accountId))
+           GROUP BY month ORDER BY month""",
+    )
+    fun monthlyForAccount(accountId: Long, from: Long, to: Long, offsetMillis: Long): Flow<List<MonthTotal>>
+
+    @Query("SELECT MIN(timestamp) FROM transactions WHERE accountId = :accountId")
+    suspend fun firstTimestampFor(accountId: Long): Long?
+
     /** Where the money went, by merchant, biggest first. */
     @Query(
         """SELECT COALESCE(merchant, bankName) AS name, SUM(amountMinor) AS total, COUNT(*) AS count FROM transactions

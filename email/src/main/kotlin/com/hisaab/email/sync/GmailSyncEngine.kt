@@ -148,7 +148,7 @@ class GmailSyncEngine(
                 val data = attachment.inlineData ?: attachment.attachmentId?.let { api.attachment(messageId, it).data } ?: continue
                 out += pdf.read(
                     MimeParser.decodeBase64Url(data),
-                    StatementMeta("EMAIL", "$messageId#pdf$index", content.from, content.subject, attachment.filename, content.receivedAt),
+                    StatementMeta("EMAIL", "$messageId#pdf$index", content.from, content.subject, attachment.filename, content.receivedAt, content.text),
                 )
             }
         }

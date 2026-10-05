@@ -426,11 +426,11 @@ fun SubscriptionsSummary(count: Int, monthlyTotal: Long, onView: () -> Unit) {
  * (like a contribution graph). Tap a square for that day's total.
  */
 @Composable
-fun ActivityHeatmap(spendByDay: Map<LocalDate, Long>, weeks: Int = 18) {
+fun ActivityHeatmap(spendByDay: Map<LocalDate, Long>, weeks: Int = 18, until: LocalDate = LocalDate.now(Periods.zone)) {
     val haptics = LocalHapticFeedback.current
     val measurer = rememberTextMeasurer()
-    val today = LocalDate.now(Periods.zone)
-    // The grid ends with the current week; columns start on Monday.
+    val today = minOf(until, LocalDate.now(Periods.zone))
+    // The grid ends with the week of [until] (the month shown on Home); columns start on Monday.
     val end = today.plusDays((7 - today.dayOfWeek.value).toLong())
     val start = end.minusDays(weeks * 7L - 1)
     val max = spendByDay.filterKeys { it >= start }.values.maxOrNull()?.coerceAtLeast(1) ?: 1

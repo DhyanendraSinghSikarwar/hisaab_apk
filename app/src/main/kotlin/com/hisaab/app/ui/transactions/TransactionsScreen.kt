@@ -91,7 +91,7 @@ fun TransactionsRoute(
     fun toggle(id: Long) { selected = if (id in selected) selected - id else selected + id }
     BackHandler(enabled = selecting) { selected = emptySet() }
 
-    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, 
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = {
             if (selecting) {
                 TopAppBar(
@@ -117,10 +117,9 @@ fun TransactionsRoute(
         },
         floatingActionButton = {
             if (!selecting) {
-                ExtendedFloatingActionButton(
-                    onClick = onAdd, icon = { Icon(Icons.Filled.Add, null) }, text = { Text("Add") },
-                    modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()),
-                )
+                androidx.compose.material3.FloatingActionButton(
+                    onClick = onAdd, modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()),
+                ) { Icon(Icons.Filled.Add, "Add a transaction") }
             }
         },
     ) { inner ->

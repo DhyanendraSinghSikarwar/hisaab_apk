@@ -80,6 +80,7 @@ fun SettingsRoute(
     contentPadding: PaddingValues,
     onOpenProfile: () -> Unit = {},
     onBack: (() -> Unit)? = null,
+    onOpenCustomize: () -> Unit = {},
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -221,6 +222,12 @@ fun SettingsRoute(
                         shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size)) { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }
                 }
             }
+
+            ListItem(
+                headlineContent = { Text("Customize tabs") },
+                supportingContent = { Text("Choose and order the sections on Home, Analytics and Portfolio") },
+                modifier = Modifier.clickable(onClick = onOpenCustomize),
+            )
 
             Section("Data")
             ListItem(headlineContent = { Text("Export CSV") },

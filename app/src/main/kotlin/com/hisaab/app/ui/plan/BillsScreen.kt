@@ -102,14 +102,12 @@ fun BillsRoute(onBack: () -> Unit, vm: BillsViewModel = hiltViewModel()) {
             onDismiss = { adding = false; editing = null })
     }
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
-        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(),
             title = { Text("Bills & insurance") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
     }, floatingActionButton = {
-        androidx.compose.material3.ExtendedFloatingActionButton(
-            onClick = { adding = true }, icon = { Icon(Icons.Filled.Add, null) }, text = { Text("Recurring") },
-        )
+        androidx.compose.material3.FloatingActionButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, "Add a regular payment") }
     }) { inner ->
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -118,23 +116,9 @@ fun BillsRoute(onBack: () -> Unit, vm: BillsViewModel = hiltViewModel()) {
         ) {
             val soon = p.upcoming.filter { it.daysLeft in 0..30 }
             item { Summary(soon.sumOf { it.amountMinor }, soon.size, p.recurring.sumOf { it.amountMinor }) }
-            item { BillsCalendar(p.recurring, p.policies, p.upcoming) }
+            item { BillsCalendar(p.recurring, p.policies, p.upcoming, onEdit = { editing = it }) }
             if (p.loaded && p.recurring.isEmpty() && p.policies.isEmpty()) {
                 item { EmptyState(Icons.Filled.EventRepeat, "Nothing found yet", "Repeats appear after two months of payments.") }
-            }
-            val outgoing = p.recurring.filter { !it.income }
-            val incoming = p.recurring.filter { it.income }
-            if (outgoing.isNotEmpty()) {
-                item { Header("Regular payments") }
-                items(outgoing, key = { "r-${it.manualId ?: it.name}" }) { r -> RecurringRow(r, onEdit = { editing = r }) }
-            }
-            if (incoming.isNotEmpty()) {
-                item { Header("Expected income") }
-                items(incoming, key = { "i-${it.manualId ?: it.name}" }) { r -> RecurringRow(r, onEdit = { editing = r }) }
-            }
-            if (p.policies.isNotEmpty()) {
-                item { Header("Insurance") }
-                items(p.policies, key = { "p-${it.insurer}" }) { pol -> PolicyRow(pol) }
             }
         }
     }
@@ -252,7 +236,7 @@ private fun ordinal(n: Int): String = n.toString() + when {
 /** What a calendar day carries: a payment going out, income coming in, or an insurance premium. */
 private enum class Mark { PAYMENT, INCOME, INSURANCE }
 
-private data class DayEvent(val date: LocalDate, val name: String, val amountMinor: Long, val mark: Mark, val short: Boolean)
+private data class DayEvent(val date: LocalDate, val name: String, val amountMinor: Long, val mark: Mark, val short: Boolean, val recurring: Recurring? = null)
 
 private fun eventsIn(month: java.time.YearMonth, recurring: List<Recurring>, policies: List<com.hisaab.shared.insight.Policy>, upcoming: List<Upcoming>): List<DayEvent> {
     val shortOn = upcoming.filter { it.short }.map { it.name to it.due }.toSet()
@@ -260,7 +244,7 @@ private fun eventsIn(month: java.time.YearMonth, recurring: List<Recurring>, pol
     val out = ArrayList<DayEvent>()
     for (r in recurring) {
         val date = if (r.yearly) r.nextDue.takeIf { it.monthValue == month.monthValue }?.let { day(it.dayOfMonth) } else day(r.dayOfMonth)
-        if (date != null) out += DayEvent(date, r.name, r.amountMinor, if (r.income) Mark.INCOME else Mark.PAYMENT, (r.name to date) in shortOn)
+        if (date != null) out += DayEvent(date, r.name, r.amountMinor, if (r.income) Mark.INCOME else Mark.PAYMENT, (r.name to date) in shortOn, r)
     }
     for (pol in policies) {
         val date = if (pol.monthly) day(pol.nextDue.dayOfMonth) else pol.nextDue.takeIf { it.monthValue == month.monthValue }?.let { day(it.dayOfMonth) }
@@ -271,7 +255,7 @@ private fun eventsIn(month: java.time.YearMonth, recurring: List<Recurring>, pol
 
 /** A month at a time: each day marked by what falls on it; tap a day for its list. */
 @Composable
-private fun BillsCalendar(recurring: List<Recurring>, policies: List<com.hisaab.shared.insight.Policy>, upcoming: List<Upcoming>) {
+private fun BillsCalendar(recurring: List<Recurring>, policies: List<com.hisaab.shared.insight.Policy>, upcoming: List<Upcoming>, onEdit: (Recurring) -> Unit) {
     val today = LocalDate.now(com.hisaab.app.ui.format.Periods.zone)
     var month by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(java.time.YearMonth.from(today).toString()) }
     val ym = java.time.YearMonth.parse(month)
@@ -336,7 +320,11 @@ private fun BillsCalendar(recurring: List<Recurring>, policies: List<com.hisaab.
             if (shown.isNotEmpty()) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 shown.forEach { e ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(enabled = e.recurring != null) { e.recurring?.let(onEdit) }
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Box(Modifier.size(8.dp).background(colors.getValue(e.mark), CircleShape))
                         Text("${e.date.dayOfMonth}", Modifier.width(36.dp).padding(start = 10.dp), style = MaterialTheme.typography.labelLarge, color = c.onSurfaceVariant)
                         Text(e.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1)

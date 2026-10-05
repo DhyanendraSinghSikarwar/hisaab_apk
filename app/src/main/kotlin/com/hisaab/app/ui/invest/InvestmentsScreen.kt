@@ -53,6 +53,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.runtime.mutableStateOf
@@ -101,8 +104,16 @@ enum class InvestTab(val label: String, val kinds: Set<HoldingKind>, val icon: I
 }
 
 @HiltViewModel
-class InvestmentsViewModel @Inject constructor(private val dao: HoldingDao, statements: StatementDao) : ViewModel() {
+class InvestmentsViewModel @Inject constructor(
+    private val dao: HoldingDao,
+    statements: StatementDao,
+    layout: com.hisaab.app.settings.TabLayoutStore,
+) : ViewModel() {
     val holdings = dao.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The order of the holding groups, as set under Settings → Customize tabs. */
+    val groupOrder = layout.settings.map { it.visible(com.hisaab.app.settings.TabLayouts.PORTFOLIO).mapNotNull { k -> runCatching { HoldingKind.valueOf(k) }.getOrNull() } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, HoldingKind.entries.toList())
     val lockedStatements = statements.observeAll().map { all -> all.count { it.status == StatementEntity.LOCKED } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
@@ -157,35 +168,31 @@ fun InvestmentsRoute(
     onOpenAccounts: (Int) -> Unit = {},
     vm: InvestmentsViewModel = hiltViewModel(),
 ) {
-    val all by vm.holdings.collectAsStateWithLifecycle()
-    var tab by rememberSaveable { mutableStateOf(0) }
-    val holdings = all.filter { it.kind in InvestTab.entries[tab].kinds }
+    val holdings by vm.holdings.collectAsStateWithLifecycle()
+    val order by vm.groupOrder.collectAsStateWithLifecycle()
     val locked by vm.lockedStatements.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<HoldingEntity?>(null) }
     var adding by remember { mutableStateOf(false) }
-    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, 
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = {
-            Column {
-                TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
-                    title = { Text("Portfolio") },
-                    navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
-                    actions = {
-                        TextButton(onClick = onOpenStatements) { Icon(Icons.AutoMirrored.Filled.ReceiptLong, null); Spacer(Modifier.width(6.dp)); Text("Statements") }
-                    },
-                )
-                PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 12.dp) {
-                    InvestTab.entries.forEachIndexed { i, t ->
-                        val count = all.count { it.kind in t.kinds }
-                        Tab(selected = tab == i, onClick = { tab = i }, text = { Text(if (count > 0 && t != InvestTab.ALL) "${t.label} ($count)" else t.label) })
+            TopAppBar(
+                colors = com.hisaab.app.ui.theme.clearTopBar(),
+                title = { Text("Portfolio") },
+                navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
+                actions = {
+                    // Statements, with a red dot while one is waiting for its password.
+                    IconButton(onClick = onOpenStatements) {
+                        androidx.compose.material3.BadgedBox(badge = { if (locked > 0) androidx.compose.material3.Badge() }) {
+                            Icon(Icons.AutoMirrored.Filled.ReceiptLong, "Statements")
+                        }
                     }
-                }
-            }
+                },
+            )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { adding = true }, icon = { Icon(Icons.Filled.Add, null) }, text = { Text("Add") },
-                modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()),
-            )
+            androidx.compose.material3.FloatingActionButton(
+                onClick = { adding = true }, modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()),
+            ) { Icon(Icons.Filled.Add, "Add a holding") }
         },
     ) { inner ->
         LazyColumn(
@@ -194,42 +201,12 @@ fun InvestmentsRoute(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item { Summary(holdings) }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        Triple("Accounts", Icons.Filled.AccountBalance, 0),
-                        Triple("Cards", Icons.Filled.CreditCard, 1),
-                        Triple("Deposits & loans", Icons.Filled.Savings, 2),
-                    ).forEach { (label, icon, tab) ->
-                        Card(Modifier.weight(1f).clickable { onOpenAccounts(tab) }) {
-                            Column(Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-                                Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1,
-                                    modifier = Modifier.padding(top = 6.dp))
-                            }
-                        }
-                    }
-                }
-            }
-            if (locked > 0) {
-                item {
-                    Card(Modifier.fillMaxWidth().clickable(onClick = onOpenStatements),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                        Text("$locked statement${if (locked > 1) "s need" else " needs"} a password. Tap to unlock.",
-                            Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
-                    }
-                }
-            }
             if (holdings.isEmpty()) {
                 item {
-                    EmptyState(
-                        InvestTab.entries[tab].icon, if (tab == 0) "No investments yet" else "No ${InvestTab.entries[tab].label} yet",
-                        "EPF balances come from EPFO SMS. Mutual funds and shares come from your CAS (CAMS, KFintech, NSDL or CDSL) " +
-                            "and broker statements by email, or a PDF you import under Statements. You can also add any holding yourself.",
-                    )
+                    EmptyState(Icons.Filled.PieChart, "No investments yet", "EPF from EPFO SMS; funds and shares from CAS and broker statements. Or tap +.")
                 }
             }
-            HoldingKind.entries.forEach { kind ->
+            order.forEach { kind ->
                 val group = holdings.filter { it.kind == kind }
                 if (group.isNotEmpty()) {
                     item(key = "h-${kind.name}") {
@@ -250,6 +227,15 @@ fun InvestmentsRoute(
     }
 }
 
+private fun kindColor(k: HoldingKind): androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color(
+    when (k) {
+        HoldingKind.EPF -> 0xFF0F7B5A; HoldingKind.NPS -> 0xFF1F5FA8; HoldingKind.MUTUAL_FUND -> 0xFF7E57C2; HoldingKind.STOCK -> 0xFFE8704A
+        HoldingKind.ETF -> 0xFFD64E8C; HoldingKind.PPF -> 0xFF00897B; HoldingKind.BOND -> 0xFF546E7A; HoldingKind.GOLD -> 0xFFC9A227
+        HoldingKind.FD -> 0xFF5C6BC0; HoldingKind.OTHER -> 0xFF8D6E63
+    },
+)
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun Summary(holdings: List<HoldingEntity>) {
     val value = holdings.sumOf { it.valueMinor ?: 0 }
@@ -264,9 +250,26 @@ private fun Summary(holdings: List<HoldingEntity>) {
                 val pct = gain * 100.0 / invested
                 Text(
                     "Invested ${Money.format(invested, showPaise = false)} · ${if (gain >= 0) "+" else "−"}${Money.format(kotlin.math.abs(gain), showPaise = false)} " +
-                        "(${"%.1f".format(pct)}%) where cost is known",
+                        "(${"%.1f".format(pct)}%)",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
+            }
+            val byKind = holdings.groupBy { it.kind }.mapValues { (_, l) -> l.sumOf { it.valueMinor ?: 0 } }.filterValues { it > 0 }
+                .toList().sortedByDescending { it.second }
+            if (value > 0 && byKind.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth().padding(top = 14.dp).height(10.dp).clip(androidx.compose.foundation.shape.CircleShape)) {
+                    byKind.forEach { (k, v) -> Box(Modifier.weight(v.toFloat()).fillMaxHeight().background(kindColor(k))) }
+                }
+                androidx.compose.foundation.layout.FlowRow(
+                    Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    byKind.forEach { (k, v) ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).background(kindColor(k), androidx.compose.foundation.shape.CircleShape))
+                            Text(" ${k.label} ${v * 100 / value}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+                }
             }
         }
     }

@@ -5,7 +5,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Replay
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.CurrencyRupee
 import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Insights
@@ -69,25 +70,16 @@ import dev.chrisbanes.haze.rememberHazeState
 /** The bottom bar: icons only. Settings is reached from the profile, not from here. */
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Home", Icons.Filled.Home),
-    TRANSACTIONS("transactions", "History", Icons.Filled.Replay),
+    TRANSACTIONS("transactions", "History", Icons.Filled.CurrencyRupee),
     INVESTMENTS("investments", "Portfolio", Icons.Filled.BusinessCenter),
     ANALYTICS("analytics", "Analytics", Icons.Filled.Insights),
 }
 
 private const val SETTINGS_ROUTE = "settings"
 
-/** History: a rupee inside a turning arrow, money looked back on. */
 @Composable
 private fun TabIcon(tab: Tab, tint: androidx.compose.ui.graphics.Color) {
-    if (tab == Tab.TRANSACTIONS) {
-        androidx.compose.foundation.layout.Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
-            Icon(Icons.Filled.Replay, tab.label, tint = tint)
-            Text("₹", color = tint, fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
-                modifier = Modifier.padding(top = 2.dp))
-        }
-    } else {
-        Icon(tab.icon, tab.label, tint = tint)
-    }
+    Icon(tab.icon, tab.label, tint = tint, modifier = Modifier.size(26.dp))
 }
 
 @Composable
@@ -108,18 +100,19 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
     Scaffold(
         bottomBar = {
             if (showBar) {
-                // A floating pill bar the content blurs through. Only the selected tab shows its name, in its own
-                // pill; the others are icons. No label ever wraps, and the selection slides between tabs.
+                // Icons only; the selected one sits in a pill.
                 val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
                 androidx.compose.foundation.layout.Row(
+                    // Solid from the bar down to the screen edge: nothing scrolls visibly below or around it.
                     modifier = Modifier
+                        .background(MaterialTheme.colorScheme.background)
                         .navigationBarsPadding()
                         .padding(horizontal = 40.dp, vertical = 10.dp)
                         .fillMaxWidth()
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(32.dp))
                         .hazeEffect(state = haze) {
                             blurRadius = 24.dp
-                            tints = listOf(HazeTint(barColor.copy(alpha = 0.88f)))
+                            tints = listOf(HazeTint(barColor))
                         }
                         .padding(6.dp),
                     horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
@@ -226,6 +219,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                     onOpenBench = { nav.navigate("bench") }, onOpenStatements = { nav.navigate("statements") },
                     onOpenInvestments = { nav.openTab(Tab.INVESTMENTS.route) }, contentPadding = PaddingValues(),
                     onOpenProfile = { nav.navigate("profile") }, onBack = nav::popBackStack,
+                    onOpenCustomize = { nav.navigate("customize") },
                 )
             }
             composable(
@@ -235,7 +229,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 TransactionDetailRoute(onBack = nav::popBackStack)
             }
             composable("accounts?tab={tab}", arguments = listOf(navArgument("tab") { type = NavType.IntType; defaultValue = 0 })) { entry ->
-                AccountsRoute(onBack = nav::popBackStack, onOpenAccount = { nav.navigate("transactions?accountId=$it") },
+                AccountsRoute(onBack = nav::popBackStack, onOpenAccount = { nav.navigate("account/$it") },
                     initialTab = entry.arguments?.getInt("tab") ?: 0)
             }
             composable("review") {
@@ -263,6 +257,10 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 )
             }
             composable("bench") { ParserBenchRoute(onBack = nav::popBackStack) }
+            composable("account/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
+                com.hisaab.app.ui.accounts.AccountDetailRoute(onBack = nav::popBackStack, onOpenTransactions = { nav.navigate("transactions?accountId=$it") })
+            }
+            composable("customize") { com.hisaab.app.ui.settings.CustomizeTabsRoute(onBack = nav::popBackStack) }
             composable("profile") { com.hisaab.app.ui.profile.ProfileRoute(onBack = nav::popBackStack, onOpenSettings = { nav.navigate(SETTINGS_ROUTE) }) }
         }
     }

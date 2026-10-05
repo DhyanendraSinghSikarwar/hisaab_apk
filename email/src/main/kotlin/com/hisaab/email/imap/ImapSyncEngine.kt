@@ -86,7 +86,7 @@ class ImapSyncEngine(
         if (readPdf) {
             for ((index, bytes) in m.pdfs.withIndex()) {
                 val name = m.pdfNames.getOrNull(index) ?: "statement.pdf"
-                out += pdf!!.read(bytes, StatementMeta("EMAIL", "${m.id}#pdf$index", m.from, m.subject, name, m.receivedAt))
+                out += pdf!!.read(bytes, StatementMeta("EMAIL", "${m.id}#pdf$index", m.from, m.subject, name, m.receivedAt, m.text))
             }
         }
         return out

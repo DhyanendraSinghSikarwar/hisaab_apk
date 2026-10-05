@@ -48,6 +48,8 @@ data class StatementEntity(
     @ColumnInfo(defaultValue = "NULL") val debitsMinor: Long? = null,
     @ColumnInfo(defaultValue = "NULL") val creditsMinor: Long? = null,
     @ColumnInfo(defaultValue = "NULL") val availableMinor: Long? = null,
+    /** The email the PDF came with, shown when it is locked: it often hints at the password. */
+    @ColumnInfo(defaultValue = "NULL") val emailText: String? = null,
 ) {
     companion object {
         const val PARSED = "PARSED"

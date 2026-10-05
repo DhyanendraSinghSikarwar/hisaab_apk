@@ -44,6 +44,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -109,7 +110,11 @@ class StatementsViewModel @Inject constructor(
 
     fun unlock(s: StatementEntity, password: String, remember: Boolean) = work {
         when (val r = processor.unlock(s.id, password, remember, label = s.bankName ?: s.sender.substringBefore('<').trim().ifEmpty { s.fileName })) {
-            is UnlockResult.Done -> _messages.trySend(describe(r.statement))
+            is UnlockResult.Done -> {
+                _messages.trySend(describe(r.statement))
+                // The same password often opens the bank's other locked statements too.
+                processor.retryLocked()
+            }
             UnlockResult.WrongPassword -> _messages.trySend("That password didn't open ${s.fileName}.")
             UnlockResult.Missing -> _messages.trySend("The PDF is no longer on the phone. Import it again.")
         }
@@ -178,29 +183,6 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
             }
             if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
 
-            item {
-                Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Saved passwords", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { addingPassword = true }) { Text("Add") }
-                }
-                Text("Tried on every new statement. Encrypted on this phone.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (saved.isEmpty()) item { Text("None yet.", style = MaterialTheme.typography.bodyMedium) }
-            if (saved.isNotEmpty() && statements.any { it.status == StatementEntity.LOCKED }) {
-                item { OutlinedButton(onClick = vm::retryAll, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Try all passwords on locked statements") } }
-            }
-            items(saved, key = { it.id }) { p ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Key, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(12.dp))
-                    Text(p.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                    Text("••••••", style = MaterialTheme.typography.bodyMedium)
-                    IconButton(onClick = { vm.removePassword(p) }) { Icon(Icons.Filled.RemoveCircleOutline, "Remove") }
-                }
-            }
-
             if (statements.isEmpty()) {
                 item { Text("Statements", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
                 item { Text("No statements yet.", style = MaterialTheme.typography.bodyMedium) }
@@ -228,7 +210,7 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
 }
 
 private val SECTION_TITLES = mapOf(
-    "LOCKED" to "Needs a password", "CREDIT_CARD" to "Credit card statements", "BANK" to "Bank statements",
+    "LOCKED" to "Locked", "CREDIT_CARD" to "Credit card statements", "BANK" to "Bank statements",
     "INVESTMENT" to "Investment statements", "OTHER" to "Other statements",
 )
 
@@ -252,7 +234,7 @@ private fun StatementRow(s: StatementEntity, onOpen: () -> Unit, onUnlock: () ->
                         StatementEntity.PARSED -> listOfNotNull(
                             s.transactionCount.takeIf { it > 0 }?.let { "$it transactions" }, s.holdingCount.takeIf { it > 0 }?.let { "$it holdings" },
                         ).joinToString(" · ")
-                        StatementEntity.LOCKED -> "Needs a password"
+                        StatementEntity.LOCKED -> ""
                         StatementEntity.EMPTY -> "Nothing found in it"
                         else -> "Couldn't be read (maybe a scanned image)"
                     },
@@ -261,6 +243,28 @@ private fun StatementRow(s: StatementEntity, onOpen: () -> Unit, onUnlock: () ->
             }
             if (s.status == StatementEntity.LOCKED) OutlinedButton(onClick = onUnlock) { Text("Unlock") }
             IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, "Remove from list") }
+        }
+        if (s.status == StatementEntity.LOCKED) EmailHint(s, Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
+    }
+}
+
+/** The subject and text of the email a locked PDF came with, folded to a few lines: it usually says what the password is. */
+@Composable
+private fun EmailHint(s: StatementEntity, modifier: Modifier = Modifier, lines: Int = 4) {
+    val text = s.emailText?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() }?.joinToString("\n")
+    if (s.subject == null && text == null) return
+    var open by remember { mutableStateOf(false) }
+    androidx.compose.material3.Surface(modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+        Column(Modifier.clickable { open = !open }.padding(12.dp).animateContentSize()) {
+            s.subject?.let { Text(it, style = MaterialTheme.typography.titleSmall, maxLines = 2) }
+            text?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (open) Int.MAX_VALUE else lines, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp))
+                Text(if (open) "Show less" else "Show full email", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 4.dp))
+            }
         }
     }
 }
@@ -275,12 +279,9 @@ private fun UnlockDialog(s: StatementEntity, onDismiss: () -> Unit, onUnlock: (S
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(s.fileName, style = MaterialTheme.typography.bodyMedium)
+                EmailHint(s, lines = 6)
                 OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("PDF password") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation())
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(keep, { keep = it })
-                    Text("Remember it for future statements", style = MaterialTheme.typography.bodyMedium)
-                }
             }
         },
         confirmButton = { TextButton(onClick = { onUnlock(password, keep) }, enabled = password.isNotEmpty()) { Text("Unlock") } },

@@ -81,6 +81,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import java.time.LocalDate
 import java.time.YearMonth
+import kotlinx.coroutines.flow.map
+import androidx.compose.material.icons.filled.Tune
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.flow.flowOf
 import androidx.compose.animation.slideInVertically
@@ -146,8 +148,16 @@ data class AnalyticsState(
 }
 
 @HiltViewModel
-class AnalyticsViewModel @Inject constructor(private val dao: TransactionDao, plans: com.hisaab.app.ui.plan.PlanSource) : ViewModel() {
+class AnalyticsViewModel @Inject constructor(
+    private val dao: TransactionDao,
+    plans: com.hisaab.app.ui.plan.PlanSource,
+    layout: com.hisaab.app.settings.TabLayoutStore,
+) : ViewModel() {
     val plan = plans.snapshot
+
+    /** The report's sections, in the order and visibility set under Settings → Customize tabs. */
+    val sections = layout.settings.map { it.visible(com.hisaab.app.settings.TabLayouts.ANALYTICS) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.hisaab.app.settings.TabLayouts.DEFAULTS.getValue(com.hisaab.app.settings.TabLayouts.ANALYTICS).map { it.key })
 
     private val filter = MutableStateFlow(AnalyticsFilter())
 
@@ -203,6 +213,7 @@ class AnalyticsViewModel @Inject constructor(private val dao: TransactionDao, pl
 fun AnalyticsRoute(contentPadding: PaddingValues, vm: AnalyticsViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     val plan by vm.plan.collectAsStateWithLifecycle()
+    val sections by vm.sections.collectAsStateWithLifecycle()
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         TopAppBar(title = { Text("Analytics") }, colors = com.hisaab.app.ui.theme.clearTopBar())
     }) { inner ->
@@ -211,6 +222,7 @@ fun AnalyticsRoute(contentPadding: PaddingValues, vm: AnalyticsViewModel = hiltV
                 .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            Kpis(s)
             FilterBar(s, vm)
             if (plan.insights.isNotEmpty() && s.filter.period == Period.THIS_MONTH) {
                 Text("Insights", style = MaterialTheme.typography.titleMedium)
@@ -224,7 +236,7 @@ fun AnalyticsRoute(contentPadding: PaddingValues, vm: AnalyticsViewModel = hiltV
                     (slideInVertically(tween(260)) { it / 12 } + fadeIn(tween(220))) togetherWith fadeOut(tween(140)) using SizeTransform(clip = false)
                 },
                 label = "report",
-            ) { state -> Report(state) }
+            ) { state -> Report(state, sections) }
         }
     }
 }
@@ -233,39 +245,52 @@ fun AnalyticsRoute(contentPadding: PaddingValues, vm: AnalyticsViewModel = hiltV
 @Composable
 private fun FilterBar(s: AnalyticsState, vm: AnalyticsViewModel) {
     var picking by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Period.entries.forEach { p ->
-                FilterChip(
-                    selected = s.filter.period == p,
-                    onClick = { if (p == Period.CUSTOM) picking = true else vm.setPeriod(p) },
-                    label = { Text(p.label) },
-                    leadingIcon = if (p == Period.CUSTOM) ({ Icon(Icons.Filled.DateRange, null, Modifier.size(18.dp)) }) else null,
-                    shape = RoundedCornerShape(20.dp),
-                )
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
-                Scope.entries.forEachIndexed { i, sc ->
-                    SegmentedButton(s.filter.scope == sc, { vm.setScope(sc) }, SegmentedButtonDefaults.itemShape(i, Scope.entries.size),
-                        icon = {}) { Text(sc.label, maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+    var sheet by remember { mutableStateOf(false) }
+    var periodMenu by remember { mutableStateOf(false) }
+    val active = listOf(s.filter.scope != Scope.ALL, s.filter.kind != KindFilter.ALL).count { it }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box {
+            FilterChip(
+                selected = true, onClick = { periodMenu = true },
+                label = { Text(if (s.filter.period == Period.CUSTOM) s.label else s.filter.period.label, maxLines = 1) },
+                leadingIcon = { Icon(Icons.Filled.DateRange, null, Modifier.size(18.dp)) },
+                trailingIcon = { Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(18.dp)) },
+            )
+            DropdownMenu(periodMenu, { periodMenu = false }) {
+                Period.entries.forEach { p ->
+                    DropdownMenuItem(text = { Text(if (p == Period.CUSTOM) "Custom range…" else p.label) },
+                        onClick = { periodMenu = false; if (p == Period.CUSTOM) picking = true else vm.setPeriod(p) })
                 }
             }
-            var open by remember { mutableStateOf(false) }
-            Box {
-                AssistChip(
-                    onClick = { open = true }, label = { Text(s.filter.kind.label, maxLines = 1) },
-                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, null) }, shape = RoundedCornerShape(20.dp),
-                )
-                DropdownMenu(open, { open = false }) {
-                    KindFilter.entries.forEach { k ->
-                        DropdownMenuItem(text = { Text(k.label) }, onClick = { vm.setKind(k); open = false })
+        }
+        FilterChip(
+            selected = active > 0, onClick = { sheet = true },
+            leadingIcon = { Icon(Icons.Filled.Tune, null, Modifier.size(18.dp)) },
+            label = { Text(if (active > 0) "Filters · $active" else "Filters") },
+        )
+        if (active > 0 || s.filter.period != Period.THIS_MONTH) {
+            AssistChip(onClick = { vm.setPeriod(Period.THIS_MONTH); vm.setScope(Scope.ALL); vm.setKind(KindFilter.ALL) }, label = { Text("Clear") })
+        }
+    }
+    if (sheet) {
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { sheet = false }) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Filters", style = MaterialTheme.typography.titleLarge)
+                Text("Money", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    Scope.entries.forEachIndexed { i, sc ->
+                        SegmentedButton(s.filter.scope == sc, { vm.setScope(sc) }, SegmentedButtonDefaults.itemShape(i, Scope.entries.size)) { Text(sc.label) }
                     }
                 }
+                Text("Paid from", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    KindFilter.entries.forEachIndexed { i, k ->
+                        SegmentedButton(s.filter.kind == k, { vm.setKind(k) }, SegmentedButtonDefaults.itemShape(i, KindFilter.entries.size)) { Text(k.label, maxLines = 1) }
+                    }
+                }
+                androidx.compose.material3.Button(onClick = { sheet = false }, modifier = Modifier.fillMaxWidth()) { Text("Show results") }
             }
         }
-        Text(s.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     }
     if (picking) {
         val utc = java.time.ZoneOffset.UTC
@@ -293,13 +318,16 @@ private fun FilterBar(s: AnalyticsState, vm: AnalyticsViewModel) {
 }
 
 @Composable
-private fun Report(s: AnalyticsState) {
+private fun Report(s: AnalyticsState, sections: List<String>) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Kpis(s)
-        CategoriesCard(s)
-        if (s.merchants.isNotEmpty()) MerchantsCard(s.merchants, s.spent)
-        TrendCard(s)
-        if (s.totalDays <= 62) DailyCard(s)
+        sections.forEach { key ->
+            when (key) {
+                "categories" -> CategoriesCard(s)
+                "merchants" -> if (s.merchants.isNotEmpty()) MerchantsCard(s.merchants, s.spent)
+                "trend" -> TrendCard(s)
+                "daily" -> if (s.totalDays <= 62) DailyCard(s)
+            }
+        }
     }
 }
 
@@ -307,6 +335,7 @@ private fun Report(s: AnalyticsState) {
 private fun Kpis(s: AnalyticsState) {
     val days = s.elapsedDays
     val saved = s.income - s.spent
+    Text(s.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Kpi("Spent", s.spent, MoneyColors.debit, Modifier.weight(1f))
         Kpi("Income", s.income, MoneyColors.credit, Modifier.weight(1f))

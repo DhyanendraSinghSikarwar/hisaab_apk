@@ -76,6 +76,7 @@ class HomeViewModel @Inject constructor(
     private val settings: AppSettingsStore,
     private val categoryDao: com.hisaab.shared.db.CategoryDao,
     private val statementProcessor: com.hisaab.email.statement.StatementProcessor,
+    private val layout: com.hisaab.app.settings.TabLayoutStore,
     holdings: HoldingDao,
     statements: StatementDao,
     plans: com.hisaab.app.ui.plan.PlanSource,
@@ -156,13 +157,9 @@ class HomeViewModel @Inject constructor(
     val update = updater.state
 
     /** Daily spending over the last ~18 weeks, for the Activity grid. */
-    /** Income and spending for the last 12 months, for the savings line on Home. */
-    val savingsTrend: StateFlow<List<com.hisaab.shared.db.MonthTotal>> = run {
-        val now = YearMonth.now(Periods.zone)
-        val from = Periods.range(now.minusMonths(11)).first
-        val to = Periods.range(now).last
-        transactions.observeMonthly(from, to, Periods.offsetMillis(from))
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** Home's sections, in the order set under Settings → Customize tabs. */
+    val sections: StateFlow<List<String>> = layout.settings.map { it.visible(com.hisaab.app.settings.TabLayouts.HOME) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.hisaab.app.settings.TabLayouts.DEFAULTS.getValue(com.hisaab.app.settings.TabLayouts.HOME).map { it.key })
 
     /** Spent this month in each category of the user's own (filed under Other in the built-in totals). */
     val customSpend: StateFlow<List<Pair<com.hisaab.shared.db.CustomCategoryEntity, Long>>> = month.flatMapLatest { m ->
@@ -177,13 +174,15 @@ class HomeViewModel @Inject constructor(
         settings.settings.map { it.profile to (it.profile.name == null && !it.profilePromptDismissed) }
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    val activity: StateFlow<Map<java.time.LocalDate, Long>> = run {
-        val from = java.time.LocalDate.now(Periods.zone).minusWeeks(19).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
-        val offset = Periods.offsetMillis()
-        transactions.observeDailySpend(from, Long.MAX_VALUE, offset).map { days ->
+    /** Spend per day for the 19 weeks up to the end of the month shown on Home. */
+    val activity: StateFlow<Map<java.time.LocalDate, Long>> = month.flatMapLatest { m ->
+        val end = m.atEndOfMonth()
+        val from = end.minusWeeks(19).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
+        val to = end.plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli() - 1
+        transactions.observeDailySpend(from, to, Periods.offsetMillis()).map { days ->
             days.associate { java.time.LocalDate.ofEpochDay(it.day) to it.total }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-    }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** True while an SMS scan or email sync is running, for the refresh button. */
     val syncing: StateFlow<Boolean> = combine(

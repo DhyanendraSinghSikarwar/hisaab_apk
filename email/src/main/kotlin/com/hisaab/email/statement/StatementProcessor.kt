@@ -20,7 +20,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Where a statement PDF came from. [key] is stable, so the same PDF is only read once. */
-data class StatementMeta(val source: String, val key: String, val sender: String, val subject: String?, val fileName: String, val receivedAt: Long)
+data class StatementMeta(
+    val source: String, val key: String, val sender: String, val subject: String?, val fileName: String, val receivedAt: Long,
+    /** The text of the email it came with: often says what the password is ("your DOB in DDMMYYYY"). */
+    val emailText: String? = null,
+)
 
 /** Turns a statement PDF into transactions for the caller to store. Used by both email sync engines. */
 fun interface StatementHandler {
@@ -99,7 +103,7 @@ class StatementProcessor @Inject constructor(
         val opened = withContext(Dispatchers.Default) { pdf.open(bytes, password) }
         if (opened !is PdfOpen.Text) return UnlockResult.WrongPassword
         if (remember) passwords.add(label, password)
-        val meta = StatementMeta(s.source, s.key, s.sender, s.subject, s.fileName, s.receivedAt)
+        val meta = StatementMeta(s.source, s.key, s.sender, s.subject, s.fileName, s.receivedAt, s.emailText)
         val report = store(withContext(Dispatchers.Default) { messages(opened.text, meta, s.id, keep(bytes), s.filePath) })
         return UnlockResult.Done(statements.byId(id) ?: s, report)
     }
@@ -113,7 +117,7 @@ class StatementProcessor @Inject constructor(
         if (s.status == StatementEntity.LOCKED) return null
         val bytes = s.filePath?.let(::File)?.takeIf { it.exists() }?.readBytes() ?: return null
         val opened = withContext(Dispatchers.Default) { openWithSaved(bytes) } as? PdfOpen.Text ?: return null
-        val meta = StatementMeta(s.source, s.key, s.sender, s.subject, s.fileName, s.receivedAt)
+        val meta = StatementMeta(s.source, s.key, s.sender, s.subject, s.fileName, s.receivedAt, s.emailText)
         return store(withContext(Dispatchers.Default) { messages(opened.text, meta, s.id, s.filePath, null) })
     }
 
@@ -125,7 +129,7 @@ class StatementProcessor @Inject constructor(
         var opened = 0
         for (s in statements.locked()) {
             val bytes = s.filePath?.let(::File)?.takeIf { it.exists() }?.readBytes() ?: continue
-            val meta = StatementMeta(s.source, s.key, s.sender, s.subject, s.fileName, s.receivedAt)
+            val meta = StatementMeta(s.source, s.key, s.sender, s.subject, s.fileName, s.receivedAt, s.emailText)
             val msgs = read(bytes, meta)
             if (statements.byKey(s.key)?.status != StatementEntity.LOCKED) { store(msgs); opened++ }
         }
@@ -192,6 +196,7 @@ class StatementProcessor @Inject constructor(
             id = id, key = meta.key, source = meta.source, sender = meta.sender, subject = meta.subject, fileName = meta.fileName,
             receivedAt = meta.receivedAt, status = status, transactionCount = txCount, holdingCount = holdingCount, filePath = path,
             bankName = bank, last4 = last4, processedAt = System.currentTimeMillis(),
+            emailText = meta.emailText?.trim()?.take(EMAIL_TEXT_CAP),
         )
 
     /** Before a locked PDF can be read, name the issuer from the sender or subject, for the notification. */
@@ -202,6 +207,7 @@ class StatementProcessor @Inject constructor(
     }
 
     private companion object {
+        const val EMAIL_TEXT_CAP = 4_000
         private fun rx(p: String) = Regex(p, RegexOption.IGNORE_CASE)
         val ISSUERS = listOf(
             rx("""hdfc""") to "HDFC Bank", rx("""icici""") to "ICICI Bank", rx("""sbi\s*card|sbicard""") to "SBI Card", rx("""\bsbi\b|state bank""") to "SBI",
