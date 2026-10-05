@@ -162,10 +162,18 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                     onOpenStatements = { nav.navigate("statements") },
                     onOpenBills = { nav.navigate("bills") },
                     onOpenAnalytics = { nav.openTab(Tab.ANALYTICS.route) },
-                    onOpenCategory = { c, m -> nav.navigate("transactions?category=${c.name}&month=$m") },
+                    onOpenCategory = { c, m -> nav.navigate("category/${c.name}?month=$m") },
                     onOpenSettings = { nav.openTab(Tab.SETTINGS.route) },
                     contentPadding = bottom,
+                    onOpenProfile = { nav.navigate("profile") },
+                    onOpenCategoryKey = { nav.navigate("category/$it") },
                 )
+            }
+            composable(
+                "category/{key}?month={month}",
+                arguments = listOf(navArgument("key") { type = NavType.StringType }, navArgument("month") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) {
+                com.hisaab.app.ui.category.CategoryDetailRoute(onBack = nav::popBackStack, onOpenTransaction = { nav.navigate("transaction/$it") })
             }
             composable(
                 "transactions?accountId={accountId}&category={category}&month={month}",
@@ -190,6 +198,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 SettingsRoute(
                     onOpenBench = { nav.navigate("bench") }, onOpenStatements = { nav.navigate("statements") },
                     onOpenInvestments = { nav.openTab(Tab.INVESTMENTS.route) }, contentPadding = bottom,
+                    onOpenProfile = { nav.navigate("profile") },
                 )
             }
             composable(
@@ -224,6 +233,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 )
             }
             composable("bench") { ParserBenchRoute(onBack = nav::popBackStack) }
+            composable("profile") { com.hisaab.app.ui.profile.ProfileRoute(onBack = nav::popBackStack) }
         }
     }
 }

@@ -74,6 +74,7 @@ class HomeViewModel @Inject constructor(
     accounts: AccountDao,
     private val budgets: BudgetDao,
     private val settings: AppSettingsStore,
+    private val categoryDao: com.hisaab.shared.db.CategoryDao,
     holdings: HoldingDao,
     statements: StatementDao,
     plans: com.hisaab.app.ui.plan.PlanSource,
@@ -154,6 +155,19 @@ class HomeViewModel @Inject constructor(
     val update = updater.state
 
     /** Daily spending over the last ~18 weeks, for the Activity grid. */
+    /** Spent this month in each category of the user's own (filed under Other in the built-in totals). */
+    val customSpend: StateFlow<List<Pair<com.hisaab.shared.db.CustomCategoryEntity, Long>>> = month.flatMapLatest { m ->
+        val r = Periods.range(m)
+        combine(categoryDao.observeCustomTotals(r.first, r.last), categoryDao.observeCustom()) { totals, cats ->
+            totals.mapNotNull { t -> cats.firstOrNull { it.id == t.customCategoryId }?.let { it to t.total } }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The profile, and whether to ask for one: no name yet and the first-run prompt not skipped. */
+    val profile: StateFlow<Pair<com.hisaab.app.settings.Profile, Boolean>?> =
+        settings.settings.map { it.profile to (it.profile.name == null && !it.profilePromptDismissed) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     val activity: StateFlow<Map<java.time.LocalDate, Long>> = run {
         val from = java.time.LocalDate.now(Periods.zone).minusWeeks(19).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
         val offset = Periods.offsetMillis()

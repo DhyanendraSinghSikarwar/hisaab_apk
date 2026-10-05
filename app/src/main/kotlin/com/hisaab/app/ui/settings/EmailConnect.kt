@@ -174,27 +174,22 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, vm: Em
                             email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email address") }, singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                         )
+                        Text(
+                            "Next you'll sign in with an app password, not your normal one. It takes about a minute, and we'll show you exactly where to get it.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     ConnectStep.SIGN_IN -> {
                         Text(s.email, style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "Sign in with an app password: a 16-character password your email provider makes just for this app. " +
-                                "Your normal password won't work, and you can revoke the app password at any time.",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        s.server?.appPasswordUrl?.let { url ->
-                            TextButton(onClick = { openUrl(context, url) }) { Text("Create an app password for ${s.server?.provider}") }
-                            if (s.server?.provider == "Gmail") {
-                                Text("Gmail needs 2-Step Verification turned on before it offers app passwords.", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text("What's an app password?", style = MaterialTheme.typography.labelLarge)
-                            com.hisaab.app.ui.components.InfoButton("App password", *com.hisaab.app.ui.components.Info.APP_PASSWORD)
-                        }
+                        AppPasswordGuide(s.server) { openUrl(context, it) }
+                        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
                         OutlinedTextField(
                             password, { password = it }, Modifier.fillMaxWidth(), label = { Text("App password") }, singleLine = true,
                             visualTransformation = PasswordVisualTransformation(),
+                            supportingText = { Text("Spaces are fine: paste it exactly as shown.") },
+                            trailingIcon = {
+                                TextButton(onClick = { clipboard.getText()?.text?.let { password = it.trim() } }) { Text("Paste") }
+                            },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                         )
                     }

@@ -18,6 +18,8 @@ import androidx.sqlite.execSQL
         HoldingEntity::class,
         MerchantRuleEntity::class,
         RecurringEntity::class,
+        CustomCategoryEntity::class,
+        CustomSubcategoryEntity::class,
     ],
     version = HisaabDatabase.VERSION,
     exportSchema = true,
@@ -33,10 +35,11 @@ abstract class HisaabDatabase : RoomDatabase() {
     abstract fun holdings(): HoldingDao
     abstract fun merchantRules(): MerchantRuleDao
     abstract fun recurring(): RecurringDao
+    abstract fun categories(): CategoryDao
 
     companion object {
         const val NAME = "hisaab.db"
-        const val VERSION = 9
+        const val VERSION = 10
     }
 }
 
@@ -131,5 +134,26 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+    /** 9 -> 10: email subjects, statement totals, sub-categories and categories of the user's own. */
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE transaction_sources ADD COLUMN subject TEXT DEFAULT NULL")
+            connection.execSQL("ALTER TABLE transactions ADD COLUMN subcategory TEXT DEFAULT NULL")
+            connection.execSQL("ALTER TABLE transactions ADD COLUMN customCategoryId INTEGER DEFAULT NULL")
+            connection.execSQL(
+                "CREATE TABLE IF NOT EXISTS `custom_categories` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, " +
+                    "`icon` TEXT NOT NULL, `colorArgb` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)",
+            )
+            connection.execSQL(
+                "CREATE TABLE IF NOT EXISTS `custom_subcategories` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `parent` TEXT NOT NULL, " +
+                    "`name` TEXT NOT NULL, `icon` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+            )
+            connection.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_custom_subcategories_parent_name` ON `custom_subcategories` (`parent`, `name`)")
+            for (c in listOf("openingMinor", "closingMinor", "debitsMinor", "creditsMinor", "availableMinor")) {
+                connection.execSQL("ALTER TABLE statements ADD COLUMN $c INTEGER DEFAULT NULL")
+            }
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
 }

@@ -57,12 +57,17 @@ class StatementProcessor @Inject constructor(
     private val parser = StatementParser()
     private val lockedDir: File get() = File(context.noBackupFilesDir, "locked-statements").apply { mkdirs() }
 
+    /** Read statements are kept here, private and never backed up, so they can be read again or deleted. */
+    private val keptDir: File get() = File(context.noBackupFilesDir, "statements").apply { mkdirs() }
+
+    private fun keep(bytes: ByteArray): String = File(keptDir, sha(bytes) + ".pdf").apply { if (!exists()) writeBytes(bytes) }.path
+
     override suspend fun read(bytes: ByteArray, meta: StatementMeta): List<IncomingMessage> = withContext(Dispatchers.Default) {
         val existing = statements.byKey(meta.key)
         if (existing != null && existing.status != StatementEntity.LOCKED) return@withContext emptyList()
 
         when (val opened = openWithSaved(bytes)) {
-            is PdfOpen.Text -> messages(opened.text, meta, existing?.id ?: 0, existing?.filePath)
+            is PdfOpen.Text -> messages(opened.text, meta, existing?.id ?: 0, keep(bytes), existing?.filePath)
             PdfOpen.Locked -> {
                 val file = existing?.filePath?.let(::File)?.takeIf { it.exists() } ?: File(lockedDir, sha(bytes) + ".pdf").apply { writeBytes(bytes) }
                 val guess = guessIssuer(meta)
@@ -95,9 +100,25 @@ class StatementProcessor @Inject constructor(
         if (opened !is PdfOpen.Text) return UnlockResult.WrongPassword
         if (remember) passwords.add(label, password)
         val meta = StatementMeta(s.source, s.key, s.sender, s.subject, s.fileName, s.receivedAt)
-        val report = store(withContext(Dispatchers.Default) { messages(opened.text, meta, s.id, s.filePath) })
+        val report = store(withContext(Dispatchers.Default) { messages(opened.text, meta, s.id, keep(bytes), s.filePath) })
         return UnlockResult.Done(statements.byId(id) ?: s, report)
     }
+
+    /**
+     * Reads a kept statement again: picks up rows and totals a newer version of the reader understands, and
+     * brings the account up to date. Rows already stored are recognised and not added twice.
+     */
+    suspend fun reread(id: Long): IngestReport? {
+        val s = statements.byId(id) ?: return null
+        if (s.status == StatementEntity.LOCKED) return null
+        val bytes = s.filePath?.let(::File)?.takeIf { it.exists() }?.readBytes() ?: return null
+        val opened = withContext(Dispatchers.Default) { openWithSaved(bytes) } as? PdfOpen.Text ?: return null
+        val meta = StatementMeta(s.source, s.key, s.sender, s.subject, s.fileName, s.receivedAt)
+        return store(withContext(Dispatchers.Default) { messages(opened.text, meta, s.id, s.filePath, null) })
+    }
+
+    /** Whether [reread] can work: the PDF is still on the phone. Statements read before 1.10 were not kept. */
+    fun canReread(s: StatementEntity): Boolean = s.status != StatementEntity.LOCKED && s.filePath?.let { File(it).exists() } == true
 
     /** After a password is added: tries every locked statement again. Returns how many opened. */
     suspend fun retryLocked(): Int {
@@ -126,7 +147,7 @@ class StatementProcessor @Inject constructor(
         return PdfOpen.Locked
     }
 
-    private suspend fun messages(text: String, meta: StatementMeta, id: Long, lockedPath: String?): List<IncomingMessage> {
+    private suspend fun messages(text: String, meta: StatementMeta, id: Long, keptPath: String?, lockedPath: String?): List<IncomingMessage> {
         val r = parser.parse(text, meta.sender, meta.receivedAt)
         if (r.holdings.isNotEmpty()) holdings.record(r.holdings, "STATEMENT")
         val msgs = r.transactions.mapIndexed { i, tx ->
@@ -135,22 +156,27 @@ class StatementProcessor @Inject constructor(
         val status = if (msgs.isEmpty() && r.holdings.isEmpty()) StatementEntity.EMPTY else StatementEntity.PARSED
         val sum = r.summary
         // Bring the account up to date: a card's available limit, or a bank account's closing balance.
-        if (r.bankName != null && r.last4 != null && (msgs.isNotEmpty() || sum.creditLimitMinor != null)) {
+        if (r.bankName != null && r.last4 != null &&
+            (msgs.isNotEmpty() || sum.creditLimitMinor != null || sum.closingMinor != null || sum.availableMinor != null)
+        ) {
             val at = sum.statementDate?.atTime(23, 59)?.atZone(java.time.ZoneId.of("Asia/Kolkata"))?.toInstant()?.toEpochMilli()
                 ?: r.transactions.maxOfOrNull { it.transactionTime } ?: meta.receivedAt
             transactions.applyStatementToAccount(
                 r.bankName!!, r.last4!!, r.kind,
-                closingBalance = r.transactions.lastOrNull { it.balanceMinor != null }?.balanceMinor,
-                creditLimit = sum.creditLimitMinor, totalDue = sum.totalDueMinor, at = at,
+                // The closing balance printed in the summary is the most reliable; otherwise the last row's balance.
+                closingBalance = sum.closingMinor ?: r.transactions.lastOrNull { it.balanceMinor != null }?.balanceMinor,
+                creditLimit = sum.creditLimitMinor, totalDue = sum.totalDueMinor, available = sum.availableMinor, at = at,
             )
         }
         statements.upsert(
-            entity(meta, id, status, msgs.size, r.holdings.size, null, r.bankName, r.last4).copy(
+            entity(meta, id, status, msgs.size, r.holdings.size, keptPath, r.bankName, r.last4).copy(
                 kind = r.statementKind.name, totalDueMinor = sum.totalDueMinor, minDueMinor = sum.minDueMinor,
                 dueEpochDay = sum.dueDate?.toEpochDay(), creditLimitMinor = sum.creditLimitMinor, statementEpochDay = sum.statementDate?.toEpochDay(),
+                openingMinor = sum.openingMinor, closingMinor = sum.closingMinor, debitsMinor = sum.debitsMinor,
+                creditsMinor = sum.creditsMinor, availableMinor = sum.availableMinor,
             ),
         )
-        lockedPath?.let { File(it).delete() }
+        lockedPath?.takeIf { it != keptPath }?.let { File(it).delete() }
         return msgs
     }
 

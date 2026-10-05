@@ -175,7 +175,10 @@ interface TransactionDao {
     @Query("SELECT COUNT(*) FROM transactions")
     suspend fun count(): Int
 
-    @Query("UPDATE transactions SET category = :category WHERE id = :id")
+    @Query("SELECT COUNT(*) FROM transactions")
+    fun observeTransactionCount(): Flow<Int>
+
+    @Query("UPDATE transactions SET category = :category, subcategory = NULL, customCategoryId = NULL WHERE id = :id")
     suspend fun setCategory(id: Long, category: String)
 
     @Query("UPDATE transactions SET note = :note WHERE id = :id")
@@ -188,11 +191,19 @@ interface TransactionDao {
     )
     fun observeForStatement(statementKey: String): Flow<List<TransactionEntity>>
 
+    /** How many of a statement's rows matched a transaction an SMS or email had already reported. */
+    @Query(
+        """SELECT COUNT(DISTINCT t.id) FROM transactions t JOIN transaction_sources s ON s.transactionId = t.id
+           WHERE s.source = 'STATEMENT' AND s.sourceMessageId LIKE 'stmt:' || :statementKey || ':%'
+             AND EXISTS (SELECT 1 FROM transaction_sources o WHERE o.transactionId = t.id AND o.source != 'STATEMENT')""",
+    )
+    fun observeMatchedForStatement(statementKey: String): Flow<Int>
+
     /** How often each category was used for this type of transaction since [from], most used first. */
     @Query("SELECT category, COUNT(*) AS count FROM transactions WHERE type = :type AND timestamp >= :from GROUP BY category ORDER BY count DESC")
     suspend fun categoryUsage(type: String, from: Long): List<CategoryCount>
 
-    @Query("UPDATE transactions SET category = :category WHERE id IN (:ids)")
+    @Query("UPDATE transactions SET category = :category, subcategory = NULL, customCategoryId = NULL WHERE id IN (:ids)")
     suspend fun setCategoryFor(ids: List<Long>, category: String)
 
     @Query("DELETE FROM transactions WHERE id IN (:ids)")

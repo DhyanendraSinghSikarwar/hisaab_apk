@@ -75,6 +75,7 @@ fun SettingsRoute(
     onOpenStatements: () -> Unit,
     onOpenInvestments: () -> Unit,
     contentPadding: PaddingValues,
+    onOpenProfile: () -> Unit = {},
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -264,23 +265,12 @@ fun SettingsRoute(
                 app?.hideAmounts ?: false, vm::setHideAmounts)
 
             Section("Appearance")
-            var editingName by remember { mutableStateOf(false) }
             ListItem(
-                headlineContent = { Text("Your name") },
-                supportingContent = { Text(app?.displayName ?: "Shown on Home with a greeting") },
-                trailingContent = { TextButton(onClick = { editingName = true }) { Text("Edit") } },
-                modifier = Modifier.clickable { editingName = true },
+                headlineContent = { Text("Profile") },
+                supportingContent = { Text(app?.displayName?.let { "$it · name, photo and contact" } ?: "Add your name and photo") },
+                leadingContent = { com.hisaab.app.ui.profile.ProfileAvatar(app?.displayName ?: "You", app?.profile?.photoPath, 40.dp) },
+                modifier = Modifier.clickable(onClick = onOpenProfile),
             )
-            if (editingName) {
-                var draft by remember { mutableStateOf(app?.displayName.orEmpty()) }
-                AlertDialog(
-                    onDismissRequest = { editingName = false },
-                    title = { Text("Your name") },
-                    text = { OutlinedTextField(draft, { draft = it }, singleLine = true, label = { Text("Name") }) },
-                    confirmButton = { TextButton(onClick = { vm.setDisplayName(draft); editingName = false }) { Text("Save") } },
-                    dismissButton = { TextButton(onClick = { editingName = false }) { Text("Cancel") } },
-                )
-            }
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     ThemeMode.entries.forEachIndexed { i, mode ->

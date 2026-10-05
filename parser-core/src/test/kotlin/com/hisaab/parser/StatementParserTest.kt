@@ -113,7 +113,39 @@ class StatementParserTest {
         assertEquals(java.time.LocalDate.of(2026, 10, 8), r.summary.dueDate)
         assertEquals(java.time.LocalDate.of(2026, 9, 20), r.summary.statementDate)
         assertEquals(20000000L, r.summary.creditLimitMinor)
+        assertEquals(17543925L, r.summary.availableMinor)
         assertEquals(1, r.transactions.size)
+    }
+
+    @Test
+    fun `bank statement summary gives opening, debits, credits and closing, not the table header`() {
+        val text = """
+            HDFC Bank Statement of account  Account No : 50100012345678
+            Date Narration Chq./Ref.No. Value Dt Withdrawal Amt. Deposit Amt. Closing Balance
+            02/09/26 UPI-SWIGGY-SWIGGY@ICICI 0000123 02/09/26 450.00 49,550.00
+            STATEMENT SUMMARY
+            Opening Balance Dr Count Cr Count Debits Credits Closing Bal
+            50,000.00 1 0 450.00 0.00 49,550.00
+        """.trimIndent()
+        val s = parser.parse(text, "HDFC Bank <hdfcbanksmartstatement@hdfcbank.net>", Fixture.RECEIVED_AT).summary
+        assertEquals(5000000L, s.openingMinor)
+        assertEquals(45000L, s.debitsMinor)
+        assertEquals(0L, s.creditsMinor)
+        assertEquals(4955000L, s.closingMinor)
+    }
+
+    @Test
+    fun `card summary with a previous balance column keeps each value with its label`() {
+        val text = """
+            Axis Bank Credit Card Statement  Card No 5241 XXXX XXXX 3344
+            Previous Balance Payments/Credits Purchases/Debits Total Amount Due
+            10,000.00 10,000.00 3,250.50 3,250.50
+        """.trimIndent()
+        val s = parser.parse(text, "Axis Bank <cc.statements@axisbank.com>", Fixture.RECEIVED_AT).summary
+        assertEquals(1000000L, s.openingMinor)
+        assertEquals(1000000L, s.creditsMinor)
+        assertEquals(325050L, s.debitsMinor)
+        assertEquals(325050L, s.totalDueMinor)
     }
 
     @Test

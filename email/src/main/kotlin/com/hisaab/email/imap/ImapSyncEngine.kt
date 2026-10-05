@@ -82,7 +82,7 @@ class ImapSyncEngine(
 
     private suspend fun parse(m: FetchedMail, readPdf: Boolean): List<IncomingMessage> {
         val out = ArrayList<IncomingMessage>(1)
-        registry.parse(m.text, m.from, m.receivedAt, Source.EMAIL)?.let { out += IncomingMessage(it, m.id, m.text) }
+        registry.parse(m.text, m.from, m.receivedAt, Source.EMAIL)?.let { out += IncomingMessage(it, m.id, m.text, subject = m.subject) }
         if (readPdf) {
             for ((index, bytes) in m.pdfs.withIndex()) {
                 val name = m.pdfNames.getOrNull(index) ?: "statement.pdf"

@@ -30,6 +30,8 @@ data class IncomingMessage(
     val rawText: String?,
     /** SMS, EMAIL or CSV. Defaults to the parser's source. */
     val sourceName: String = parsed.source.name,
+    /** An email's subject line. */
+    val subject: String? = null,
 )
 
 enum class IngestOutcome { INSERTED, MERGED, FLAGGED_FOR_REVIEW, ALREADY_PROCESSED }
@@ -147,6 +149,7 @@ class TransactionRepository @Inject constructor(
             TransactionSourceEntity(
                 transactionId = txId, source = m.sourceName, sourceMessageId = m.sourceMessageId, sender = tx.sender,
                 parsedHash = tx.transactionHash, rawText = m.rawText?.take(RAW_TEXT_CAP), receivedAt = tx.messageTimestamp,
+                subject = m.subject,
             ),
         )
         if (accountId != null) {
@@ -250,12 +253,17 @@ class TransactionRepository @Inject constructor(
      * What a statement says about the account: a card's credit limit and amount due give its available limit;
      * a bank statement's last running balance is the account balance. Only a newer figure replaces an older one.
      */
-    suspend fun applyStatementToAccount(bankName: String, last4: String, kind: AccountKind, closingBalance: Long?, creditLimit: Long?, totalDue: Long?, at: Long) {
+    suspend fun applyStatementToAccount(
+        bankName: String, last4: String, kind: AccountKind, closingBalance: Long?, creditLimit: Long?, totalDue: Long?, at: Long,
+        available: Long? = null,
+    ) {
         val id = accountDao.find(bankName, last4)?.id
             ?: accountDao.insert(AccountEntity(bankName = bankName, last4 = last4, kind = kind, createdAt = System.currentTimeMillis())).takeIf { it != -1L }
             ?: return
         when (kind) {
-            AccountKind.CARD -> if (creditLimit != null) accountDao.setLimitFromStatement(id, (creditLimit - (totalDue ?: 0)).coerceAtLeast(0), at)
+            // The available limit printed on the statement beats working it out from the limit and the amount due.
+            AccountKind.CARD -> (available ?: creditLimit?.let { (it - (totalDue ?: 0)).coerceAtLeast(0) })
+                ?.let { accountDao.setLimitFromStatement(id, it, at) }
             AccountKind.ACCOUNT -> if (closingBalance != null) accountDao.updateBalance(id, closingBalance, null, at)
         }
     }

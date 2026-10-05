@@ -60,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
@@ -136,14 +137,25 @@ fun Avatar(name: String, size: androidx.compose.ui.unit.Dp = 48.dp) {
 fun HomeHeader(
     name: String, onOpenAccounts: () -> Unit, onToggleHide: () -> Unit, onOpenSettings: () -> Unit, onOpenBills: () -> Unit,
     modifier: Modifier = Modifier, compact: Boolean = false,
+    photoPath: String? = null, onOpenProfile: () -> Unit = {}, hasName: Boolean = true,
 ) {
     var menu by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Avatar(name, if (compact) 36.dp else 48.dp)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(name, style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, maxLines = 1)
-            if (!compact) Text(greeting(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Avatar and name open the profile.
+        Row(
+            Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).clickable(onClick = onOpenProfile).padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            com.hisaab.app.ui.profile.ProfileAvatar(name, photoPath, if (compact) 36.dp else 48.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                if (!compact) Text(greeting(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(name, style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                if (!compact && !hasName) {
+                    Text("Tap to create your profile", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                }
+            }
         }
         IconButton(onClick = onOpenAccounts) { Icon(Icons.Filled.AccountBalance, "Accounts") }
         Box {
@@ -154,6 +166,8 @@ fun HomeHeader(
                     onClick = { menu = false; onToggleHide() })
                 DropdownMenuItem(text = { Text("Bills & insurance") }, leadingIcon = { Icon(Icons.Filled.EventRepeat, null) },
                     onClick = { menu = false; onOpenBills() })
+                DropdownMenuItem(text = { Text("Profile") }, leadingIcon = { Icon(Icons.Filled.Person, null) },
+                    onClick = { menu = false; onOpenProfile() })
                 DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { Icon(Icons.Filled.MoreHoriz, null) },
                     onClick = { menu = false; onOpenSettings() })
             }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -39,8 +40,16 @@ import com.hisaab.parser.model.Category
 /** The one place a category is chosen: grouped icon tiles in a sheet, with a quick search. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CategorySheet(current: Category?, onPick: (Category) -> Unit, onDismiss: () -> Unit, title: String = "Choose a category") {
+fun CategorySheet(
+    current: Category?, onPick: (Category) -> Unit, onDismiss: () -> Unit, title: String = "Choose a category",
+    custom: List<com.hisaab.shared.db.CustomCategoryEntity> = emptyList(),
+    currentCustomId: Long? = null,
+    /** Set to offer the user's own categories and a "New category" tile. */
+    onPickCustom: ((com.hisaab.shared.db.CustomCategoryEntity) -> Unit)? = null,
+    onCreateCustom: ((name: String, icon: String, color: Int) -> Unit)? = null,
+) {
     var query by remember { mutableStateOf("") }
+    var creating by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge)
@@ -57,6 +66,27 @@ fun CategorySheet(current: Category?, onPick: (Category) -> Unit, onDismiss: () 
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            if (onPickCustom != null) {
+                item(key = "own", span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "YOUR CATEGORIES", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 4.dp),
+                    )
+                }
+                val own = custom.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
+                items(own, key = { "c-${it.id}" }) { c ->
+                    com.hisaab.app.ui.category.Tile(IconLibrary.get(c.icon), c.name, Color(c.colorArgb), selected = c.id == currentCustomId) {
+                        onPickCustom(c); onDismiss()
+                    }
+                }
+                if (onCreateCustom != null) {
+                    item(key = "new") {
+                        com.hisaab.app.ui.category.Tile(androidx.compose.material.icons.Icons.Filled.Add, "New category", MaterialTheme.colorScheme.primary, false) {
+                            creating = true
+                        }
+                    }
+                }
+            }
             groups.forEach { (group, members) ->
                 item(key = "g-${group.name}", span = { GridItemSpan(maxLineSpan) }) {
                     Text(
@@ -66,6 +96,11 @@ fun CategorySheet(current: Category?, onPick: (Category) -> Unit, onDismiss: () 
                 }
                 items(members, key = { it.name }) { c -> CategoryTile(c, selected = c == current) { onPick(c); onDismiss() } }
             }
+        }
+    }
+    if (creating && onCreateCustom != null) {
+        com.hisaab.app.ui.category.NewItemDialog("New category", withColor = true, onDismiss = { creating = false }) { name, icon, color ->
+            onCreateCustom(name, icon, color); creating = false; onDismiss()
         }
     }
 }

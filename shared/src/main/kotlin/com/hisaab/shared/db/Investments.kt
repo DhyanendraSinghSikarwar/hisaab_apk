@@ -42,6 +42,12 @@ data class StatementEntity(
     @ColumnInfo(defaultValue = "NULL") val creditLimitMinor: Long? = null,
     /** Statement date, epoch day. */
     @ColumnInfo(defaultValue = "NULL") val statementEpochDay: Long? = null,
+    // Totals printed on the statement itself.
+    @ColumnInfo(defaultValue = "NULL") val openingMinor: Long? = null,
+    @ColumnInfo(defaultValue = "NULL") val closingMinor: Long? = null,
+    @ColumnInfo(defaultValue = "NULL") val debitsMinor: Long? = null,
+    @ColumnInfo(defaultValue = "NULL") val creditsMinor: Long? = null,
+    @ColumnInfo(defaultValue = "NULL") val availableMinor: Long? = null,
 ) {
     companion object {
         const val PARSED = "PARSED"

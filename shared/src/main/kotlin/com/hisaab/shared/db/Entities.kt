@@ -52,6 +52,10 @@ data class TransactionEntity(
     val reviewReason: String? = null,
     val note: String? = null,
     val createdAt: Long,
+    /** The sub-category the user chose. Null means "work it out from the merchant" (see Subcategories). */
+    @ColumnInfo(defaultValue = "NULL") val subcategory: String? = null,
+    /** Set when the user filed it under a category of their own; [category] is then OTHER. */
+    @ColumnInfo(defaultValue = "NULL") val customCategoryId: Long? = null,
 )
 
 /** Every message that contributed to a transaction. One transaction can have an SMS and an email. */
@@ -78,6 +82,8 @@ data class TransactionSourceEntity(
     /** Kept, capped, for re-parsing when the user splits a merge. Stays on the device. */
     val rawText: String?,
     val receivedAt: Long,
+    /** An email's subject line, shown above its text. Null for SMS and older emails. */
+    @ColumnInfo(defaultValue = "NULL") val subject: String? = null,
 )
 
 /** Gmail message ids already handled, whatever the outcome, so no email is parsed twice. */

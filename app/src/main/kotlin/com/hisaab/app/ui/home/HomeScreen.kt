@@ -105,6 +105,8 @@ fun HomeRoute(
     onOpenCategory: (Category, YearMonth) -> Unit,
     onOpenSettings: () -> Unit,
     contentPadding: PaddingValues,
+    onOpenProfile: () -> Unit = {},
+    onOpenCategoryKey: (String) -> Unit = {},
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -113,6 +115,10 @@ fun HomeRoute(
     val update by vm.update.collectAsStateWithLifecycle()
     val activity by vm.activity.collectAsStateWithLifecycle()
     val syncing by vm.syncing.collectAsStateWithLifecycle()
+    val profile by vm.profile.collectAsStateWithLifecycle()
+    val customSpend by vm.customSpend.collectAsStateWithLifecycle()
+    var setupDismissed by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (profile?.second == true && !setupDismissed) com.hisaab.app.ui.profile.ProfileSetupSheet(onDone = { setupDismissed = true })
     var addingRecurring by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     if (addingRecurring) com.hisaab.app.ui.plan.RecurringSheet(existing = null, onDismiss = { addingRecurring = false })
     val sms = rememberSmsPermission(onGranted = { vm.scanInbox(full = true) })
@@ -134,6 +140,8 @@ fun HomeRoute(
         updateVersion = (update as? com.hisaab.app.update.UpdateState.Available)?.release?.version, onOpenSettings = onOpenSettings,
         onOpenCategory = { onOpenCategory(it, state.month) },
         activity = activity, syncing = syncing, onSync = vm::syncAll, onAddRecurring = { addingRecurring = true },
+        photoPath = profile?.first?.photoPath, onOpenProfile = onOpenProfile,
+        customSpend = customSpend, onOpenCategoryKey = { onOpenCategoryKey("$it?month=${state.month}") },
     )
 }
 
@@ -167,12 +175,17 @@ fun HomeScreen(
     activity: Map<java.time.LocalDate, Long> = emptyMap(),
     syncing: Boolean = false,
     onSync: () -> Unit = {},
+    photoPath: String? = null,
+    onOpenProfile: () -> Unit = {},
+    customSpend: List<Pair<com.hisaab.shared.db.CustomCategoryEntity, Long>> = emptyList(),
+    onOpenCategoryKey: (String) -> Unit = {},
     onAddRecurring: () -> Unit = {},
 ) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     // Once the big header has scrolled away, a compact one floats at the top.
     val collapsed by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex > 0 } }
-    val name = state.displayName ?: "Hisaab"
+    // The user's own name at the top; until they add one, an invitation to create the profile.
+    val name = state.displayName ?: "Welcome"
     Box(Modifier.fillMaxSize()) {
         AuroraBackground()
         LazyColumn(
@@ -181,8 +194,9 @@ fun HomeScreen(
             contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + 96.dp),
         ) {
             item(key = "header") {
-                HomeHeader(name, onOpenAccounts, onToggleHide, onOpenSettings, onOpenBills,
-                    Modifier.statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 20.dp, bottom = 16.dp))
+                HomeHeader(name, onOpenAccounts, onToggleHide, onOpenSettings, onOpenBills, photoPath = photoPath, onOpenProfile = onOpenProfile,
+                    hasName = state.displayName != null,
+                    modifier = Modifier.statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 20.dp, bottom = 16.dp))
             }
             item(key = "hero") { SpendHero(state, onPreviousMonth, onNextMonth, onToggleHide, onOpenInvestments) }
 
@@ -230,12 +244,6 @@ fun HomeScreen(
             }
             items(state.recent, key = { it.id }) { tx -> TransactionRow(tx, onClick = { onOpenTransaction(tx.id) }, modifier = Modifier.animateItem()) }
 
-            // Bank accounts
-            if (state.accounts.isNotEmpty()) {
-                item(key = "accounts-h") { HomeSection("Bank Accounts", "Manage", onOpenAccounts) }
-                item(key = "accounts") { AccountsCarousel(state.accounts, onOpenAccounts, onToggleHide) }
-            }
-
             // Upcoming subscriptions and payments
             val regular = plan.recurring.filter { !it.income }
             if (regular.isNotEmpty() || plan.policies.isNotEmpty()) {
@@ -248,7 +256,17 @@ fun HomeScreen(
             // Where it went
             if (state.categories.isNotEmpty()) {
                 item(key = "cats-h") { HomeSection("Where it went", "Analytics", onOpenAnalytics) }
-                items(state.categories.take(5), key = { it.category }) { c -> CategoryLine(c, state.spent, onClick = { onOpenCategory(c.category) }) }
+                // Categories only; tapping one drills down into its sub-categories. The user's own categories
+                // are counted in Other by the built-in totals, so they are taken out of it here.
+                val ownTotal = customSpend.sumOf { it.second }
+                val lines = (state.categories.map { c ->
+                    val spent = if (c.category == Category.OTHER) (c.spent - ownTotal).coerceAtLeast(0) else c.spent
+                    Triple(com.hisaab.app.ui.category.CategoryLook.of(c.category), spent, c.budget)
+                } + customSpend.map { (c, t) -> Triple(com.hisaab.app.ui.category.CategoryLook.of(c), t, null) })
+                    .filter { it.second > 0 }.sortedByDescending { it.second }.take(6)
+                items(lines, key = { it.first.key }) { (look, spent, budget) ->
+                    LookLine(look, spent, budget, state.spent, onClick = { onOpenCategoryKey(look.key) })
+                }
             }
 
             // Activity
@@ -256,10 +274,6 @@ fun HomeScreen(
             item(key = "activity") { ActivityHeatmap(activity) }
 
             plan.savings?.let { s -> if (s.lastMonth != null || s.averageMonthlyMinor != 0L) item(key = "savings") { SavingsCard(s) } }
-            if (plan.insights.isNotEmpty()) {
-                item(key = "insights-h") { HomeSection("Insights", "More", onOpenAnalytics) }
-                items(plan.insights.take(2), key = { "in-${it.title}" }) { InsightRow(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
-            }
             state.lastScanResult?.let {
                 item { Text("Last SMS scan: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp)) }
             }
@@ -270,7 +284,7 @@ fun HomeScreen(
             enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it },
             exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it },
         ) {
-            CollapsedHeader { HomeHeader(name, onOpenAccounts, onToggleHide, onOpenSettings, onOpenBills, compact = true) }
+            CollapsedHeader { HomeHeader(name, onOpenAccounts, onToggleHide, onOpenSettings, onOpenBills, compact = true, photoPath = photoPath, onOpenProfile = onOpenProfile) }
         }
 
         HomeFabs(
@@ -565,5 +579,26 @@ private fun CategoryLine(c: CategorySpend, totalSpent: Long, onClick: () -> Unit
                 color = if (c.budget != null && c.spent > c.budget) MaterialTheme.colorScheme.error else c.category.color,
             )
         }
+    }
+}
+
+@Composable
+private fun LookLine(look: com.hisaab.app.ui.category.CategoryLook, spent: Long, budget: Long?, totalSpent: Long, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        com.hisaab.app.ui.category.IconBadge(look.icon, look.color, 32)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row {
+                Text(look.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Text(Money.format(spent, showPaise = false) + (budget?.let { " / " + Money.compact(it) } ?: ""), style = MaterialTheme.typography.bodyMedium)
+            }
+            val fraction = if (budget != null && budget > 0) spent.toFloat() / budget else if (totalSpent > 0) spent.toFloat() / totalSpent else 0f
+            val animated by androidx.compose.animation.core.animateFloatAsState(fraction.coerceIn(0f, 1f), androidx.compose.animation.core.tween(700), label = "category")
+            LinearProgressIndicator(
+                progress = { animated }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                color = if (budget != null && spent > budget) MaterialTheme.colorScheme.error else look.color,
+            )
+        }
+        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

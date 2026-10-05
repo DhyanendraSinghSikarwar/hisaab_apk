@@ -25,6 +25,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -55,11 +58,36 @@ import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
-class StatementDetailViewModel @Inject constructor(handle: SavedStateHandle, statements: StatementDao, transactions: TransactionDao) : ViewModel() {
+class StatementDetailViewModel @Inject constructor(
+    handle: SavedStateHandle,
+    statements: StatementDao,
+    transactions: TransactionDao,
+    private val processor: com.hisaab.email.statement.StatementProcessor,
+) : ViewModel() {
     private val id: Long = checkNotNull(handle.get<Long>("id"))
     val statement = statements.observeById(id).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val rows = statements.observeById(id).flatMapLatest { s -> s?.let { transactions.observeForStatement(it.key) } ?: flowOf(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Rows that matched a payment an SMS or email had already reported, so they were not added twice. */
+    val matched = statements.observeById(id).flatMapLatest { s -> s?.let { transactions.observeMatchedForStatement(it.key) } ?: flowOf(0) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    val busy = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val message = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    fun canReread(s: StatementEntity) = processor.canReread(s)
+
+    fun reread() = viewModelScope.launch {
+        busy.value = true
+        val r = runCatching { processor.reread(id) }.getOrNull()
+        busy.value = false
+        message.value = when {
+            r == null -> "Couldn't read it again."
+            r.inserted + r.flagged == 0 -> "Read again: nothing new. The account is up to date."
+            else -> "Read again: ${r.inserted + r.flagged} new transactions added."
+        }
+    }
 }
 
 private val DAY = DateTimeFormatter.ofPattern("d MMM yyyy")
@@ -70,6 +98,9 @@ private fun day(epochDay: Long?) = epochDay?.let { LocalDate.ofEpochDay(it).form
 fun StatementDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, onOpenInvestments: () -> Unit, vm: StatementDetailViewModel = hiltViewModel()) {
     val s by vm.statement.collectAsStateWithLifecycle()
     val rows by vm.rows.collectAsStateWithLifecycle()
+    val matched by vm.matched.collectAsStateWithLifecycle()
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val message by vm.message.collectAsStateWithLifecycle()
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Statement") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { inner ->
@@ -78,6 +109,25 @@ fun StatementDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, 
             item { Header(st) }
             item { Summary(st, rows.filter { it.type == TransactionType.CREDIT }.sumOf { it.amountMinor },
                 rows.filter { it.type == TransactionType.DEBIT || it.type == TransactionType.INVESTMENT }.sumOf { it.amountMinor }) }
+            item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (rows.isNotEmpty()) {
+                        Text(
+                            "${rows.size - matched} added from this statement · $matched matched SMS or email already in Hisaab",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    accountLine(st)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (vm.canReread(st)) {
+                        androidx.compose.material3.OutlinedButton(onClick = vm::reread, enabled = !busy) {
+                            Icon(Icons.Filled.Refresh, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (busy) "Reading…" else "Read again")
+                        }
+                    }
+                    message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+                }
+            }
             if (st.holdingCount > 0) {
                 item {
                     TextButton(onClick = onOpenInvestments, modifier = Modifier.padding(horizontal = 8.dp)) {
@@ -134,11 +184,14 @@ private fun Summary(s: StatementEntity, moneyIn: Long, moneyOut: Long) {
                     if (left in 0..10) Text(if (left == 0L) "Due today" else "Due in $left day${if (left > 1) "s" else ""}",
                         color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelLarge)
                 }
+                s.availableMinor?.let { Figure("Available limit", Money.format(it, showPaise = false)) }
             } else {
+                s.closingMinor?.let { Figure("Closing balance", Money.format(it), big = true) }
                 Row {
-                    Figure("Money in", Money.format(moneyIn, showPaise = false), Modifier.weight(1f), color = MoneyColors.credit)
-                    Figure("Money out", Money.format(moneyOut, showPaise = false), Modifier.weight(1f), color = MoneyColors.debit)
+                    Figure("Money in", Money.format(s.creditsMinor ?: moneyIn, showPaise = false), Modifier.weight(1f), color = MoneyColors.credit)
+                    Figure("Money out", Money.format(s.debitsMinor ?: moneyOut, showPaise = false), Modifier.weight(1f), color = MoneyColors.debit)
                 }
+                s.openingMinor?.let { Figure("Opening balance", Money.format(it)) }
             }
             Text(
                 "${s.transactionCount} transactions read" + if (s.holdingCount > 0) " · ${s.holdingCount} holdings" else "",
@@ -154,5 +207,16 @@ private fun Figure(label: String, value: String, modifier: Modifier = Modifier, 
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
         Text(value, style = if (big) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium,
             color = color ?: MaterialTheme.colorScheme.onPrimaryContainer)
+    }
+}
+
+/** What reading the statement changed in the account, in words. */
+private fun accountLine(s: StatementEntity): String? {
+    val acct = (s.bankName ?: return null) + (s.last4?.let { " ••$it" } ?: return null)
+    return when {
+        s.kind == "CREDIT_CARD" && (s.availableMinor != null || s.creditLimitMinor != null) ->
+            "Updated $acct: available limit ${Money.format(s.availableMinor ?: ((s.creditLimitMinor ?: 0) - (s.totalDueMinor ?: 0)).coerceAtLeast(0), showPaise = false)}"
+        s.closingMinor != null -> "Updated $acct: balance ${Money.format(s.closingMinor!!)}"
+        else -> null
     }
 }

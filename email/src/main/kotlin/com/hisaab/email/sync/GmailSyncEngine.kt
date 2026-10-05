@@ -141,7 +141,7 @@ class GmailSyncEngine(
     private suspend fun parseEmail(messageId: String, content: EmailContent, readPdf: Boolean): List<IncomingMessage> {
         val out = ArrayList<IncomingMessage>(1)
         registry.parse(content.text, content.from, content.receivedAt, Source.EMAIL)?.let {
-            out += IncomingMessage(it, messageId, content.text)
+            out += IncomingMessage(it, messageId, content.text, subject = content.subject)
         }
         if (readPdf && pdf != null) {
             for ((index, attachment) in content.pdfAttachments.withIndex()) {

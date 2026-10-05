@@ -43,6 +43,7 @@ object SharedModule {
     @Provides fun holdingDao(db: HisaabDatabase): HoldingDao = db.holdings()
     @Provides fun merchantRuleDao(db: HisaabDatabase): com.hisaab.shared.db.MerchantRuleDao = db.merchantRules()
     @Provides fun recurringDao(db: HisaabDatabase): com.hisaab.shared.db.RecurringDao = db.recurring()
+    @Provides fun categoryDao(db: HisaabDatabase): com.hisaab.shared.db.CategoryDao = db.categories()
 
     @Provides
     @Singleton

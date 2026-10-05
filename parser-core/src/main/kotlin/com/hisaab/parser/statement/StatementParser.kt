@@ -42,6 +42,11 @@ data class StatementSummary(
     val dueDate: LocalDate? = null,
     val creditLimitMinor: Long? = null,
     val statementDate: LocalDate? = null,
+    val openingMinor: Long? = null,
+    val closingMinor: Long? = null,
+    val debitsMinor: Long? = null,
+    val creditsMinor: Long? = null,
+    val availableMinor: Long? = null,
 )
 
 /**
@@ -84,8 +89,11 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         var due: LocalDate? = null
         var limit: Long? = null
         var stmt: LocalDate? = null
+        val found = HashMap<String, Long>()
         val top = lines.take(SUMMARY_LINES)
         for ((i, line) in top.withIndex()) {
+            // The header of the transactions table ("Narration ... Closing Balance") is not a summary.
+            if (TABLE_HEADER.containsMatchIn(line)) continue
             val labels = SUMMARY_LABELS.mapNotNull { (key, rx) -> rx.find(line)?.let { key to it } }.sortedBy { it.second.range.first }
             if (labels.isEmpty()) continue
             val next = top.getOrNull(i + 1).orEmpty()
@@ -101,16 +109,21 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
                     if (key == "due_date" && due == null) due = d
                     if (key == "stmt_date" && stmt == null) stmt = d
                 } else {
-                    val a = (AMOUNT_ANY.find(sameLine)?.value ?: nextAmounts.removeFirstOrNull())?.let { Money.parse(it)?.minor }
+                    val a = (AMOUNT_ANY.find(sameLine)?.value ?: nextAmounts.removeFirstOrNull())?.let { Money.parse(it)?.minor ?: 0L.takeIf { _ -> it.replace(",", "").toDoubleOrNull() == 0.0 } }
                     when (key) {
                         "total" -> if (total == null) total = a
                         "min" -> if (min == null) min = a
                         "limit" -> if (limit == null) limit = a
+                        else -> if (a != null) found.putIfAbsent(key, a)
                     }
                 }
             }
         }
-        return StatementSummary(total, min, due, limit, stmt)
+        return StatementSummary(
+            total, min, due, limit, stmt,
+            openingMinor = found["opening"], closingMinor = found["closing"], debitsMinor = found["debits"],
+            creditsMinor = found["credits"], availableMinor = found["available"],
+        )
     }
 
     // Transaction rows.
@@ -228,7 +241,13 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
             "due_date" to rx("""(?:payment\s+)?due\s+date\b"""),
             "limit" to rx("""(?<!available\s)(?<!avl\.\s)(?:total\s+)?credit\s+limit\b"""),
             "stmt_date" to rx("""statement\s+date\b"""),
+            "available" to rx("""avail(?:able|\.)?\s+(?:credit\s+)?limit|avl\.?\s+(?:credit\s+|cr\.?\s+)?limit"""),
+            "opening" to rx("""(?:opening|previous)\s+(?:statement\s+)?bal(?:ance)?\b"""),
+            "closing" to rx("""closing\s+bal(?:ance)?\b(?!\s+due)"""),
+            "debits" to rx("""total\s+(?:debits?|withdrawals?)\b|(?<!no\.\s)(?<!no\s)\bdebits\b|\bwithdrawals\b"""),
+            "credits" to rx("""total\s+(?:credits?|deposits?)\b|(?<!no\.\s)(?<!no\s)\bcredits\b|\bdeposits\b"""),
         )
+        val TABLE_HEADER = rx("""\b(?:narration|particulars|description|chq|cheque|value\s+dt|txn\s+date|tran\s+date)\b""")
         val INVESTMENT_STATEMENT = rx("""consolidated\s+account\s+statement|\bCAS\b|demat|holding\s+statement|portfolio|mutual\s+fund|\bfolio\b|US\s+stocks""")
         val INVESTMENT_SENDER = rx("""camsonline|kfintech|karvy|nsdl|cdsl|indmoney|zerodha|groww|upstox|angelone|dhan\.co|kuvera""")
         val BANK_STATEMENT = rx("""account\s+statement|statement\s+of\s+account|savings\s+account|current\s+account""")

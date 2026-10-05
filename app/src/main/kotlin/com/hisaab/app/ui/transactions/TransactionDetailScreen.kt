@@ -116,7 +116,7 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
                     Text(signedAmount(t), style = MaterialTheme.typography.headlineMedium, color = signedAmountColor(t.type))
                 }
             }
-            CategoryPicker(t.category, vm::setCategory)
+            CategoryPicker(t, vm::setCategory)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Field("Type", t.type.name.lowercase().replaceFirstChar { it.uppercase() })
@@ -154,52 +154,67 @@ private fun Field(label: String, value: String) {
     }
 }
 
-/** The current category as a row; tapping it opens the category sheet. */
+/**
+ * The category and sub-category as two rows. Choosing a category opens its sub-categories next; the user's own
+ * categories and sub-categories are offered alongside the built-in ones.
+ */
 @Composable
-private fun CategoryPicker(current: Category, onPick: (Category) -> Unit) {
+private fun CategoryPicker(t: com.hisaab.shared.db.TransactionEntity, onPick: (Category) -> Unit, cats: com.hisaab.app.ui.category.CategoriesViewModel = hiltViewModel()) {
+    val custom by cats.custom.collectAsStateWithLifecycle()
+    val subs by cats.subs.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth().clickable { open = true }) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            CategoryBadge(current, size = 36)
+    var subOpen by remember { mutableStateOf(false) }
+    val own = t.customCategoryId?.let { id -> custom.firstOrNull { it.id == id } }
+    val look = own?.let { com.hisaab.app.ui.category.CategoryLook.of(it) } ?: com.hisaab.app.ui.category.CategoryLook.of(t.category)
+    val builtIn = if (own == null) t.category else null
+    val sub = t.subcategory ?: builtIn?.let { com.hisaab.shared.insight.Subcategories.guess(it, t.merchant, t.upiId) }
+    val subIcon = com.hisaab.app.ui.category.subsFor(look.key, builtIn, subs).firstOrNull { it.name == sub }?.icon
+    Card(Modifier.fillMaxWidth()) {
+        Row(Modifier.clickable { open = true }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            com.hisaab.app.ui.category.IconBadge(look.icon, look.color, 36)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text("Category", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(current.label, style = MaterialTheme.typography.bodyLarge)
+                Text(look.name, style = MaterialTheme.typography.bodyLarge)
+            }
+            Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+        Row(Modifier.clickable { subOpen = true }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            com.hisaab.app.ui.category.IconBadge(com.hisaab.app.ui.components.IconLibrary.get(subIcon), look.color, 36)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text("Sub-category" + if (t.subcategory == null && sub != null) " (automatic)" else "",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(sub ?: "None", style = MaterialTheme.typography.bodyLarge)
             }
             Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
     }
-    if (open) CategorySheet(current = current, onPick = onPick, onDismiss = { open = false })
+    if (open) {
+        CategorySheet(
+            current = if (own == null) t.category else null,
+            onPick = { c -> onPick(c); subOpen = true },
+            onDismiss = { open = false },
+            custom = custom, currentCustomId = own?.id,
+            onPickCustom = { c -> cats.setCustomCategory(listOf(t.id), c.id); subOpen = true },
+            onCreateCustom = { name, icon, color -> cats.createCategory(name, icon, color) { id -> cats.setCustomCategory(listOf(t.id), id) } },
+        )
+    }
+    if (subOpen && !open) {
+        com.hisaab.app.ui.category.SubcategorySheet(
+            look = look, builtIn = builtIn, custom = subs, current = t.subcategory,
+            onPick = { cats.setSubcategory(listOf(t.id), it) },
+            onCreate = { name, icon -> cats.createSub(look.key, name, icon) },
+            onDismiss = { subOpen = false },
+        )
+    }
 }
 
 @Composable
 private fun SourceCard(s: TransactionSourceEntity, canSplit: Boolean, onSplit: () -> Unit) {
-    var expanded by remember { mutableStateOf(true) }
-    Card(Modifier.fillMaxWidth().clickable { expanded = !expanded }) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    when (s.source) {
-                        "EMAIL" -> Icons.Filled.Email; "CSV" -> Icons.Filled.UploadFile; "APP" -> Icons.Filled.Notifications
-                        "SCREENSHOT" -> Icons.Filled.Image; "MANUAL" -> Icons.Filled.Edit; "STATEMENT" -> Icons.Filled.Description
-                        else -> Icons.Filled.Sms
-                    },
-                    null, modifier = Modifier.padding(end = 8.dp),
-                )
-                Column(Modifier.weight(1f)) {
-                    Text(sourceLabel(s), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                    Text(Periods.dateTime(s.receivedAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            if (expanded && s.rawText != null) {
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                SelectionContainer { Text(s.rawText!!, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
-                if (canSplit) {
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = onSplit) { Text("Not the same transaction: split it out") }
-                }
-            }
-        }
-    }
+    com.hisaab.app.ui.components.MessageView(
+        s,
+        footer = if (canSplit) ({ OutlinedButton(onClick = onSplit) { Text("Not the same transaction: split it out") } }) else null,
+    )
 }
 
 private fun sourceLabel(s: TransactionSourceEntity): String = when (s.source) {

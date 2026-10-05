@@ -58,11 +58,25 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class ReviewPair(val flagged: TransactionEntity, val candidate: TransactionEntity?)
+data class ReviewPair(
+    val flagged: TransactionEntity,
+    val candidate: TransactionEntity?,
+    val flaggedSources: List<TransactionSourceEntity> = emptyList(),
+    val candidateSources: List<TransactionSourceEntity> = emptyList(),
+)
 
 @HiltViewModel
-class ReviewViewModel @Inject constructor(private val dao: TransactionDao, private val repository: TransactionRepository) : ViewModel() {
-    val pairs = dao.observeNeedsReview().map { list -> list.map { ReviewPair(it, it.duplicateOfId?.let { id -> dao.getById(id) }) } }
+class ReviewViewModel @Inject constructor(
+    private val dao: TransactionDao,
+    private val sources: TransactionSourceDao,
+    private val repository: TransactionRepository,
+) : ViewModel() {
+    val pairs = dao.observeNeedsReview().map { list ->
+        list.map {
+            val other = it.duplicateOfId?.let { id -> dao.getById(id) }
+            ReviewPair(it, other, sources.forTransaction(it.id), other?.let { o -> sources.forTransaction(o.id) }.orEmpty())
+        }
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun merge(id: Long) = viewModelScope.launch { repository.mergeFlagged(id) }
@@ -95,8 +109,10 @@ fun ReviewRoute(onBack: () -> Unit, onOpen: (Long) -> Unit, onCompare: (Long, Lo
                         Text(p.flagged.reviewReason ?: "These look like the same transaction", style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                         TransactionRow(p.flagged, onClick = { onOpen(p.flagged.id) }, showDate = true)
-                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        p.flaggedSources.forEach { s -> com.hisaab.app.ui.components.MessageView(s, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), collapsedLines = 4) }
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                         p.candidate?.let { TransactionRow(it, onClick = { onOpen(it.id) }, showDate = true) }
+                        p.candidateSources.forEach { s -> com.hisaab.app.ui.components.MessageView(s, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), collapsedLines = 4) }
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             p.candidate?.let { c ->
                                 TextButton(onClick = { onCompare(p.flagged.id, c.id) }) {
@@ -195,14 +211,5 @@ private fun CompareRow(label: String, left: String, right: String, header: Boole
 @Composable
 private fun Messages(title: String, sources: List<TransactionSourceEntity>) {
     Text(title, style = MaterialTheme.typography.titleSmall)
-    sources.forEach { s ->
-        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
-            Column(Modifier.padding(12.dp)) {
-                Text("${s.source} · ${s.sender} · ${Periods.dateTime(s.receivedAt)}", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(s.rawText ?: "(message text not kept)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(top = 6.dp))
-            }
-        }
-    }
+    sources.forEach { s -> com.hisaab.app.ui.components.MessageView(s) }
 }

@@ -17,6 +17,16 @@ import javax.inject.Singleton
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/** Who uses this copy of Hisaab. Stays on the phone; nothing here is sent anywhere. */
+data class Profile(
+    val name: String? = null,
+    val email: String? = null,
+    val phone: String? = null,
+    val occupation: String? = null,
+    /** App-private copy of the chosen photo. */
+    val photoPath: String? = null,
+)
+
 data class AppSettings(
     val appLock: Boolean,
     val theme: ThemeMode,
@@ -37,8 +47,11 @@ data class AppSettings(
     val transactionNotifications: Boolean = true,
     /** Amounts shown as ₹•••• everywhere until the user taps the eye. On by default. */
     val hideAmounts: Boolean = true,
-    /** Shown on Home: "Hi, <name>". Optional. */
+    /** The user's name, shown at the top of Home. Part of the profile. */
     val displayName: String? = null,
+    val profile: Profile = Profile(),
+    /** The user tapped "Later" on the first-run profile prompt. */
+    val profilePromptDismissed: Boolean = false,
     /** Look for a newer version on GitHub, at most once a day. */
     val checkUpdates: Boolean = true,
     val lastUpdateCheck: Long? = null,
@@ -66,6 +79,8 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
             hideAmounts = p[HIDE_AMOUNTS] ?: true,
             checkUpdates = p[CHECK_UPDATES] ?: true,
             displayName = p[DISPLAY_NAME],
+            profile = Profile(p[DISPLAY_NAME], p[PROFILE_EMAIL], p[PROFILE_PHONE], p[PROFILE_OCCUPATION], p[PROFILE_PHOTO]),
+            profilePromptDismissed = p[PROFILE_PROMPT_DISMISSED] ?: false,
             lastUpdateCheck = p[LAST_UPDATE_CHECK],
         )
     }
@@ -91,6 +106,12 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
     suspend fun setHideAmounts(value: Boolean) = store.edit { it[HIDE_AMOUNTS] = value }
     suspend fun setCheckUpdates(value: Boolean) = store.edit { it[CHECK_UPDATES] = value }
     suspend fun setDisplayName(value: String) = store.edit { if (value.isBlank()) it.remove(DISPLAY_NAME) else it[DISPLAY_NAME] = value.trim() }
+    suspend fun saveProfile(name: String, email: String, phone: String, occupation: String) = store.edit {
+        fun put(key: androidx.datastore.preferences.core.Preferences.Key<String>, v: String) { if (v.isBlank()) it.remove(key) else it[key] = v.trim() }
+        put(DISPLAY_NAME, name); put(PROFILE_EMAIL, email); put(PROFILE_PHONE, phone); put(PROFILE_OCCUPATION, occupation)
+    }
+    suspend fun setProfilePhoto(path: String?) = store.edit { if (path == null) it.remove(PROFILE_PHOTO) else it[PROFILE_PHOTO] = path }
+    suspend fun dismissProfilePrompt() = store.edit { it[PROFILE_PROMPT_DISMISSED] = true }
     suspend fun setLastUpdateCheck(at: Long) = store.edit { it[LAST_UPDATE_CHECK] = at }
 
     /** Remembers an alert as sent. Keys older than the last few months are dropped so the set stays small. */
@@ -115,6 +136,11 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
         val HIDE_AMOUNTS = booleanPreferencesKey("hide_amounts")
         val CHECK_UPDATES = booleanPreferencesKey("check_updates")
         val DISPLAY_NAME = stringPreferencesKey("display_name")
+        val PROFILE_EMAIL = stringPreferencesKey("profile_email")
+        val PROFILE_PHONE = stringPreferencesKey("profile_phone")
+        val PROFILE_OCCUPATION = stringPreferencesKey("profile_occupation")
+        val PROFILE_PHOTO = stringPreferencesKey("profile_photo")
+        val PROFILE_PROMPT_DISMISSED = booleanPreferencesKey("profile_prompt_dismissed")
         val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
     }
 }
