@@ -38,7 +38,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.ui.draw.shadow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -81,7 +83,7 @@ fun TransactionsRoute(onOpen: (Long) -> Unit, onAdd: () -> Unit, contentPadding:
     fun toggle(id: Long) { selected = if (id in selected) selected - id else selected + id }
     BackHandler(enabled = selecting) { selected = emptySet() }
 
-    Scaffold(
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, 
         topBar = {
             if (selecting) {
                 TopAppBar(
@@ -95,7 +97,7 @@ fun TransactionsRoute(onOpen: (Long) -> Unit, onAdd: () -> Unit, contentPadding:
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                 )
             } else {
-                TopAppBar(title = { Text("Transactions") })
+                TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Transactions") })
             }
         },
         floatingActionButton = {
@@ -108,14 +110,7 @@ fun TransactionsRoute(onOpen: (Long) -> Unit, onAdd: () -> Unit, contentPadding:
         },
     ) { inner ->
         Column(Modifier.padding(top = inner.calculateTopPadding()).fillMaxSize()) {
-            OutlinedTextField(
-                value = filter.search, onValueChange = { q -> vm.update { it.copy(search = q) } },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("search"),
-                placeholder = { Text("Search merchant, bank, amount, reference") },
-                leadingIcon = { Icon(Icons.Filled.Search, null) },
-                trailingIcon = { if (filter.search.isNotEmpty()) IconButton(onClick = { vm.update { it.copy(search = "") } }) { Icon(Icons.Filled.Clear, "Clear") } },
-                singleLine = true,
-            )
+            SearchPill(filter.search, rows.size, onChange = { q -> vm.update { it.copy(search = q) } })
             Filters(filter, accounts, vm::update)
             val grouped = remember(rows) { rows.groupBy { Periods.localDate(it.timestamp) } }
             if (rows.isEmpty()) {
@@ -126,7 +121,7 @@ fun TransactionsRoute(onOpen: (Long) -> Unit, onAdd: () -> Unit, contentPadding:
                 grouped.forEach { (day, txs) ->
                     stickyHeader(key = "h$day") {
                         val out = txs.filter { it.type == TransactionType.DEBIT || it.type == TransactionType.INVESTMENT }.sumOf { it.amountMinor }
-                        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f)).padding(horizontal = 16.dp, vertical = 6.dp)) {
                             Text(Periods.dayHeader(day), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
                             if (out > 0) Text("−" + Money.format(out, showPaise = false), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -213,4 +208,52 @@ private fun <T> Menu(label: String, selected: Boolean, options: List<Pair<String
             options.forEach { (text, value) -> DropdownMenuItem(text = { Text(text) }, onClick = { open = false; onPick(value) }) }
         }
     }
+}
+
+/**
+ * A soft pill search box: no underline, a gradient ring that lights up while typing, a clear button, and a count
+ * of what matched.
+ */
+@Composable
+private fun SearchPill(query: String, matches: Int, onChange: (String) -> Unit) {
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val ring by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f, label = "ring")
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
+    val c = MaterialTheme.colorScheme
+    androidx.compose.material3.TextField(
+        value = query, onValueChange = onChange,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("search")
+            .shadow((2 + 6 * ring).dp, shape, ambientColor = c.primary, spotColor = c.primary)
+            .border(
+                (1 + ring).dp,
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    listOf(c.primary.copy(alpha = 0.25f + 0.6f * ring), c.tertiary.copy(alpha = 0.25f + 0.6f * ring)),
+                ),
+                shape,
+            ),
+        shape = shape,
+        interactionSource = interaction,
+        placeholder = { Text("Search merchant, bank, amount, ref…", maxLines = 1) },
+        leadingIcon = { Icon(Icons.Filled.Search, null, tint = if (focused) c.primary else c.onSurfaceVariant) },
+        trailingIcon = {
+            androidx.compose.animation.AnimatedVisibility(query.isNotEmpty(), enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
+                androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text("$matches", style = MaterialTheme.typography.labelMedium, color = c.onPrimaryContainer,
+                        modifier = Modifier.background(c.primaryContainer, androidx.compose.foundation.shape.CircleShape).padding(horizontal = 8.dp, vertical = 2.dp))
+                    IconButton(onClick = { onChange(""); focus.clearFocus() }) { Icon(Icons.Filled.Clear, "Clear") }
+                }
+            }
+        },
+        singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { focus.clearFocus() }),
+        colors = androidx.compose.material3.TextFieldDefaults.colors(
+            focusedContainerColor = c.surfaceContainerHigh, unfocusedContainerColor = c.surfaceContainerHigh.copy(alpha = 0.85f),
+            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+        ),
+    )
 }

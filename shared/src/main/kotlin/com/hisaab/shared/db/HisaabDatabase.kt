@@ -17,6 +17,7 @@ import androidx.sqlite.execSQL
         StatementEntity::class,
         HoldingEntity::class,
         MerchantRuleEntity::class,
+        RecurringEntity::class,
     ],
     version = HisaabDatabase.VERSION,
     exportSchema = true,
@@ -31,10 +32,11 @@ abstract class HisaabDatabase : RoomDatabase() {
     abstract fun statements(): StatementDao
     abstract fun holdings(): HoldingDao
     abstract fun merchantRules(): MerchantRuleDao
+    abstract fun recurring(): RecurringDao
 
     companion object {
         const val NAME = "hisaab.db"
-        const val VERSION = 7
+        const val VERSION = 9
     }
 }
 
@@ -111,5 +113,23 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+    /** 7 -> 8: recurring payments and income added by the user. */
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL(
+                "CREATE TABLE IF NOT EXISTS `recurring` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, " +
+                    "`amountMinor` INTEGER NOT NULL, `income` INTEGER NOT NULL, `frequency` TEXT NOT NULL, `dayOfMonth` INTEGER NOT NULL, " +
+                    "`month` INTEGER, `category` TEXT NOT NULL, `accountId` INTEGER, `createdAt` INTEGER NOT NULL)",
+            )
+        }
+    }
+
+    /** 8 -> 9: personal or business accounts. */
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN usage TEXT NOT NULL DEFAULT 'PERSONAL'")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
 }

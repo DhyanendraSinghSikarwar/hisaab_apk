@@ -107,7 +107,7 @@ fun SettingsRoute(
         }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }, snackbarHost = { SnackbarHost(snackbar) }) { inner ->
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = { TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Settings") }) }, snackbarHost = { SnackbarHost(snackbar) }) { inner ->
         val app = s.app
         val g = s.gmail
         Column(Modifier.padding(top = inner.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding()).verticalScroll(rememberScrollState())) {
@@ -264,6 +264,23 @@ fun SettingsRoute(
                 app?.hideAmounts ?: false, vm::setHideAmounts)
 
             Section("Appearance")
+            var editingName by remember { mutableStateOf(false) }
+            ListItem(
+                headlineContent = { Text("Your name") },
+                supportingContent = { Text(app?.displayName ?: "Shown on Home with a greeting") },
+                trailingContent = { TextButton(onClick = { editingName = true }) { Text("Edit") } },
+                modifier = Modifier.clickable { editingName = true },
+            )
+            if (editingName) {
+                var draft by remember { mutableStateOf(app?.displayName.orEmpty()) }
+                AlertDialog(
+                    onDismissRequest = { editingName = false },
+                    title = { Text("Your name") },
+                    text = { OutlinedTextField(draft, { draft = it }, singleLine = true, label = { Text("Name") }) },
+                    confirmButton = { TextButton(onClick = { vm.setDisplayName(draft); editingName = false }) { Text("Save") } },
+                    dismissButton = { TextButton(onClick = { editingName = false }) { Text("Cancel") } },
+                )
+            }
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     ThemeMode.entries.forEachIndexed { i, mode ->

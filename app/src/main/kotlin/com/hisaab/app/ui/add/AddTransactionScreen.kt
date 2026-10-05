@@ -201,8 +201,8 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::scan) }
     LaunchedEffect(s.saved, s.message) { if (s.saved && s.message == null) onDone() }
 
-    Scaffold(topBar = {
-        TopAppBar(title = { Text("Add transaction") }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Add transaction") }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { inner ->
         Column(Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = !s.scanning) {

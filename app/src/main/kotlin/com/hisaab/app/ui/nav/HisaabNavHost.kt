@@ -30,6 +30,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.draw.clip
@@ -53,13 +57,14 @@ import com.hisaab.app.ui.settings.SettingsRoute
 import com.hisaab.app.ui.transactions.TransactionDetailRoute
 import com.hisaab.app.ui.transactions.TransactionsRoute
 import dev.chrisbanes.haze.HazeTint
+import com.hisaab.app.ui.theme.appBackdrop
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Home", Icons.Filled.Home),
-    TRANSACTIONS("transactions", "Transactions", Icons.AutoMirrored.Filled.ReceiptLong),
+    TRANSACTIONS("transactions", "History", Icons.AutoMirrored.Filled.ReceiptLong),
     INVESTMENTS("investments", "Invest", Icons.Filled.PieChart),
     ANALYTICS("analytics", "Analytics", Icons.Filled.Insights),
     SETTINGS("settings", "Settings", Icons.Filled.Settings),
@@ -76,33 +81,48 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
     Scaffold(
         bottomBar = {
             if (showBar) {
-                // The content blurs through the translucent bar.
-                // A floating, rounded bar that the content blurs through, as in PennyWise and other modern finance apps.
+                // A floating pill bar the content blurs through. Only the selected tab shows its name, in its own
+                // pill; the others are icons. No label ever wraps, and the selection slides between tabs.
                 val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-                NavigationBar(
-                    containerColor = Color.Transparent,
-                    tonalElevation = 0.dp,
-                    windowInsets = androidx.compose.foundation.layout.WindowInsets(0),
+                androidx.compose.foundation.layout.Row(
                     modifier = Modifier
                         .navigationBarsPadding()
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .fillMaxWidth()
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(32.dp))
                         .hazeEffect(state = haze) {
                             blurRadius = 24.dp
-                            tints = listOf(HazeTint(barColor.copy(alpha = 0.85f)))
-                        },
+                            tints = listOf(HazeTint(barColor.copy(alpha = 0.88f)))
+                        }
+                        .padding(6.dp),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                 ) {
                     Tab.entries.forEach { tab ->
-                        NavigationBarItem(
-                            selected = route == tab.route,
-                            onClick = {
-                                if (route != tab.route) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                if (tab == Tab.HOME) nav.goHome() else nav.openTab(tab.route)
-                            },
-                            icon = { Icon(tab.icon, null) },
-                            label = { Text(tab.label) },
-                            modifier = Modifier.testTag("tab-${tab.route}"),
+                        val selected = route == tab.route
+                        val bg by androidx.compose.animation.animateColorAsState(
+                            if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                            label = "tab-bg",
                         )
+                        androidx.compose.foundation.layout.Row(
+                            Modifier.testTag("tab-${tab.route}")
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+                                .background(bg)
+                                .clickable {
+                                    if (!selected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    if (tab == Tab.HOME) nav.goHome() else nav.openTab(tab.route)
+                                }
+                                .animateContentSize()
+                                .padding(horizontal = if (selected) 16.dp else 11.dp, vertical = 12.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            Icon(tab.icon, tab.label, tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (selected) {
+                                androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 8.dp))
+                                Text(tab.label, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                        }
                     }
                 }
             }
@@ -110,7 +130,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
     ) { padding ->
         val bottom = PaddingValues(bottom = padding.calculateBottomPadding())
         NavHost(
-            nav, startDestination = Tab.HOME.route, modifier = Modifier.fillMaxSize().hazeSource(haze),
+            nav, startDestination = Tab.HOME.route, modifier = Modifier.fillMaxSize().hazeSource(haze).appBackdrop(),
             // Tab to tab: a quick cross-fade. Into a detail screen: it slides in a little and fades, and back reverses it.
             enterTransition = {
                 if (isTabSwitch()) fadeIn(tween(TAB_MS))

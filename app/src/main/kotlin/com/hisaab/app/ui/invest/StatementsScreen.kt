@@ -160,9 +160,9 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
     var addingPassword by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::import) }
 
-    Scaffold(
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, 
         topBar = {
-            TopAppBar(
+            TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
                 title = { Text("Statements") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = { InfoButton("Statements", *Info.STATEMENTS) },

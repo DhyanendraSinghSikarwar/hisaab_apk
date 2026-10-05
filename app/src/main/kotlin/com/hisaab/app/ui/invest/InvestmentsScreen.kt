@@ -159,10 +159,10 @@ fun InvestmentsRoute(
     val locked by vm.lockedStatements.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<HoldingEntity?>(null) }
     var adding by remember { mutableStateOf(false) }
-    Scaffold(
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, 
         topBar = {
             Column {
-                TopAppBar(
+                TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
                     title = { Text("Investments") },
                     navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
                     actions = {

@@ -113,7 +113,11 @@ data class AccountEntity(
     @ColumnInfo(defaultValue = "NULL") val linkedAccountId: Long? = null,
     /** Removed from view by the user: left out of account lists and the Home balance until shown again. */
     @ColumnInfo(defaultValue = "0") val hidden: Boolean = false,
+    /** Personal or business money; Analytics can show either alone. */
+    @ColumnInfo(defaultValue = "'PERSONAL'") val usage: AccountUsage = AccountUsage.PERSONAL,
 )
+
+enum class AccountUsage(val label: String) { PERSONAL("Personal"), BUSINESS("Business") }
 
 /** "Swiggy is always Food": the category the user last chose for a merchant or UPI id. Applied first to new transactions. */
 @Entity(tableName = "merchant_rules")
@@ -192,6 +196,7 @@ data class AccountWithActivity(
     val cardNetwork: CardNetwork? = null,
     val linkedAccountId: Long? = null,
     val hidden: Boolean = false,
+    val usage: AccountUsage = AccountUsage.PERSONAL,
 ) {
     val isDebitCard: Boolean get() = kind == AccountKind.CARD && accountType == AccountType.DEBIT_CARD
 

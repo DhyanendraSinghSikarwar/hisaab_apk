@@ -83,7 +83,7 @@ fun TransactionRow(
                 Icon(Icons.Filled.Check, "Selected", tint = MaterialTheme.colorScheme.onPrimary)
             }
         } else {
-            CategoryBadge(tx.category)
+            TransactionAvatar(tx)
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {

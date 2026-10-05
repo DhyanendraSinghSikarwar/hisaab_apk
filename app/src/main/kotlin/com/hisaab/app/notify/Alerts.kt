@@ -50,6 +50,7 @@ class AlertsChecker @Inject constructor(
     private val transactions: TransactionDao,
     private val accounts: AccountDao,
     private val settings: AppSettingsStore,
+    private val manual: com.hisaab.shared.db.RecurringDao,
 ) {
     private val lock = Mutex()
 
@@ -85,7 +86,7 @@ class AlertsChecker @Inject constructor(
         val txs = transactions.since(today.minusDays(400).atStartOfDay(Periods.zone).toInstant().toEpochMilli())
         val s = settings.settings.first()
         val accs = accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())).first().associateBy { it.id }
-        for (r in Planning.recurring(txs, today, Periods.zone)) {
+        for (r in Planning.withManual(Planning.recurring(txs, today, Periods.zone), manual.all(), today).filter { !it.income }) {
             val days = ChronoUnit.DAYS.between(today, r.nextDue)
             if (days !in 0..3) continue
             val account = r.accountId?.let(accs::get)?.let { a -> a.linkedAccountId?.let(accs::get) ?: a } ?: continue

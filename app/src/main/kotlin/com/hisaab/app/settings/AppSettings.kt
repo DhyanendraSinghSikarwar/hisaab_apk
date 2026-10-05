@@ -35,8 +35,10 @@ data class AppSettings(
     val alertedKeys: Set<String> = emptySet(),
     /** A notification for each new transaction, with category buttons. */
     val transactionNotifications: Boolean = true,
-    /** Amounts shown as ₹•••• everywhere, for using the app in public. */
-    val hideAmounts: Boolean = false,
+    /** Amounts shown as ₹•••• everywhere until the user taps the eye. On by default. */
+    val hideAmounts: Boolean = true,
+    /** Shown on Home: "Hi, <name>". Optional. */
+    val displayName: String? = null,
     /** Look for a newer version on GitHub, at most once a day. */
     val checkUpdates: Boolean = true,
     val lastUpdateCheck: Long? = null,
@@ -61,8 +63,9 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
             budgetAlertPercent = p[BUDGET_ALERT] ?: 90,
             alertedKeys = p[ALERTED].orEmpty(),
             transactionNotifications = p[TX_NOTIFICATIONS] ?: true,
-            hideAmounts = p[HIDE_AMOUNTS] ?: false,
+            hideAmounts = p[HIDE_AMOUNTS] ?: true,
             checkUpdates = p[CHECK_UPDATES] ?: true,
+            displayName = p[DISPLAY_NAME],
             lastUpdateCheck = p[LAST_UPDATE_CHECK],
         )
     }
@@ -87,6 +90,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
     suspend fun setTransactionNotifications(value: Boolean) = store.edit { it[TX_NOTIFICATIONS] = value }
     suspend fun setHideAmounts(value: Boolean) = store.edit { it[HIDE_AMOUNTS] = value }
     suspend fun setCheckUpdates(value: Boolean) = store.edit { it[CHECK_UPDATES] = value }
+    suspend fun setDisplayName(value: String) = store.edit { if (value.isBlank()) it.remove(DISPLAY_NAME) else it[DISPLAY_NAME] = value.trim() }
     suspend fun setLastUpdateCheck(at: Long) = store.edit { it[LAST_UPDATE_CHECK] = at }
 
     /** Remembers an alert as sent. Keys older than the last few months are dropped so the set stays small. */
@@ -110,6 +114,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
         val TX_NOTIFICATIONS = booleanPreferencesKey("transaction_notifications")
         val HIDE_AMOUNTS = booleanPreferencesKey("hide_amounts")
         val CHECK_UPDATES = booleanPreferencesKey("check_updates")
+        val DISPLAY_NAME = stringPreferencesKey("display_name")
         val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
     }
 }

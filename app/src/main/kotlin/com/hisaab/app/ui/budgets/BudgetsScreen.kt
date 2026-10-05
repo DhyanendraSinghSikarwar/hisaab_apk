@@ -114,9 +114,9 @@ fun BudgetsRoute(
     val alertAt by vm.alertPercent.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<BudgetLine?>(null) }
     var adding by remember { mutableStateOf(false) }
-    Scaffold(
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, 
         topBar = {
-            TopAppBar(
+            TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
                 title = { Text("Budgets") },
                 navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
                 actions = {

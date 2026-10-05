@@ -73,8 +73,8 @@ class ReviewViewModel @Inject constructor(private val dao: TransactionDao, priva
 @Composable
 fun ReviewRoute(onBack: () -> Unit, onOpen: (Long) -> Unit, onCompare: (Long, Long) -> Unit, vm: ReviewViewModel = hiltViewModel()) {
     val pairs by vm.pairs.collectAsStateWithLifecycle()
-    Scaffold(topBar = {
-        TopAppBar(
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
             title = { Text("Possible duplicates") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = { com.hisaab.app.ui.components.InfoButton("Possible duplicates", *com.hisaab.app.ui.components.Info.DUPLICATES) },
@@ -144,8 +144,8 @@ class CompareViewModel @Inject constructor(
 @Composable
 fun CompareRoute(onBack: () -> Unit, vm: CompareViewModel = hiltViewModel()) {
     val sides by vm.sides.collectAsStateWithLifecycle()
-    Scaffold(topBar = {
-        TopAppBar(title = { Text("Compare") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Compare") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { inner ->
         val (a, b) = sides ?: return@Scaffold
         Column(Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

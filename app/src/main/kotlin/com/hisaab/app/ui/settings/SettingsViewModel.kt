@@ -154,6 +154,7 @@ class SettingsViewModel @Inject constructor(
     fun setAppNotifications(value: Boolean) = viewModelScope.launch { appSettings.setAppNotificationsEnabled(value) }
     fun setTransactionNotifications(value: Boolean) = viewModelScope.launch { appSettings.setTransactionNotifications(value) }
     fun setHideAmounts(value: Boolean) = viewModelScope.launch { appSettings.setHideAmounts(value) }
+    fun setDisplayName(value: String) = viewModelScope.launch { appSettings.setDisplayName(value) }
 
     // App
 

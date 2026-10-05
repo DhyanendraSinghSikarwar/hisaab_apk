@@ -1,6 +1,11 @@
 package com.hisaab.app.ui.plan
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,8 +87,14 @@ val InsuranceKind.tint: Color
 @Composable
 fun BillsRoute(onBack: () -> Unit, vm: BillsViewModel = hiltViewModel()) {
     val p by vm.plan.collectAsStateWithLifecycle()
-    Scaffold(topBar = {
-        TopAppBar(
+    var editing by remember { mutableStateOf<Recurring?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    if (adding || editing != null) {
+        RecurringSheet(editing?.takeIf { it.manualId != null }, prefill = editing?.takeIf { it.manualId == null },
+            onDismiss = { adding = false; editing = null })
+    }
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
             title = { Text("Bills & insurance") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
@@ -94,6 +105,10 @@ fun BillsRoute(onBack: () -> Unit, vm: BillsViewModel = hiltViewModel()) {
                     "It needs two or more months of history to spot a repeat.",
                 )
             },
+        )
+    }, floatingActionButton = {
+        androidx.compose.material3.ExtendedFloatingActionButton(
+            onClick = { adding = true }, icon = { Icon(Icons.Filled.Add, null) }, text = { Text("Recurring") },
         )
     }) { inner ->
         LazyColumn(
@@ -110,9 +125,15 @@ fun BillsRoute(onBack: () -> Unit, vm: BillsViewModel = hiltViewModel()) {
                 item { Header("Coming up") }
                 items(soon, key = { "u-${it.name}-${it.due}" }) { u -> UpcomingRow(u) }
             }
-            if (p.recurring.isNotEmpty()) {
-                item { Header("Every month") }
-                items(p.recurring, key = { "r-${it.name}" }) { r -> RecurringRow(r) }
+            val outgoing = p.recurring.filter { !it.income }
+            val incoming = p.recurring.filter { it.income }
+            if (outgoing.isNotEmpty()) {
+                item { Header("Regular payments") }
+                items(outgoing, key = { "r-${it.manualId ?: it.name}" }) { r -> RecurringRow(r, onEdit = { editing = r }) }
+            }
+            if (incoming.isNotEmpty()) {
+                item { Header("Expected income") }
+                items(incoming, key = { "i-${it.manualId ?: it.name}" }) { r -> RecurringRow(r, onEdit = { editing = r }) }
             }
             if (p.policies.isNotEmpty()) {
                 item { Header("Insurance") }
@@ -183,19 +204,22 @@ fun UpcomingRow(u: Upcoming, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RecurringRow(r: Recurring) {
-    Card(Modifier.fillMaxWidth()) {
+private fun RecurringRow(r: Recurring, onEdit: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             CategoryBadge(r.category, size = 40)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(r.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1)
-                Text("Around the ${ordinal(r.dayOfMonth)} · last paid ${r.lastPaid.format(DAY)}",
+                Text(
+                    (if (r.yearly) "Every year, ${r.nextDue.format(DAY)}" else "Around the ${ordinal(r.dayOfMonth)}") +
+                        (r.lastPaid?.let { " · last paid ${it.format(DAY)}" } ?: if (r.manualId != null) " · added by you" else ""),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(Money.format(r.amountMinor, showPaise = false), style = MaterialTheme.typography.titleMedium)
-                Text("a month", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text((if (r.income) "+" else "") + Money.format(r.amountMinor, showPaise = false), style = MaterialTheme.typography.titleMedium,
+                    color = if (r.income) com.hisaab.app.ui.theme.MoneyColors.credit else MaterialTheme.colorScheme.onSurface)
+                Text(if (r.yearly) "a year" else "a month", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

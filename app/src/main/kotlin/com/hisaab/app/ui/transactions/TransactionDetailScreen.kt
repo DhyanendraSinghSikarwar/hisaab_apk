@@ -90,8 +90,8 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
     val tx by vm.transaction.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
-    Scaffold(topBar = {
-        TopAppBar(
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
             title = { Text("Transaction") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete") } },
@@ -109,7 +109,7 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
         val t = tx ?: return@Scaffold
         Column(Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                CategoryBadge(t.category, size = 52)
+                com.hisaab.app.ui.components.TransactionAvatar(t, size = 52.dp)
                 Spacer(Modifier.padding(6.dp))
                 Column {
                     Text(t.merchant ?: t.category.label, style = MaterialTheme.typography.titleLarge)

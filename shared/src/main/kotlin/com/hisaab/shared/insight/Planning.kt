@@ -26,9 +26,14 @@ data class Recurring(
     val dayOfMonth: Int,
     val category: Category,
     val accountId: Long?,
-    val lastPaid: LocalDate,
+    val lastPaid: LocalDate?,
     val nextDue: LocalDate,
     val occurrences: Int,
+    /** Set for one the user added (its row id); null for one found in the transactions. */
+    val manualId: Long? = null,
+    /** Money coming in, such as a salary. Only user-added items can be income. */
+    val income: Boolean = false,
+    val yearly: Boolean = false,
 )
 
 enum class InsuranceKind(val label: String) { HEALTH("Health"), LIFE("Life / term"), MOTOR("Car / bike"), OTHER("General") }
@@ -105,6 +110,27 @@ object Planning {
             }
             .sortedBy { it.nextDue }
             .toList()
+
+    /**
+     * The user's own recurring items, with their next date, merged with the detected ones. An item the user
+     * added replaces a detected one with the same name.
+     */
+    fun withManual(detected: List<Recurring>, manual: List<com.hisaab.shared.db.RecurringEntity>, today: LocalDate): List<Recurring> {
+        val mine = manual.map { m ->
+            val yearly = m.frequency == com.hisaab.shared.db.RecurringEntity.YEARLY
+            val next = if (yearly) {
+                val month = (m.month ?: today.monthValue).coerceIn(1, 12)
+                fun inYear(y: Int) = YearMonth.of(y, month).let { it.atDay(minOf(m.dayOfMonth, it.lengthOfMonth())) }
+                inYear(today.year).takeIf { it >= today } ?: inYear(today.year + 1)
+            } else {
+                fun inMonth(ym: YearMonth) = ym.atDay(minOf(m.dayOfMonth, ym.lengthOfMonth()))
+                inMonth(YearMonth.from(today)).takeIf { it >= today } ?: inMonth(YearMonth.from(today).plusMonths(1))
+            }
+            Recurring(m.name, m.amountMinor, m.dayOfMonth, m.category, m.accountId, null, next, 0, manualId = m.id, income = m.income, yearly = yearly)
+        }
+        val names = mine.map { it.name.lowercase() }.toSet()
+        return (mine + detected.filter { it.name.lowercase() !in names }).sortedBy { it.nextDue }
+    }
 
     private val HEALTH = Regex("""health|mediclaim|star\s|niva|bupa|care\s|cigna|aditya birla health""", RegexOption.IGNORE_CASE)
     private val LIFE = Regex("""\blife\b|term|\blic\b|pru|aia|max life""", RegexOption.IGNORE_CASE)

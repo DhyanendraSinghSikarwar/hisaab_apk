@@ -6,8 +6,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,8 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -85,11 +81,47 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.flow.flowOf
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDateRangePickerState
 import javax.inject.Inject
 
+enum class Period(val label: String) {
+    THIS_MONTH("This month"), LAST_MONTH("Last month"), THIS_FY("This FY"), ALL_TIME("All time"), CUSTOM("Custom")
+}
+
+/** Which money to count: personal, business, or both. Names match the SQL the DAO expects. */
+enum class Scope(val label: String) { ALL("All"), PERSONAL("Personal"), BUSINESS("Business") }
+
+enum class KindFilter(val label: String, val sql: String) { ALL("All accounts", "ALL"), ACCOUNT("Bank accounts", "ACCOUNT"), CARD("Cards", "CARD") }
+
+data class AnalyticsFilter(
+    val period: Period = Period.THIS_MONTH,
+    val customFrom: LocalDate? = null,
+    val customTo: LocalDate? = null,
+    val scope: Scope = Scope.ALL,
+    val kind: KindFilter = KindFilter.ALL,
+)
+
 data class AnalyticsState(
-    val month: YearMonth = YearMonth.now(),
+    val filter: AnalyticsFilter = AnalyticsFilter(),
+    val from: LocalDate = LocalDate.now(Periods.zone).withDayOfMonth(1),
+    val to: LocalDate = LocalDate.now(Periods.zone),
     val categories: List<CategoryTotal> = emptyList(),
+    val income: Long = 0,
     val monthly: List<MonthTotal> = emptyList(),
     val daily: List<DayTotal> = emptyList(),
     val previousDaily: List<DayTotal> = emptyList(),
@@ -97,30 +129,73 @@ data class AnalyticsState(
     val loaded: Boolean = false,
 ) {
     val spent: Long get() = categories.sumOf { it.total }
-    val income: Long get() = monthly.lastOrNull { it.month == month.toString() }?.income ?: 0
+
+    /** Days in the period up to today; the per-day figure and the daily chart stop there. */
+    val elapsedDays: Int get() = (ChronoUnit.DAYS.between(from, minOf(to, LocalDate.now(Periods.zone))) + 1).toInt().coerceAtLeast(1)
+    val totalDays: Int get() = (ChronoUnit.DAYS.between(from, to) + 1).toInt()
+
+    val label: String get() = when (filter.period) {
+        Period.THIS_MONTH, Period.LAST_MONTH -> Periods.month(YearMonth.from(from))
+        Period.THIS_FY -> "FY ${from.year}–${(from.year + 1) % 100}"
+        else -> "${from.format(SHORT_DATE)} – ${to.format(SHORT_DATE)}"
+    }
+
+    companion object {
+        val SHORT_DATE: java.time.format.DateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")
+    }
 }
 
 @HiltViewModel
 class AnalyticsViewModel @Inject constructor(private val dao: TransactionDao, plans: com.hisaab.app.ui.plan.PlanSource) : ViewModel() {
     val plan = plans.snapshot
 
-    private val month = MutableStateFlow(YearMonth.now(Periods.zone))
+    private val filter = MutableStateFlow(AnalyticsFilter())
+
+    private suspend fun resolve(f: AnalyticsFilter): Pair<LocalDate, LocalDate> {
+        val today = LocalDate.now(Periods.zone)
+        return when (f.period) {
+            Period.THIS_MONTH -> today.withDayOfMonth(1) to today
+            Period.LAST_MONTH -> YearMonth.from(today).minusMonths(1).let { it.atDay(1) to it.atEndOfMonth() }
+            // India's financial year runs April to March.
+            Period.THIS_FY -> LocalDate.of(if (today.monthValue >= 4) today.year else today.year - 1, 4, 1) to today
+            Period.ALL_TIME -> (dao.firstTimestamp()?.let { Periods.localDate(it) } ?: today).coerceAtMost(today) to today
+            Period.CUSTOM -> (f.customFrom ?: today) to (f.customTo ?: today)
+        }
+    }
+
+    private fun LocalDate.startMillis() = atStartOfDay(Periods.zone).toInstant().toEpochMilli()
+    private fun LocalDate.endMillis() = plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli() - 1
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val state = month.flatMapLatest { m ->
-        val range = Periods.range(m)
-        val prev = Periods.range(m.minusMonths(1))
-        val sixMonths = Periods.range(m.minusMonths(5)).first until range.last + 1
-        val offset = Periods.offsetMillis(range.first)
+    val state = filter.flatMapLatest { f ->
+        val (from, to) = resolve(f)
+        val start = from.startMillis()
+        val end = to.endMillis()
+        val offset = Periods.offsetMillis(start)
+        val scope = f.scope.name
+        val kind = f.kind.sql
+        // Bars: at least six months ending with the period, at most twelve.
+        val lastMonth = YearMonth.from(to)
+        val months = ChronoUnit.MONTHS.between(YearMonth.from(from), lastMonth).toInt() + 1
+        val trendFrom = lastMonth.minusMonths((months.coerceIn(6, 12) - 1).toLong()).atDay(1).startMillis()
+        // The daily line compares with the same number of days just before the period.
+        val days = ChronoUnit.DAYS.between(from, to) + 1
+        val prevStart = from.minusDays(days).startMillis()
         combine(
-            combine(dao.observeCategoryTotals(range.first, range.last), dao.observeMonthly(sixMonths.first, sixMonths.last, offset)) { a, b -> a to b },
-            dao.observeDailySpend(range.first, range.last, offset),
-            dao.observeDailySpend(prev.first, prev.last, Periods.offsetMillis(prev.first)),
-            dao.observeTopMerchants(range.first, range.last, 6),
-        ) { (cats, monthly), daily, prevDaily, merchants -> AnalyticsState(m, cats, monthly, daily, prevDaily, merchants, loaded = true) }
+            combine(dao.categoryTotalsFor(start, end, scope, kind), dao.monthlyFor(start, end, offset, scope, kind)) { a, b -> a to b.sumOf { it.income } },
+            dao.monthlyFor(trendFrom, end, offset, scope, kind),
+            if (days <= 62) dao.dailyFor(start, end, offset, scope, kind) else flowOf(emptyList()),
+            if (days <= 62) dao.dailyFor(prevStart, start - 1, offset, scope, kind) else flowOf(emptyList()),
+            dao.topMerchantsFor(start, end, 6, scope, kind),
+        ) { (cats, income), monthly, daily, prevDaily, merchants ->
+            AnalyticsState(f, from, to, cats, income, monthly, daily, prevDaily, merchants, loaded = true)
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
 
-    fun shift(months: Long) = month.update { (it.plusMonths(months)).coerceAtMost(YearMonth.now(Periods.zone)) }
+    fun setPeriod(p: Period) = filter.update { it.copy(period = p) }
+    fun setCustom(from: LocalDate, to: LocalDate) = filter.update { it.copy(period = Period.CUSTOM, customFrom = from, customTo = to) }
+    fun setScope(s: Scope) = filter.update { it.copy(scope = s) }
+    fun setKind(k: KindFilter) = filter.update { it.copy(kind = k) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -128,26 +203,25 @@ class AnalyticsViewModel @Inject constructor(private val dao: TransactionDao, pl
 fun AnalyticsRoute(contentPadding: PaddingValues, vm: AnalyticsViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     val plan by vm.plan.collectAsStateWithLifecycle()
-    var forward by remember { mutableStateOf(true) }
-    Scaffold(topBar = { TopAppBar(title = { Text("Analytics") }) }) { inner ->
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
+        TopAppBar(title = { Text("Analytics") }, colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
+    }) { inner ->
         Column(
             Modifier.padding(top = inner.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding())
                 .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            MonthSwitcher(s.month, onPrev = { forward = false; vm.shift(-1) }, onNext = { forward = true; vm.shift(1) })
-            if (plan.insights.isNotEmpty() && s.month == YearMonth.now(Periods.zone)) {
+            FilterBar(s, vm)
+            if (plan.insights.isNotEmpty() && s.filter.period == Period.THIS_MONTH) {
                 Text("Insights", style = MaterialTheme.typography.titleMedium)
                 plan.insights.forEach { com.hisaab.app.ui.home.InsightRow(it) }
             }
-            // The whole report slides with the month, the way a calendar page turns.
+            // The report rises in whenever the filter changes.
             AnimatedContent(
                 targetState = s,
-                contentKey = { it.month },
+                contentKey = { it.filter to it.from },
                 transitionSpec = {
-                    val dir = if (forward) 1 else -1
-                    (slideInHorizontally(tween(260)) { it / 6 * dir } + fadeIn(tween(220))) togetherWith
-                        (slideOutHorizontally(tween(200)) { -it / 6 * dir } + fadeOut(tween(160))) using SizeTransform(clip = false)
+                    (slideInVertically(tween(260)) { it / 12 } + fadeIn(tween(220))) togetherWith fadeOut(tween(140)) using SizeTransform(clip = false)
                 },
                 label = "report",
             ) { state -> Report(state) }
@@ -155,13 +229,66 @@ fun AnalyticsRoute(contentPadding: PaddingValues, vm: AnalyticsViewModel = hiltV
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MonthSwitcher(month: YearMonth, onPrev: () -> Unit, onNext: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onPrev) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month") }
-        Text(Periods.month(month), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        IconButton(onClick = onNext, enabled = month < YearMonth.now(Periods.zone)) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month") }
+private fun FilterBar(s: AnalyticsState, vm: AnalyticsViewModel) {
+    var picking by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Period.entries.forEach { p ->
+                FilterChip(
+                    selected = s.filter.period == p,
+                    onClick = { if (p == Period.CUSTOM) picking = true else vm.setPeriod(p) },
+                    label = { Text(p.label) },
+                    leadingIcon = if (p == Period.CUSTOM) ({ Icon(Icons.Filled.DateRange, null, Modifier.size(18.dp)) }) else null,
+                    shape = RoundedCornerShape(20.dp),
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
+                Scope.entries.forEachIndexed { i, sc ->
+                    SegmentedButton(s.filter.scope == sc, { vm.setScope(sc) }, SegmentedButtonDefaults.itemShape(i, Scope.entries.size),
+                        icon = {}) { Text(sc.label, maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+                }
+            }
+            var open by remember { mutableStateOf(false) }
+            Box {
+                AssistChip(
+                    onClick = { open = true }, label = { Text(s.filter.kind.label, maxLines = 1) },
+                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, null) }, shape = RoundedCornerShape(20.dp),
+                )
+                DropdownMenu(open, { open = false }) {
+                    KindFilter.entries.forEach { k ->
+                        DropdownMenuItem(text = { Text(k.label) }, onClick = { vm.setKind(k); open = false })
+                    }
+                }
+            }
+        }
+        Text(s.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    }
+    if (picking) {
+        val utc = java.time.ZoneOffset.UTC
+        val state = rememberDateRangePickerState(
+            initialSelectedStartDateMillis = s.from.atStartOfDay(utc).toInstant().toEpochMilli(),
+            initialSelectedEndDateMillis = s.to.atStartOfDay(utc).toInstant().toEpochMilli(),
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= System.currentTimeMillis()
+            },
+        )
+        DatePickerDialog(
+            onDismissRequest = { picking = false },
+            confirmButton = {
+                TextButton(enabled = state.selectedStartDateMillis != null, onClick = {
+                    val a = java.time.Instant.ofEpochMilli(state.selectedStartDateMillis!!).atZone(utc).toLocalDate()
+                    val b = state.selectedEndDateMillis?.let { java.time.Instant.ofEpochMilli(it).atZone(utc).toLocalDate() } ?: a
+                    vm.setCustom(a, b); picking = false
+                }) { Text("Apply") }
+            },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
+        ) {
+            DateRangePicker(state, Modifier.weight(1f), title = { Text("Choose dates", Modifier.padding(start = 24.dp, top = 16.dp)) })
+        }
     }
 }
 
@@ -172,14 +299,13 @@ private fun Report(s: AnalyticsState) {
         CategoriesCard(s)
         if (s.merchants.isNotEmpty()) MerchantsCard(s.merchants, s.spent)
         TrendCard(s)
-        DailyCard(s)
+        if (s.totalDays <= 62) DailyCard(s)
     }
 }
 
 @Composable
 private fun Kpis(s: AnalyticsState) {
-    val today = LocalDate.now(Periods.zone)
-    val days = if (s.month == YearMonth.from(today)) today.dayOfMonth else s.month.lengthOfMonth()
+    val days = s.elapsedDays
     val saved = s.income - s.spent
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Kpi("Spent", s.spent, MoneyColors.debit, Modifier.weight(1f))
@@ -220,10 +346,10 @@ private fun ChartCard(title: String, subtitle: String?, action: (@Composable () 
 
 @Composable
 private fun CategoriesCard(s: AnalyticsState) {
-    var selected by rememberSaveable(s.month) { mutableStateOf<Int?>(null) }
+    var selected by rememberSaveable(s.label) { mutableStateOf<Int?>(null) }
     ChartCard("Where it went", "Tap a slice or a row for its share") {
         if (s.categories.isEmpty()) {
-            EmptyState(Icons.Filled.PieChart, "No spending", "Nothing was spent in ${Periods.month(s.month)}.")
+            EmptyState(Icons.Filled.PieChart, "No spending", "Nothing was spent in ${s.label}.")
             return@ChartCard
         }
         val slices = remember(s.categories) { s.categories.map { ChartSlice(it.category.label, it.total, it.category.color) } }
@@ -287,7 +413,7 @@ private fun MerchantsCard(merchants: List<MerchantTotal>, spent: Long) {
 private fun TrendCard(s: AnalyticsState) {
     val spent = MoneyColors.debit
     val income = MoneyColors.credit
-    ChartCard("Six months", "Tap or slide across the bars") {
+    ChartCard("Month by month", "Tap or slide across the bars") {
         val groups = remember(s.monthly) { s.monthly.map { BarGroup(Periods.monthShort(YearMonth.parse(it.month)), listOf(it.spent, it.income)) } }
         GroupedBarChart(groups, listOf("Spent", "Income"), listOf(spent, income), format = { Money.compact(it) })
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -300,14 +426,15 @@ private fun TrendCard(s: AnalyticsState) {
 private fun DailyCard(s: AnalyticsState) {
     var cumulative by rememberSaveable { mutableStateOf(true) }
     val color = MaterialTheme.colorScheme.primary
-    val days = s.month.lengthOfMonth()
-    val values = remember(s.daily, s.month) { perDay(s.daily, s.month) }
-    val previous = remember(s.previousDaily, s.month) { perDay(s.previousDaily, s.month.minusMonths(1)) }
-    val today = LocalDate.now(Periods.zone)
-    // In the current month the line stops at today; the comparison covers the same days of last month.
-    val upTo = if (s.month == YearMonth.from(today)) today.dayOfMonth else days
+    val values = remember(s.daily, s.from) { perDay(s.daily, s.from, s.totalDays) }
+    val previous = remember(s.previousDaily, s.from) { perDay(s.previousDaily, s.from.minusDays(s.totalDays.toLong()), s.totalDays) }
+    // The line stops at today; the comparison covers the same number of days just before.
+    val upTo = s.elapsedDays
     val shown = (if (cumulative) values.runningReduce { a, b -> a + b } else values).take(upTo)
     val compare = (if (cumulative) previous.runningReduce { a, b -> a + b } else previous).take(upTo)
+    val monthly = s.filter.period == Period.THIS_MONTH || s.filter.period == Period.LAST_MONTH
+    val nowName = if (monthly) Periods.monthShort(YearMonth.from(s.from)) else "This period"
+    val prevName = if (monthly) Periods.monthShort(YearMonth.from(s.from).minusMonths(1)) else "Before"
     ChartCard(
         if (cumulative) "Spending so far" else "Daily spending", "Drag along the line",
         action = {
@@ -318,26 +445,27 @@ private fun DailyCard(s: AnalyticsState) {
         },
     ) {
         if (values.none { it > 0 }) {
-            Text("No spending this month.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("No spending in this period.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@ChartCard
         }
+        val fmt = java.time.format.DateTimeFormatter.ofPattern("d MMM")
         AreaLineChart(
             values = shown, compare = compare.takeIf { previous.any { it > 0 } }, color = color,
-            xLabel = { "${it + 1} ${Periods.monthShort(s.month)}" }, format = { Money.compact(it) },
-            seriesName = Periods.monthShort(s.month), compareName = Periods.monthShort(s.month.minusMonths(1)),
+            xLabel = { s.from.plusDays(it.toLong()).format(fmt) }, format = { Money.compact(it) },
+            seriesName = nowName, compareName = prevName,
         )
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Legend(Periods.monthShort(s.month), color)
-            if (previous.any { it > 0 }) Legend(Periods.monthShort(s.month.minusMonths(1)), MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+            Legend(nowName, color)
+            if (previous.any { it > 0 }) Legend(prevName, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
         }
     }
 }
 
-private fun perDay(daily: List<DayTotal>, month: YearMonth): List<Long> {
-    val first = Periods.range(month).first
+private fun perDay(daily: List<DayTotal>, from: LocalDate, days: Int): List<Long> {
+    val first = from.atStartOfDay(Periods.zone).toInstant().toEpochMilli()
     val startDay = (first + Periods.offsetMillis(first)) / 86_400_000L
     val byDay = daily.associate { (it.day - startDay).toInt() to it.total }
-    return List(month.lengthOfMonth()) { byDay[it] ?: 0L }
+    return List(days) { byDay[it] ?: 0L }
 }
 
 @Composable

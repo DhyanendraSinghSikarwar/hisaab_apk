@@ -60,6 +60,9 @@ data class HomeState(
     val holdingCount: Int = 0,
     /** Statements that arrived password protected: shown as a banner until unlocked. */
     val lockedStatements: List<StatementEntity> = emptyList(),
+    /** Spent in the month before [month], for the "vs last month" chip. */
+    val prevSpent: Long = 0,
+    val displayName: String? = null,
     val loaded: Boolean = false,
 )
 
@@ -75,6 +78,8 @@ class HomeViewModel @Inject constructor(
     statements: StatementDao,
     plans: com.hisaab.app.ui.plan.PlanSource,
     updater: com.hisaab.app.update.Updater,
+    private val mailSettings: com.hisaab.email.sync.GmailSettingsStore,
+    private val alerts: com.hisaab.app.notify.AlertsChecker,
 ) : ViewModel() {
     private val spendTypes = listOf("DEBIT", "INVESTMENT")
 
@@ -87,7 +92,8 @@ class HomeViewModel @Inject constructor(
             transactions.observeTotal(spendTypes, r.first, r.last),
             transactions.observeTotal(listOf("CREDIT"), r.first, r.last),
             accounts.observeWithActivity(r.first, r.last + 1),
-        ) { spent, income, accs -> Triple(spent, income, accs) }
+            Periods.range(m.minusMonths(1)).let { p -> transactions.observeTotal(spendTypes, p.first, p.last) },
+        ) { spent, income, accs, prev -> Totals(spent, income, accs, prev) }
     }
 
     private val categories = month.flatMapLatest { m ->
@@ -115,19 +121,20 @@ class HomeViewModel @Inject constructor(
     val state: StateFlow<HomeState> = combine(
         combine(month, totals) { m, t -> m to t }, categories, recent, transactions.observeReviewCount(),
         combine(scan, settings.settings, holdings.observeAll(), statements.observeLocked()) { s, a, h, locked ->
-            Triple(s, a.lastSmsResult, a.smsPromptDismissed) to (h to locked)
+            Triple(s, a.lastSmsResult, a.smsPromptDismissed) to Triple(h, locked, a.displayName)
         },
     ) { (m, t), cats, recent, review, (scanInfo, extra) ->
         val (scanState, last, dismissed) = scanInfo
-        val (held, locked) = extra
-        val (spent, income, accs) = t
+        val (held, locked, name) = extra
+        val (spent, income, accs, prev) = t
         val bank = accs.filter { it.isLiquid && it.currentBalanceMinor != null }
         HomeState(
             month = m, isCurrentMonth = m >= YearMonth.now(Periods.zone),
             spent = spent, income = income,
             balance = bank.takeIf { it.isNotEmpty() }?.sumOf { it.currentBalanceMinor!! }, balanceAccounts = bank.size,
             accounts = accs.filter { !it.hidden }, categories = cats, recent = recent, reviewCount = review, scan = scanState, lastScanResult = last,
-            smsPromptDismissed = dismissed, investments = held.sumOf { it.valueMinor ?: 0 }, holdingCount = held.size, lockedStatements = locked, loaded = true,
+            smsPromptDismissed = dismissed, investments = held.sumOf { it.valueMinor ?: 0 }, holdingCount = held.size, lockedStatements = locked,
+            prevSpent = prev, displayName = name, loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
@@ -146,6 +153,30 @@ class HomeViewModel @Inject constructor(
 
     val update = updater.state
 
+    /** Daily spending over the last ~18 weeks, for the Activity grid. */
+    val activity: StateFlow<Map<java.time.LocalDate, Long>> = run {
+        val from = java.time.LocalDate.now(Periods.zone).minusWeeks(19).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
+        val offset = Periods.offsetMillis()
+        transactions.observeDailySpend(from, Long.MAX_VALUE, offset).map { days ->
+            days.associate { java.time.LocalDate.ofEpochDay(it.day) to it.total }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }
+
+    /** True while an SMS scan or email sync is running, for the refresh button. */
+    val syncing: StateFlow<Boolean> = combine(
+        WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(SmsScanScheduler.WORK_NAME),
+        WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(com.hisaab.email.sync.GmailScheduler.NOW),
+    ) { a, b -> (a + b).any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** The refresh button: new SMS, every connected inbox, and a fresh look at budgets and upcoming payments. */
+    fun syncAll() = viewModelScope.launch {
+        SmsScanScheduler.scanIfPermitted(context)
+        val mail = mailSettings.read()
+        if (mail.connected && mail.enabled) com.hisaab.email.sync.GmailScheduler.syncNow(context)
+        runCatching { alerts.checkBudgets(); alerts.checkUpcoming() }
+    }
+
     /** Upcoming payments, savings and insights, shared with Bills and Analytics. */
     val plan = plans.snapshot
 
@@ -163,7 +194,9 @@ class HomeViewModel @Inject constructor(
         return !asked
     }
 
+    private data class Totals(val spent: Long, val income: Long, val accounts: List<AccountWithActivity>, val prevSpent: Long)
+
     private companion object {
-        const val RECENT = 8
+        const val RECENT = 5
     }
 }

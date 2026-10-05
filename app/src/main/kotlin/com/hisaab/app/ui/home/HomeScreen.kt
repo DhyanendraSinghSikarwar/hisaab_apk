@@ -59,6 +59,16 @@ import com.hisaab.parser.model.Category
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.EventRepeat
+import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.draw.rotate
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Savings
@@ -101,6 +111,10 @@ fun HomeRoute(
     val plan by vm.plan.collectAsStateWithLifecycle()
     val budgetSummary by vm.budgetSummary.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
+    val activity by vm.activity.collectAsStateWithLifecycle()
+    val syncing by vm.syncing.collectAsStateWithLifecycle()
+    var addingRecurring by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (addingRecurring) com.hisaab.app.ui.plan.RecurringSheet(existing = null, onDismiss = { addingRecurring = false })
     val sms = rememberSmsPermission(onGranted = { vm.scanInbox(full = true) })
     // Ask once for notifications, so "a statement needs its password" can reach the user.
     val notifications = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -119,6 +133,7 @@ fun HomeRoute(
         plan = plan, onOpenBills = onOpenBills, onOpenAnalytics = onOpenAnalytics, budgetSummary = budgetSummary,
         updateVersion = (update as? com.hisaab.app.update.UpdateState.Available)?.release?.version, onOpenSettings = onOpenSettings,
         onOpenCategory = { onOpenCategory(it, state.month) },
+        activity = activity, syncing = syncing, onSync = vm::syncAll, onAddRecurring = { addingRecurring = true },
     )
 }
 
@@ -149,36 +164,28 @@ fun HomeScreen(
     budgetSummary: BudgetSummary? = null,
     updateVersion: String? = null,
     onOpenSettings: () -> Unit = {},
+    activity: Map<java.time.LocalDate, Long> = emptyMap(),
+    syncing: Boolean = false,
+    onSync: () -> Unit = {},
+    onAddRecurring: () -> Unit = {},
 ) {
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(onClick = onAdd, modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding())) {
-                Icon(Icons.Filled.Add, "Add transaction")
-            }
-        },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Hisaab")
-                        Text(Periods.month(state.month), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
-                actions = {
-                    val hidden = com.hisaab.app.ui.format.AmountPrivacy.hidden
-                    IconButton(onClick = onToggleHide) {
-                        Icon(if (hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (hidden) "Show amounts" else "Hide amounts")
-                    }
-                    IconButton(onClick = onPreviousMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month") }
-                    IconButton(onClick = onNextMonth, enabled = !state.isCurrentMonth) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month") }
-                },
-            )
-        },
-    ) { inner ->
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // Once the big header has scrolled away, a compact one floats at the top.
+    val collapsed by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex > 0 } }
+    val name = state.displayName ?: "Hisaab"
+    Box(Modifier.fillMaxSize()) {
+        AuroraBackground()
         LazyColumn(
+            state = listState,
             modifier = Modifier.testTag("home"),
-            contentPadding = PaddingValues(top = inner.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding() + 16.dp),
+            contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + 96.dp),
         ) {
+            item(key = "header") {
+                HomeHeader(name, onOpenAccounts, onToggleHide, onOpenSettings, onOpenBills,
+                    Modifier.statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 20.dp, bottom = 16.dp))
+            }
+            item(key = "hero") { SpendHero(state, onPreviousMonth, onNextMonth, onToggleHide, onOpenInvestments) }
+
             if (!hasSmsPermission && !state.smsPromptDismissed) item { PermissionCard(smsBlocked, onGrantSms, onDismissSms) }
             if (state.scan.running) item { ScanCard(state.scan) }
             if (state.reviewCount > 0) item { ReviewBanner(state.reviewCount, onOpenReview) }
@@ -190,72 +197,120 @@ fun HomeScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                     ) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Hisaab $v is available", Modifier.weight(1f), fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            Text("Hisaab $v is available", Modifier.weight(1f), fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSecondaryContainer)
                             Text("Update", color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
 
-            item { HeroCard(state) }
-            item {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(
-                        if (state.balanceAccounts > 0) "Bank balance" else "Bank balance (set in Accounts)",
-                        state.balance?.let { Money.format(it, showPaise = false) } ?: "—",
-                        Modifier.weight(1f).clickable(onClick = onOpenAccounts), icon = Icons.Filled.AccountBalanceWallet,
-                    )
-                    StatCard(
-                        "Investments", if (state.holdingCount > 0) Money.format(state.investments, showPaise = false) else "Add",
-                        Modifier.weight(1f).clickable(onClick = onOpenInvestments), icon = Icons.Filled.PieChart,
-                    )
+            // Budgets
+            item(key = "budgets-h") { HomeSection("Budgets", "View All", onOpenBudgets) }
+            item(key = "budgets") {
+                val budgeted = state.categories.filter { it.budget != null }
+                when {
+                    budgetSummary == null -> CreateBudgetCard(onOpenBudgets)
+                    budgeted.isEmpty() -> BudgetsCard(budgetSummary, onOpenBudgets)
+                    else -> BudgetLines(budgeted.sortedByDescending { it.spent.toFloat() / (it.budget ?: 1) }.take(3), onOpenBudgets)
                 }
             }
 
-            if (state.accounts.isNotEmpty()) {
-                item { SectionHeader("Accounts") { TextButton(onClick = onOpenAccounts) { Text("See all") } } }
-                item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(state.accounts, key = { it.id }) { AccountChip(it, onOpenAccounts) }
-                    }
-                }
-            }
-
-            budgetSummary?.let { b -> item { BudgetsCard(b, onOpenBudgets) } }
-
-            val soon = plan.upcoming.filter { it.daysLeft in 0..14 }
-            if (soon.isNotEmpty()) {
-                item { SectionHeader("Upcoming") { TextButton(onClick = onOpenBills) { Text("Bills & insurance") } } }
-                items(soon.take(3), key = { "up-${it.name}-${it.due}" }) { u -> UpcomingRow(u, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
-            } else if (plan.recurring.isNotEmpty() || plan.policies.isNotEmpty()) {
-                item { SectionHeader("Upcoming") { TextButton(onClick = onOpenBills) { Text("Bills & insurance") } } }
-            }
-
-            if (state.categories.isNotEmpty()) {
-                item { SectionHeader("Where it went") { TextButton(onClick = onOpenBudgets) { Text("Budgets") } } }
-                items(state.categories.take(5), key = { it.category }) { c -> CategoryLine(c, state.spent, onClick = { onOpenCategory(c.category) }) }
-            }
-
-            item {
-                SectionHeader(if (state.isCurrentMonth) "Recent" else "Latest in ${Periods.monthShort(state.month)}") {
-                    TextButton(onClick = onSeeAllTransactions) { Text("See all") }
+            // Recent transactions
+            item(key = "recent-h") {
+                HomeSection(if (state.isCurrentMonth) "Recent Transactions" else "Latest in ${Periods.monthShort(state.month)}", "View All", onSeeAllTransactions) {
+                    IconButton(onClick = onSeeAllTransactions) { Icon(Icons.Filled.Search, "Search transactions", tint = MaterialTheme.colorScheme.primary) }
                 }
             }
             if (state.recent.isEmpty() && state.loaded) {
                 item {
                     EmptyState(Icons.Filled.Inbox, if (state.isCurrentMonth) "No transactions this month" else "No transactions in ${Periods.month(state.month)}",
-                        if (hasSmsPermission) "Bank SMS will appear here as soon as they are read. Connect Gmail in Settings for email alerts."
+                        if (hasSmsPermission) "Bank SMS appear here as soon as they're read. Connect email in Settings for email alerts and statements."
                         else "Allow SMS access to read bank alerts from your inbox.")
                 }
             }
             items(state.recent, key = { it.id }) { tx -> TransactionRow(tx, onClick = { onOpenTransaction(tx.id) }, modifier = Modifier.animateItem()) }
-            plan.savings?.let { s -> if (s.lastMonth != null || s.averageMonthlyMinor != 0L) item { SavingsCard(s) } }
+
+            // Bank accounts
+            if (state.accounts.isNotEmpty()) {
+                item(key = "accounts-h") { HomeSection("Bank Accounts", "Manage", onOpenAccounts) }
+                item(key = "accounts") { AccountsCarousel(state.accounts, onOpenAccounts, onToggleHide) }
+            }
+
+            // Upcoming subscriptions and payments
+            val regular = plan.recurring.filter { !it.income }
+            if (regular.isNotEmpty() || plan.policies.isNotEmpty()) {
+                item(key = "subs-h") { HomeSection("Upcoming Subscriptions", "View All", onOpenBills) }
+                item(key = "subs") { SubscriptionsSummary(regular.size, regular.filter { !it.yearly }.sumOf { it.amountMinor }, onOpenBills) }
+                val soon = plan.upcoming.filter { it.daysLeft in 0..14 }
+                items(soon.take(3), key = { "up-${it.name}-${it.due}" }) { u -> UpcomingRow(u, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+            }
+
+            // Where it went
+            if (state.categories.isNotEmpty()) {
+                item(key = "cats-h") { HomeSection("Where it went", "Analytics", onOpenAnalytics) }
+                items(state.categories.take(5), key = { it.category }) { c -> CategoryLine(c, state.spent, onClick = { onOpenCategory(c.category) }) }
+            }
+
+            // Activity
+            item(key = "activity-h") { HomeSection("Activity") }
+            item(key = "activity") { ActivityHeatmap(activity) }
+
+            plan.savings?.let { s -> if (s.lastMonth != null || s.averageMonthlyMinor != 0L) item(key = "savings") { SavingsCard(s) } }
             if (plan.insights.isNotEmpty()) {
-                item { SectionHeader("Insights") { TextButton(onClick = onOpenAnalytics) { Text("More") } } }
+                item(key = "insights-h") { HomeSection("Insights", "More", onOpenAnalytics) }
                 items(plan.insights.take(2), key = { "in-${it.title}" }) { InsightRow(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
             }
-            state.lastScanResult?.let { item { Text("Last SMS scan: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) } }
+            state.lastScanResult?.let {
+                item { Text("Last SMS scan: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp)) }
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            collapsed, modifier = Modifier.align(Alignment.TopCenter),
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it },
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it },
+        ) {
+            CollapsedHeader { HomeHeader(name, onOpenAccounts, onToggleHide, onOpenSettings, onOpenBills, compact = true) }
+        }
+
+        HomeFabs(
+            onAdd = onAdd, onAddRecurring = onAddRecurring, syncing = syncing, onSync = onSync,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = contentPadding.calculateBottomPadding() + 16.dp),
+        )
+    }
+}
+
+/**
+ * The ＋ button opens two choices (a transaction, or a recurring payment or income); below it, refresh
+ * syncs SMS and every connected inbox, and spins while that runs.
+ */
+@Composable
+private fun HomeFabs(onAdd: () -> Unit, onAddRecurring: () -> Unit, syncing: Boolean, onSync: () -> Unit, modifier: Modifier = Modifier) {
+    var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 45f else 0f, label = "plus")
+    val spin = androidx.compose.animation.core.rememberInfiniteTransition(label = "sync")
+    val angle by spin.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.LinearEasing)), label = "angle")
+    Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        androidx.compose.animation.AnimatedVisibility(
+            open,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(expandFrom = Alignment.Bottom),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Bottom),
+        ) {
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                androidx.compose.material3.ExtendedFloatingActionButton(
+                    onClick = { open = false; onAddRecurring() }, icon = { Icon(Icons.Filled.EventRepeat, null) },
+                    text = { Text("Recurring / subscription") },
+                )
+                androidx.compose.material3.ExtendedFloatingActionButton(
+                    onClick = { open = false; onAdd() }, icon = { Icon(Icons.Filled.Receipt, null) }, text = { Text("Transaction") },
+                )
+            }
+        }
+        FloatingActionButton(onClick = { open = !open }, containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+            Icon(Icons.Filled.Add, if (open) "Close" else "Add", modifier = Modifier.rotate(turn))
+        }
+        FloatingActionButton(onClick = { if (!syncing) onSync() }, containerColor = MaterialTheme.colorScheme.primaryContainer) {
+            Icon(Icons.Filled.Sync, if (syncing) "Syncing" else "Sync everything", modifier = Modifier.rotate(if (syncing) -angle else 0f))
         }
     }
 }

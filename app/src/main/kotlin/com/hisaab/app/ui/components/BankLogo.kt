@@ -108,6 +108,8 @@ object KindColors {
 fun BrandMark(brand: Brand, modifier: Modifier = Modifier, size: Dp = 40.dp) {
     val dark = LocalDarkTheme.current
     val shape = RoundedCornerShape(size * 0.28f)
+    val logo = remember(brand.name) { AppLogos.bank(brand.name) ?: AppLogos.merchant(brand.name) }
+    if (logo != null && LogoImage(logo, size, modifier, shape)) return
     if (brand.path != null) {
         val vector = remember(brand.path) {
             ImageVector.Builder(defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)

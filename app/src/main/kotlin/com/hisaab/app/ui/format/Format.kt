@@ -17,7 +17,8 @@ import androidx.compose.runtime.setValue
  * screen that shows money, without each screen knowing about it.
  */
 object AmountPrivacy {
-    var hidden by androidx.compose.runtime.mutableStateOf(false)
+    // Hidden until settings say otherwise, so figures never flash on screen at launch.
+    var hidden by androidx.compose.runtime.mutableStateOf(true)
 }
 
 object Money {

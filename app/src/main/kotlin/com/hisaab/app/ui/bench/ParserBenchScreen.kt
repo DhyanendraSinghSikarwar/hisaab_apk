@@ -79,8 +79,8 @@ fun ParserBenchRoute(onBack: () -> Unit, vm: ParserBenchViewModel = hiltViewMode
     var sender by remember { mutableStateOf("VM-HDFCBK") }
     var body by remember { mutableStateOf("") }
     var source by remember { mutableStateOf(Source.SMS) }
-    Scaffold(topBar = {
-        TopAppBar(title = { Text("Test the parser") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Test the parser") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { inner ->
         Column(Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

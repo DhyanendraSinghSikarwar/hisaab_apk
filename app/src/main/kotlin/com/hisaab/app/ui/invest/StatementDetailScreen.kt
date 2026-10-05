@@ -70,8 +70,8 @@ private fun day(epochDay: Long?) = epochDay?.let { LocalDate.ofEpochDay(it).form
 fun StatementDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, onOpenInvestments: () -> Unit, vm: StatementDetailViewModel = hiltViewModel()) {
     val s by vm.statement.collectAsStateWithLifecycle()
     val rows by vm.rows.collectAsStateWithLifecycle()
-    Scaffold(topBar = {
-        TopAppBar(title = { Text("Statement") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Statement") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { inner ->
         val st = s ?: return@Scaffold
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, bottom = 32.dp)) {

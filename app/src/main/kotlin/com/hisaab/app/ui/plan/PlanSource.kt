@@ -33,7 +33,7 @@ data class Upcoming(
     /** Known balance of the paying account is below the amount. */
     val short: Boolean,
 ) {
-    enum class Kind { RECURRING, INSURANCE }
+    enum class Kind { RECURRING, INSURANCE, INCOME }
     val daysLeft: Long get() = ChronoUnit.DAYS.between(LocalDate.now(Periods.zone), due)
 }
 
@@ -55,6 +55,7 @@ class PlanSource @Inject constructor(
     transactions: TransactionDao,
     accounts: AccountDao,
     holdings: HoldingDao,
+    manual: com.hisaab.shared.db.RecurringDao,
     @ApplicationScope scope: CoroutineScope,
 ) {
     private val since = LocalDate.now(Periods.zone).minusDays(400).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
@@ -63,25 +64,27 @@ class PlanSource @Inject constructor(
         transactions.observeSince(since),
         accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())),
         holdings.observeAll(),
-    ) { txs, accs, held ->
+        manual.observeAll(),
+    ) { txs, accs, held, mine ->
         val today = LocalDate.now(Periods.zone)
         val zone = Periods.zone
         val byId = accs.associateBy { it.id }
         fun payingAccount(id: Long?) = id?.let(byId::get)?.let { a -> a.linkedAccountId?.let(byId::get) ?: a }
-        val recurring = Planning.recurring(txs, today, zone)
+        val recurring = Planning.withManual(Planning.recurring(txs, today, zone), mine, today)
         val policies = Planning.policies(txs, today, zone)
         val upcoming = (
             recurring.map { r ->
                 val a = payingAccount(r.accountId)
                 val bal = a?.takeIf { it.kind == com.hisaab.parser.model.AccountKind.ACCOUNT }?.currentBalanceMinor
-                Upcoming(r.name, r.amountMinor, r.nextDue, Upcoming.Kind.RECURRING, a, bal != null && bal < r.amountMinor)
+                Upcoming(r.name, r.amountMinor, r.nextDue, if (r.income) Upcoming.Kind.INCOME else Upcoming.Kind.RECURRING, a,
+                    !r.income && bal != null && bal < r.amountMinor)
             } + policies.filter { !it.monthly }.map { p ->
                 Upcoming(p.insurer, p.premiumMinor, p.nextDue, Upcoming.Kind.INSURANCE, payingAccount(p.accountId), false)
             }
         ).filter { it.due >= today }.sortedBy { it.due }
         PlanSnapshot(
             recurring = recurring, policies = policies, upcoming = upcoming,
-            savings = Planning.savings(txs, held, today, zone), insights = Planning.insights(txs, recurring, today, zone), loaded = true,
+            savings = Planning.savings(txs, held, today, zone), insights = Planning.insights(txs, recurring.filter { !it.income }, today, zone), loaded = true,
         )
     }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(10_000), PlanSnapshot())
 }

@@ -1,6 +1,8 @@
 package com.hisaab.app.ui.accounts
 
 import androidx.compose.foundation.background
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -102,6 +104,7 @@ data class AccountsState(
 data class AccountEdit(
     val nickname: String, val color: Int?, val type: AccountType?, val network: CardNetwork?, val linkedAccountId: Long?,
     val balance: String, val clearBalance: Boolean,
+    val usage: com.hisaab.shared.db.AccountUsage = com.hisaab.shared.db.AccountUsage.PERSONAL,
 )
 
 @HiltViewModel
@@ -143,6 +146,7 @@ class AccountsViewModel @Inject constructor(private val dao: AccountDao) : ViewM
 
     fun save(a: AccountWithActivity, e: AccountEdit) = viewModelScope.launch {
         dao.rename(a.id, e.nickname.trim().ifEmpty { null }, e.color)
+        if (e.usage != a.usage) dao.setUsage(a.id, e.usage)
         dao.setType(a.id, e.type, if (a.kind == AccountKind.CARD) e.network else null)
         dao.link(a.id, if (e.type == AccountType.DEBIT_CARD) e.linkedAccountId else null)
         when {
@@ -158,9 +162,9 @@ fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, vm: Account
     val s by vm.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(0) }
     var editing by remember { mutableStateOf<AccountWithActivity?>(null) }
-    Scaffold(topBar = {
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         Column {
-            TopAppBar(title = { Text("Accounts & cards") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+            TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Accounts & cards") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
             PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Accounts (${s.accounts.size})") },
                     icon = { Icon(Icons.Filled.AccountBalance, null, tint = KindColors.account) })
@@ -281,6 +285,13 @@ private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, on
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("$kindLabel · ••${a.last4}", style = MaterialTheme.typography.bodySmall, color = KindColors.of(a.kind, a.accountType))
                     a.cardNetwork?.let { n -> Spacer(Modifier.width(6.dp)); BrandMark(Brands.forNetwork(n), size = 20.dp) }
+                    if (a.usage == com.hisaab.shared.db.AccountUsage.BUSINESS) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Business", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
+                        )
+                    }
                 }
                 val sub = when {
                     linked != null -> "Linked to ${title(linked)} ••${linked.last4}"
@@ -325,6 +336,7 @@ private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity
     var linkedId by remember { mutableStateOf(a.linkedAccountId) }
     var balance by remember { mutableStateOf("") }
     var clearBalance by remember { mutableStateOf(false) }
+    var usage by remember { mutableStateOf(a.usage) }
     val invalid = balance.isNotBlank() && Money.parseInput(balance) == null
     val showBalance = !(isCard && type == AccountType.DEBIT_CARD)
 
@@ -339,6 +351,16 @@ private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity
                 }
             }
             OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Nickname") }, singleLine = true)
+
+            Label("Used for")
+            androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                com.hisaab.shared.db.AccountUsage.entries.forEachIndexed { i, u ->
+                    SegmentedButton(
+                        usage == u, { usage = u },
+                        androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, com.hisaab.shared.db.AccountUsage.entries.size),
+                    ) { Text(u.label) }
+                }
+            }
 
             Label(if (isCard) "Card type" else "Account type")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -413,7 +435,7 @@ private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity
                 TextButton(onClick = onHide) { Text("Remove from view", color = MaterialTheme.colorScheme.error) }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onDismiss) { Text("Cancel") }
-                Button(onClick = { onSave(AccountEdit(name, color, type, network, linkedId, balance, clearBalance)) }, enabled = !invalid) { Text("Save") }
+                Button(onClick = { onSave(AccountEdit(name, color, type, network, linkedId, balance, clearBalance, usage)) }, enabled = !invalid) { Text("Save") }
             }
             Text("Removing from view hides it from your lists and balance. Its transactions stay, and you can show it again at the bottom of Accounts.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

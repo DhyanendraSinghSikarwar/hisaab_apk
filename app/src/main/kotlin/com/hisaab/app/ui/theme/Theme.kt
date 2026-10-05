@@ -1,6 +1,5 @@
 package com.hisaab.app.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -34,28 +33,38 @@ import androidx.compose.material.icons.filled.Category as CategoryIcon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hisaab.app.settings.ThemeMode
 import com.hisaab.parser.model.Category
 
-private val Brand = Color(0xFF1B6E4F)
+// Emerald (money), sapphire (trust) and gold (wealth). Every neutral carries a faint green-blue tint rather than
+// Material's default lilac, so no surface ever reads as purple.
 private val LightColors = lightColorScheme(
-    primary = Brand, onPrimary = Color.White, primaryContainer = Color(0xFFA6F2CB), onPrimaryContainer = Color(0xFF002114),
-    secondary = Color(0xFF4C6358), tertiary = Color(0xFF3D6373), background = Color(0xFFF6FAF7), surface = Color(0xFFF6FAF7),
+    primary = Color(0xFF0F6E52), onPrimary = Color.White, primaryContainer = Color(0xFFB4F0D6), onPrimaryContainer = Color(0xFF002117),
+    secondary = Color(0xFF2A5D96), onSecondary = Color.White, secondaryContainer = Color(0xFFD5E4FA), onSecondaryContainer = Color(0xFF0B1D36),
+    tertiary = Color(0xFF8A6A00), onTertiary = Color.White, tertiaryContainer = Color(0xFFFCE7A6), onTertiaryContainer = Color(0xFF2B2000),
+    background = Color(0xFFF2F8F5), onBackground = Color(0xFF151D1A), surface = Color(0xFFF2F8F5), onSurface = Color(0xFF151D1A),
+    surfaceVariant = Color(0xFFDCE6E2), onSurfaceVariant = Color(0xFF414B48), outline = Color(0xFF717C78), outlineVariant = Color(0xFFC1CBC7),
+    surfaceContainerLowest = Color(0xFFFFFFFF), surfaceContainerLow = Color(0xFFF4F9F7), surfaceContainer = Color(0xFFECF3F1),
+    surfaceContainerHigh = Color(0xFFE5EEEB), surfaceContainerHighest = Color(0xFFDEE8E5), surfaceBright = Color(0xFFF8FCFA), surfaceDim = Color(0xFFD5DEDB),
+    inverseSurface = Color(0xFF2A3230), inverseOnSurface = Color(0xFFEAF2EF), inversePrimary = Color(0xFF7FD9B4), surfaceTint = Color(0xFF0F6E52),
 )
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF8BD6B0), onPrimary = Color(0xFF003824), primaryContainer = Color(0xFF005236), onPrimaryContainer = Color(0xFFA6F2CB),
-    secondary = Color(0xFFB3CCBF), tertiary = Color(0xFFA5CCDF), background = Color(0xFF101412), surface = Color(0xFF101412),
+    primary = Color(0xFF7FD9B4), onPrimary = Color(0xFF00382A), primaryContainer = Color(0xFF00513D), onPrimaryContainer = Color(0xFFB4F0D6),
+    secondary = Color(0xFFA9C8F2), onSecondary = Color(0xFF0E2F55), secondaryContainer = Color(0xFF1F4571), onSecondaryContainer = Color(0xFFD5E4FA),
+    tertiary = Color(0xFFE9C55A), onTertiary = Color(0xFF3D2F00), tertiaryContainer = Color(0xFF584500), onTertiaryContainer = Color(0xFFFCE7A6),
+    background = Color(0xFF0B1714), onBackground = Color(0xFFDDE5E2), surface = Color(0xFF0B1714), onSurface = Color(0xFFDDE5E2),
+    surfaceVariant = Color(0xFF3B4744), onSurfaceVariant = Color(0xFFBAC6C2), outline = Color(0xFF85918D), outlineVariant = Color(0xFF3B4744),
+    surfaceContainerLowest = Color(0xFF070F0D), surfaceContainerLow = Color(0xFF121D1B), surfaceContainer = Color(0xFF16221F),
+    surfaceContainerHigh = Color(0xFF1C2A27), surfaceContainerHighest = Color(0xFF243330), surfaceBright = Color(0xFF2E3B38), surfaceDim = Color(0xFF0B1714),
+    inverseSurface = Color(0xFFDDE5E2), inverseOnSurface = Color(0xFF243330), inversePrimary = Color(0xFF0F6E52), surfaceTint = Color(0xFF7FD9B4),
 )
 
 @Composable
@@ -65,15 +74,8 @@ fun HisaabTheme(mode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> U
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    val colors = when {
-        // Material You: follow the wallpaper on Android 12+.
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val ctx = LocalContext.current
-            if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
-        }
-        dark -> DarkColors
-        else -> LightColors
-    }
+    // Always Hisaab's own colours: wallpaper-based Material You would make it look like every other app.
+    val colors = if (dark) DarkColors else LightColors
     MaterialTheme(colorScheme = colors, typography = HisaabTypography, shapes = HisaabShapes) {
         androidx.compose.runtime.CompositionLocalProvider(LocalDarkTheme provides dark, content = content)
     }
