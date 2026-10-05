@@ -16,10 +16,13 @@ object ReferenceExtractor {
 
     fun extract(text: String, lower: String = text.lowercase()): String? {
         SLASHED.find(text, lower)?.let { return it.groupValues[1].uppercase() }
-        for (m in LABELLED.findAll(text, lower)) {
+        var m = LABELLED.find(text, lower)
+        while (m != null) {
             val ref = m.groupValues[1]
-            // "UPI transaction" also fits the pattern; a real reference is mostly digits.
+            // "UPI transaction" also fits the pattern; a real reference is mostly digits. Retry from the next
+            // character, so "UPI transaction ID 5268..." still finds the "transaction ID" label inside the miss.
             if (ref.count { it.isDigit() } >= MIN_DIGITS) return ref.uppercase()
+            m = LABELLED.regex.find(text, m.range.first + 1)
         }
         return null
     }

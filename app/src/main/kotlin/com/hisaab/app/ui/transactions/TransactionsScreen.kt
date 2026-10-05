@@ -16,7 +16,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.hisaab.app.ui.components.CategorySheet
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
@@ -49,10 +61,11 @@ import com.hisaab.app.ui.format.Periods
 import com.hisaab.parser.model.Category
 import com.hisaab.parser.model.TransactionType
 import com.hisaab.shared.db.AccountEntity
+import java.time.YearMonth
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun TransactionsRoute(onOpen: (Long) -> Unit, contentPadding: PaddingValues, vm: TransactionsViewModel = hiltViewModel()) {
+fun TransactionsRoute(onOpen: (Long) -> Unit, onAdd: () -> Unit, contentPadding: PaddingValues, vm: TransactionsViewModel = hiltViewModel()) {
     val filter by vm.filter.collectAsStateWithLifecycle()
     val rows by vm.transactions.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
@@ -60,7 +73,40 @@ fun TransactionsRoute(onOpen: (Long) -> Unit, contentPadding: PaddingValues, vm:
     val nearEnd by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= listState.layoutInfo.totalItemsCount - 15 } ?: false } }
     LaunchedEffect(nearEnd) { if (nearEnd) vm.loadMore() }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Transactions") }) }) { inner ->
+    // Long-press starts selecting; while anything is selected, a tap toggles instead of opening.
+    var selected by rememberSaveable(stateSaver = LongSetSaver) { mutableStateOf(emptySet<Long>()) }
+    var pickingCategory by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val selecting = selected.isNotEmpty()
+    fun toggle(id: Long) { selected = if (id in selected) selected - id else selected + id }
+    BackHandler(enabled = selecting) { selected = emptySet() }
+
+    Scaffold(
+        topBar = {
+            if (selecting) {
+                TopAppBar(
+                    title = { Text("${selected.size} selected") },
+                    navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Filled.Close, "Cancel selection") } },
+                    actions = {
+                        IconButton(onClick = { selected = rows.map { it.id }.toSet() }) { Icon(Icons.Filled.SelectAll, "Select all") }
+                        IconButton(onClick = { pickingCategory = true }) { Icon(Icons.Filled.Category, "Change category") }
+                        IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete") }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                )
+            } else {
+                TopAppBar(title = { Text("Transactions") })
+            }
+        },
+        floatingActionButton = {
+            if (!selecting) {
+                ExtendedFloatingActionButton(
+                    onClick = onAdd, icon = { Icon(Icons.Filled.Add, null) }, text = { Text("Add") },
+                    modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()),
+                )
+            }
+        },
+    ) { inner ->
         Column(Modifier.padding(top = inner.calculateTopPadding()).fillMaxSize()) {
             OutlinedTextField(
                 value = filter.search, onValueChange = { q -> vm.update { it.copy(search = q) } },
@@ -73,7 +119,8 @@ fun TransactionsRoute(onOpen: (Long) -> Unit, contentPadding: PaddingValues, vm:
             Filters(filter, accounts, vm::update)
             val grouped = remember(rows) { rows.groupBy { Periods.localDate(it.timestamp) } }
             if (rows.isEmpty()) {
-                EmptyState(Icons.Filled.ReceiptLong, "Nothing here", "No transactions match these filters.")
+                EmptyState(Icons.Filled.ReceiptLong, "Nothing here",
+                    filter.month?.let { "No transactions in ${Periods.month(it)} match these filters." } ?: "No transactions match these filters.")
             }
             LazyColumn(state = listState, contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + 16.dp)) {
                 grouped.forEach { (day, txs) ->
@@ -84,16 +131,56 @@ fun TransactionsRoute(onOpen: (Long) -> Unit, contentPadding: PaddingValues, vm:
                             if (out > 0) Text("−" + Money.format(out, showPaise = false), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    items(txs, key = { it.id }) { tx -> TransactionRow(tx, onClick = { onOpen(tx.id) }) }
+                    items(txs, key = { it.id }) { tx ->
+                        TransactionRow(
+                            tx, selected = tx.id in selected, modifier = Modifier.animateItem(),
+                            onClick = { if (selecting) toggle(tx.id) else onOpen(tx.id) },
+                            onLongClick = { toggle(tx.id) },
+                        )
+                    }
                 }
             }
         }
     }
+    BulkDialogs(
+        count = selected.size, pickingCategory = pickingCategory, confirmDelete = confirmDelete,
+        onPick = { c -> vm.setCategory(selected, c); selected = emptySet() },
+        onDelete = { vm.delete(selected); selected = emptySet(); confirmDelete = false },
+        onDismissPicker = { pickingCategory = false }, onDismissDelete = { confirmDelete = false },
+    )
 }
+
+@Composable
+private fun BulkDialogs(
+    count: Int, pickingCategory: Boolean, confirmDelete: Boolean,
+    onPick: (Category) -> Unit, onDelete: () -> Unit, onDismissPicker: () -> Unit, onDismissDelete: () -> Unit,
+) {
+    if (pickingCategory) CategorySheet(current = null, onPick = onPick, onDismiss = onDismissPicker, title = "Category for $count transactions")
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = onDismissDelete,
+            title = { Text("Delete $count transactions?") },
+            text = { Text("They are removed from Hisaab and won't come back on a rescan. The SMS and emails themselves are not touched.") },
+            confirmButton = { TextButton(onClick = onDelete) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = onDismissDelete) { Text("Cancel") } },
+        )
+    }
+}
+
+private val LongSetSaver = androidx.compose.runtime.saveable.Saver<Set<Long>, LongArray>(
+    save = { it.toLongArray() }, restore = { it.toSet() },
+)
 
 @Composable
 private fun Filters(f: TransactionFilter, accounts: List<AccountEntity>, update: ((TransactionFilter) -> TransactionFilter) -> Unit) {
     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val thisMonth = YearMonth.now(Periods.zone)
+        val months = (0L until MONTH_CHOICES).map { thisMonth.minusMonths(it) }.let { if (f.month != null && f.month !in it) it + f.month else it }
+        Menu(
+            label = f.month?.let(Periods::month) ?: "Any time", selected = f.month != null,
+            options = listOf<Pair<String, YearMonth?>>("Any time" to null) + months.map { Periods.month(it) to it },
+            onPick = { m -> update { it.copy(month = m) } },
+        )
         SourceFilter.entries.forEach { s ->
             FilterChip(selected = f.source == s, onClick = { update { it.copy(source = s) } }, label = { Text(s.label) })
         }
@@ -114,6 +201,8 @@ private fun Filters(f: TransactionFilter, accounts: List<AccountEntity>, update:
         )
     }
 }
+
+private const val MONTH_CHOICES = 24L
 
 @Composable
 private fun <T> Menu(label: String, selected: Boolean, options: List<Pair<String, T>>, onPick: (T) -> Unit) {

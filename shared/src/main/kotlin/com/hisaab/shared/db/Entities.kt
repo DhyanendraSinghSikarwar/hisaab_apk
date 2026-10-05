@@ -106,7 +106,58 @@ data class AccountEntity(
     @ColumnInfo(defaultValue = "NULL") val manualBalanceMinor: Long? = null,
     /** When the user set [manualBalanceMinor]; later transactions move it on. */
     @ColumnInfo(defaultValue = "NULL") val manualBalanceAt: Long? = null,
+    /** Savings, FD, credit card...: guessed from the first message, changeable by the user. Null = not known. */
+    @ColumnInfo(defaultValue = "NULL") val accountType: AccountType? = null,
+    @ColumnInfo(defaultValue = "NULL") val cardNetwork: CardNetwork? = null,
+    /** A debit card's bank account: the card's spends and balance belong to it. */
+    @ColumnInfo(defaultValue = "NULL") val linkedAccountId: Long? = null,
+    /** Removed from view by the user: left out of account lists and the Home balance until shown again. */
+    @ColumnInfo(defaultValue = "0") val hidden: Boolean = false,
 )
+
+/** "Swiggy is always Food": the category the user last chose for a merchant or UPI id. Applied first to new transactions. */
+@Entity(tableName = "merchant_rules")
+data class MerchantRuleEntity(
+    @PrimaryKey val merchantKey: String,
+    val category: Category,
+    val updatedAt: Long,
+) {
+    companion object {
+        /** The key a transaction is remembered by: its merchant name, or else its UPI id, lower-cased. */
+        fun keyOf(merchant: String?, upiId: String?): String? =
+            (merchant ?: upiId)?.trim()?.lowercase()?.takeIf { it.length >= 2 }
+    }
+}
+
+/** What kind of account or card this is. [liquid] accounts count towards the Home balance. */
+enum class AccountType(val label: String, val kind: AccountKind, val liquid: Boolean = true) {
+    SAVINGS("Savings", AccountKind.ACCOUNT),
+    CURRENT("Current", AccountKind.ACCOUNT),
+    SALARY("Salary", AccountKind.ACCOUNT),
+    NRE("NRE", AccountKind.ACCOUNT),
+    NRO("NRO", AccountKind.ACCOUNT),
+    WALLET("Wallet", AccountKind.ACCOUNT),
+    FD("Fixed deposit (FD)", AccountKind.ACCOUNT, liquid = false),
+    RD("Recurring deposit (RD)", AccountKind.ACCOUNT, liquid = false),
+    PPF("PPF", AccountKind.ACCOUNT, liquid = false),
+    LOAN("Loan", AccountKind.ACCOUNT, liquid = false),
+    CREDIT_CARD("Credit card", AccountKind.CARD),
+    DEBIT_CARD("Debit card", AccountKind.CARD),
+    PREPAID_CARD("Prepaid / forex card", AccountKind.CARD);
+
+    companion object {
+        fun forKind(kind: AccountKind) = entries.filter { it.kind == kind }
+    }
+}
+
+enum class CardNetwork(val label: String) {
+    VISA("Visa"), MASTERCARD("Mastercard"), RUPAY("RuPay"), AMEX("American Express"), DINERS("Diners Club"),
+    DISCOVER("Discover"), JCB("JCB"), MAESTRO("Maestro"), UNIONPAY("UnionPay"),
+}
+
+/** A message whose transaction the user deleted, so a rescan does not bring it back. */
+@Entity(tableName = "deleted_messages", primaryKeys = ["source", "messageId"])
+data class DeletedMessageEntity(val source: String, val messageId: String, val deletedAt: Long)
 
 @Entity(tableName = "budgets")
 data class BudgetEntity(
@@ -118,6 +169,8 @@ data class BudgetEntity(
 data class CategoryTotal(val category: Category, val total: Long)
 data class DayTotal(val day: Long, val total: Long)
 data class MonthTotal(val month: String, val spent: Long, val income: Long)
+data class MerchantTotal(val name: String, val total: Long, val count: Int)
+data class CategoryCount(val category: Category, val count: Int)
 data class SourceOfTransaction(val transactionId: Long, val source: String)
 data class AccountWithActivity(
     val id: Long,
@@ -135,7 +188,16 @@ data class AccountWithActivity(
     val manualBalanceAt: Long? = null,
     /** Net effect on the balance of the transactions after [manualBalanceAt]: credits minus spends. */
     val changeSinceManual: Long = 0,
+    val accountType: AccountType? = null,
+    val cardNetwork: CardNetwork? = null,
+    val linkedAccountId: Long? = null,
+    val hidden: Boolean = false,
 ) {
+    val isDebitCard: Boolean get() = kind == AccountKind.CARD && accountType == AccountType.DEBIT_CARD
+
+    /** Counts towards the Home balance: a bank account that is not a deposit, PPF or loan. */
+    val isLiquid: Boolean get() = kind == AccountKind.ACCOUNT && accountType?.liquid != false && !hidden
+
     /** A bank account's balance, or a card's available limit. Null when neither the bank nor the user gave one. */
     val currentBalanceMinor: Long?
         get() = AccountBalances.current(kind, latestBalanceMinor, availableLimitMinor, balanceUpdatedAt, manualBalanceMinor, manualBalanceAt, changeSinceManual)

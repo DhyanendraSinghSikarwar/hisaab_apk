@@ -28,15 +28,15 @@ class ImapSyncEngineTest {
     private val day = TimeUnit.DAYS.toMillis(1)
     private val login = MailLogin("me@gmail.com", "app-password", MailServers.forAddress("me@gmail.com"))
 
-    private class FakeState(var last: Long? = null, val days: Int = 30, val login: MailLogin?) : ImapSyncState {
+    private class FakeState(var last: Long? = null, val days: Int = 30, val login: MailLogin?, val readPdf: Boolean = false) : ImapSyncState {
         var saved: String? = null
-        override suspend fun login() = login
+        override suspend fun logins() = listOfNotNull(login)
         override suspend fun lookbackDays() = days
         override suspend fun senders() = listOf("hdfcbank.net")
-        override suspend fun readPdfStatements() = false
+        override suspend fun readPdfStatements() = readPdf
         override suspend fun enabled() = true
-        override suspend fun lastSyncAt() = last
-        override suspend fun saveSync(at: Long, result: String) { last = at; saved = result }
+        override suspend fun lastSyncAt(email: String) = last
+        override suspend fun saveSync(email: String, at: Long, result: String) { last = at; saved = result }
     }
 
     private class FakeSink : EmailSink {
@@ -52,10 +52,12 @@ class ImapSyncEngineTest {
 
     private inner class FakeClient(val mails: List<FetchedMail>) : MailClient {
         var since: Long? = null
+        var askedForPdfs: Boolean? = null
         override suspend fun checkLogin(login: MailLogin) = Unit
         override suspend fun sendToSelf(login: MailLogin, subject: String, body: String) = Unit
         override suspend fun fetchSince(login: MailLogin, since: Long, accept: (String) -> Boolean, withPdfs: Boolean): List<FetchedMail> {
             this.since = since
+            askedForPdfs = withPdfs
             return mails.filter { it.receivedAt >= since && accept(it.from) }
         }
     }
@@ -91,6 +93,31 @@ class ImapSyncEngineTest {
         assertEquals(now - day, client.since)
         assertEquals(0, again.parsed)
         assertEquals(2, sink.stored.size)
+    }
+
+    @Test
+    fun `statement PDFs attached to mail reach the statement reader`() = runBlocking {
+        val statementMail = FetchedMail(
+            id = "imap:<stmt1@hdfcbank.net>", from = "HDFC Bank <Emailstatements.cards@hdfcbank.net>", subject = "Your credit card statement",
+            text = "Dear Customer, your HDFC Bank Credit Card statement for September 2026 is attached.", receivedAt = now - day,
+            pdfs = listOf(byteArrayOf(1, 2, 3)), pdfNames = listOf("4893XXXXXXXX5678_20-09-2026.pdf"),
+        )
+        val client = FakeClient(listOf(statementMail))
+        val seen = mutableListOf<com.hisaab.email.statement.StatementMeta>()
+        val handler = com.hisaab.email.statement.StatementHandler { _, meta -> seen += meta; emptyList() }
+        ImapSyncEngine(client, FakeState(login = login, readPdf = true), FakeSink(), registry, pdf = handler, clock = { now }).sync()
+        assertEquals(true, client.askedForPdfs)
+        assertEquals(1, seen.size)
+        assertEquals("4893XXXXXXXX5678_20-09-2026.pdf", seen.first().fileName)
+        assertEquals("imap:<stmt1@hdfcbank.net>#pdf0", seen.first().key)
+    }
+
+    @Test
+    fun `default senders include card issuers and investment statement senders`() {
+        val senders = registry.defaultEmailSenders
+        for (d in listOf("hdfcbank.net", "sbicard.com", "camsonline.com", "kfintech.com", "nsdl.co.in", "cdslstatement.com", "indmoney.com", "getonecard.app")) {
+            assertTrue(d, d in senders)
+        }
     }
 
     @Test(expected = MailAuthException::class)

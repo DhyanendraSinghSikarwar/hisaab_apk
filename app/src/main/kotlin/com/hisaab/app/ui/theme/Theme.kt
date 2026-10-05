@@ -5,6 +5,13 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.Chair
+import androidx.compose.material.icons.filled.CreditScore
+import androidx.compose.material.icons.filled.Percent
+import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.Subscriptions
+import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Flight
@@ -36,6 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.hisaab.app.settings.ThemeMode
 import com.hisaab.parser.model.Category
 
@@ -65,18 +74,41 @@ fun HisaabTheme(mode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> U
         dark -> DarkColors
         else -> LightColors
     }
-    val base = Typography()
-    val type = base.copy(
-        headlineLarge = base.headlineLarge.copy(fontWeight = FontWeight.SemiBold),
-        headlineMedium = base.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
-        titleLarge = base.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-    )
-    MaterialTheme(colorScheme = colors, typography = type) {
+    MaterialTheme(colorScheme = colors, typography = HisaabTypography, shapes = HisaabShapes) {
         androidx.compose.runtime.CompositionLocalProvider(LocalDarkTheme provides dark, content = content)
     }
 }
 
 val LocalDarkTheme = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/**
+ * Tabular figures everywhere ("tnum"): every digit is the same width, so amounts line up in columns and
+ * a counting number doesn't jitter. Headings are a touch heavier and tighter, as finance apps set them.
+ */
+private val HisaabTypography: Typography = Typography().let { b ->
+    fun androidx.compose.ui.text.TextStyle.num() = copy(fontFeatureSettings = "tnum")
+    b.copy(
+        displayLarge = b.displayLarge.num(), displayMedium = b.displayMedium.num(),
+        displaySmall = b.displaySmall.num().copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp),
+        headlineLarge = b.headlineLarge.num().copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.25).sp),
+        headlineMedium = b.headlineMedium.num().copy(fontWeight = FontWeight.SemiBold),
+        headlineSmall = b.headlineSmall.num().copy(fontWeight = FontWeight.SemiBold),
+        titleLarge = b.titleLarge.num().copy(fontWeight = FontWeight.SemiBold),
+        titleMedium = b.titleMedium.num().copy(fontWeight = FontWeight.SemiBold),
+        titleSmall = b.titleSmall.num(),
+        bodyLarge = b.bodyLarge.num(), bodyMedium = b.bodyMedium.num(), bodySmall = b.bodySmall.num(),
+        labelLarge = b.labelLarge.num(), labelMedium = b.labelMedium.num(), labelSmall = b.labelSmall.num(),
+    )
+}
+
+/** Softer, more generous corners than the Material defaults. */
+private val HisaabShapes = androidx.compose.material3.Shapes(
+    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+    small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(32.dp),
+)
 
 /** Money in and out, chosen to stay readable in both themes. */
 object MoneyColors {
@@ -102,6 +134,13 @@ val Category.color: Color
         Category.EMI_LOAN -> Color(0xFFFFA726)
         Category.INVESTMENT -> Color(0xFF2E7D32)
         Category.CASH -> Color(0xFF9E9D24)
+        Category.SUBSCRIPTIONS -> Color(0xFF7E57C2)
+        Category.PERSONAL_CARE -> Color(0xFFEC407A)
+        Category.HOUSEHOLD -> Color(0xFFA1887F)
+        Category.GIFTS -> Color(0xFFE53935)
+        Category.DONATIONS -> Color(0xFFFF7043)
+        Category.TAXES -> Color(0xFF546E7A)
+        Category.FEES -> Color(0xFF8E7CC3)
         Category.SALARY -> Color(0xFF00897B)
         Category.INCOME -> Color(0xFF43A047)
         Category.REFUND -> Color(0xFF29B6F6)
@@ -123,9 +162,16 @@ val Category.icon: ImageVector
         Category.EDUCATION -> Icons.Filled.School
         Category.RENT -> Icons.Filled.Home
         Category.INSURANCE -> Icons.Filled.Shield
-        Category.EMI_LOAN -> Icons.Filled.AccountBalance
+        Category.EMI_LOAN -> Icons.Filled.CreditScore
         Category.INVESTMENT -> Icons.AutoMirrored.Filled.TrendingUp
         Category.CASH -> Icons.Filled.LocalAtm
+        Category.SUBSCRIPTIONS -> Icons.Filled.Subscriptions
+        Category.PERSONAL_CARE -> Icons.Filled.Spa
+        Category.HOUSEHOLD -> Icons.Filled.Chair
+        Category.GIFTS -> Icons.Filled.CardGiftcard
+        Category.DONATIONS -> Icons.Filled.VolunteerActivism
+        Category.TAXES -> Icons.Filled.AccountBalance
+        Category.FEES -> Icons.Filled.Percent
         Category.SALARY -> Icons.Filled.Work
         Category.INCOME -> Icons.Filled.Payments
         Category.REFUND -> Icons.Filled.Undo
@@ -135,3 +181,15 @@ val Category.icon: ImageVector
 
 @Suppress("unused")
 private val keepCurrencyIcon = Icons.Filled.CurrencyExchange
+
+/** Categories grouped for the picker. Every category is in exactly one group. */
+enum class CategoryGroup(val label: String, val members: List<Category>) {
+    FOOD("Food & drink", listOf(Category.FOOD, Category.GROCERIES)),
+    LIFESTYLE("Shopping & lifestyle", listOf(Category.SHOPPING, Category.ENTERTAINMENT, Category.SUBSCRIPTIONS, Category.PERSONAL_CARE, Category.GIFTS, Category.DONATIONS)),
+    TRAVEL("Transport & travel", listOf(Category.TRANSPORT, Category.FUEL, Category.TRAVEL)),
+    HOME("Home & bills", listOf(Category.RENT, Category.BILLS, Category.HOUSEHOLD)),
+    WELLBEING("Health & education", listOf(Category.HEALTH, Category.EDUCATION, Category.INSURANCE)),
+    MONEY("Money", listOf(Category.EMI_LOAN, Category.INVESTMENT, Category.CASH, Category.TAXES, Category.FEES, Category.TRANSFER)),
+    INCOME("Income", listOf(Category.SALARY, Category.INCOME, Category.REFUND)),
+    OTHER("Other", listOf(Category.OTHER)),
+}

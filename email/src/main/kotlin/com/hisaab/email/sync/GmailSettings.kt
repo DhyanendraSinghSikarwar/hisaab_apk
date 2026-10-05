@@ -86,9 +86,16 @@ class GmailSettingsStore @Inject constructor(
         store.edit { it[HISTORY_ID] = historyId; it[LAST_SYNC] = at; it[LAST_RESULT] = result; it[NEEDS_REAUTH] = false }
     }
 
-    suspend fun saveImapSync(at: Long, result: String) {
-        store.edit { it[IMAP_SYNCED_AT] = at; it[LAST_SYNC] = at; it[LAST_RESULT] = result; it[NEEDS_REAUTH] = false }
+    suspend fun saveImapSync(email: String, at: Long, result: String) {
+        store.edit {
+            it[imapKey(email)] = at; it[LAST_SYNC] = at; it[LAST_RESULT] = result; it[NEEDS_REAUTH] = false
+        }
     }
+
+    /** Where the last sync of this address got to; null means its next sync reads the whole look-back window. */
+    suspend fun imapSyncedAt(email: String): Long? = store.data.first()[imapKey(email)]
+
+    private fun imapKey(email: String) = longPreferencesKey("imap_synced_at:${email.lowercase()}")
 
     override suspend fun setNeedsReauth(value: Boolean) {
         store.edit { it[NEEDS_REAUTH] = value }
@@ -120,6 +127,11 @@ class GmailSettingsStore @Inject constructor(
 
     suspend fun setReadPdf(value: Boolean) = store.edit { it[READ_PDF] = value }
 
+    /** The next sync reads the whole look-back window again (used by "Re-read email for statements"). */
+    suspend fun forgetSyncPosition() = store.edit { forgetPosition(it) }
+
+    suspend fun forgetSyncPosition(email: String) = store.edit { it.remove(imapKey(email)) }
+
     suspend fun lastResult(result: String) = store.edit { it[LAST_RESULT] = result }
 
     /** Sign-out: forget the account and the sync position. Parsed transactions are kept. */
@@ -133,6 +145,7 @@ class GmailSettingsStore @Inject constructor(
     private fun forgetPosition(p: androidx.datastore.preferences.core.MutablePreferences) {
         p.remove(HISTORY_ID)
         p.remove(IMAP_SYNCED_AT)
+        p.asMap().keys.filter { it.name.startsWith("imap_synced_at:") }.forEach { p.remove(it) }
     }
 
     private companion object {

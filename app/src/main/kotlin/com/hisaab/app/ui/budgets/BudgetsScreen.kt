@@ -1,31 +1,39 @@
 package com.hisaab.app.ui.budgets
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -38,14 +46,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.settings.AppSettingsStore
+import com.hisaab.app.ui.components.AnimatedAmount
 import com.hisaab.app.ui.components.CategoryBadge
+import com.hisaab.app.ui.components.CategorySheet
 import com.hisaab.app.ui.components.EmptyState
+import com.hisaab.app.ui.components.InfoButton
+import com.hisaab.app.ui.components.pressable
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.app.ui.theme.color
@@ -56,43 +72,79 @@ import com.hisaab.shared.db.TransactionDao
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.YearMonth
 import javax.inject.Inject
 
 data class BudgetLine(val category: Category, val limit: Long, val spent: Long)
 
 @HiltViewModel
-class BudgetsViewModel @Inject constructor(private val budgets: BudgetDao, transactions: TransactionDao) : ViewModel() {
-    val lines = combine(budgets.observeAll(), transactions.observeCategoryTotals(Periods.startOfMonth(System.currentTimeMillis()), Long.MAX_VALUE)) { b, spent ->
+class BudgetsViewModel @Inject constructor(
+    private val budgets: BudgetDao,
+    transactions: TransactionDao,
+    private val settings: AppSettingsStore,
+) : ViewModel() {
+    private val range = Periods.range(YearMonth.now(Periods.zone))
+
+    /** Budgets are monthly limits: the same limit applies to every month, measured against that month's spending. */
+    val lines = combine(budgets.observeAll(), transactions.observeCategoryTotals(range.first, range.last)) { b, spent ->
         val byCat = spent.associate { it.category to it.total }
         b.map { BudgetLine(it.category, it.monthlyLimitMinor, byCat[it.category] ?: 0) }.sortedByDescending { it.spent.toDouble() / it.limit }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val alertPercent = settings.settings.map { it.budgetAlertPercent }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 90)
+
     fun save(category: Category, limitMinor: Long) = viewModelScope.launch { budgets.upsert(BudgetEntity(category, limitMinor)) }
     fun delete(category: Category) = viewModelScope.launch { budgets.delete(category.name) }
+    fun setAlertPercent(p: Int) = viewModelScope.launch { settings.setBudgetAlertPercent(p) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BudgetsRoute(contentPadding: PaddingValues, vm: BudgetsViewModel = hiltViewModel()) {
+fun BudgetsRoute(
+    contentPadding: PaddingValues,
+    onBack: (() -> Unit)? = null,
+    onOpenCategory: (Category) -> Unit = {},
+    vm: BudgetsViewModel = hiltViewModel(),
+) {
     val lines by vm.lines.collectAsStateWithLifecycle()
+    val alertAt by vm.alertPercent.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<BudgetLine?>(null) }
     var adding by remember { mutableStateOf(false) }
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Budgets") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Budgets") },
+                navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
+                actions = {
+                    InfoButton(
+                        "Budgets",
+                        "A budget is a monthly limit for a category. Set it once: it applies to every month, and resets on the 1st.",
+                        "You get an alert when spending reaches your alert level (90% unless you change it) and again at 100%.",
+                        "Tap a budget to see every transaction behind it.",
+                    )
+                },
+            )
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Filled.Add, null) }, text = { Text("Budget") },
                 modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()))
         },
     ) { inner ->
-        if (lines.isEmpty()) {
-            EmptyState(Icons.Filled.Savings, "No budgets", "Set a monthly limit for a category to track it here and on Home.", Modifier.padding(inner))
-        }
-        LazyColumn(contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, start = 16.dp, end = 16.dp, bottom = 120.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(lines, key = { it.category }) { l -> BudgetCard(l) { editing = l } }
+        LazyColumn(
+            contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, start = 16.dp, end = 16.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (lines.isEmpty()) {
+                item { EmptyState(Icons.Filled.Savings, "No budgets yet", "Set a monthly limit for a category. It applies every month, and you'll be alerted before you cross it.") }
+            } else {
+                item { Overview(lines) }
+                item { AlertLevel(alertAt, vm::setAlertPercent) }
+            }
+            items(lines, key = { it.category }) { l -> BudgetCard(l, alertAt, onOpen = { onOpenCategory(l.category) }, onEdit = { editing = l }) }
         }
     }
     if (adding || editing != null) {
@@ -106,28 +158,72 @@ fun BudgetsRoute(contentPadding: PaddingValues, vm: BudgetsViewModel = hiltViewM
 }
 
 @Composable
-private fun BudgetCard(l: BudgetLine, onClick: () -> Unit) {
+private fun Overview(lines: List<BudgetLine>) {
+    val limit = lines.sumOf { it.limit }
+    val spent = lines.sumOf { it.spent }
+    val today = LocalDate.now(Periods.zone)
+    val daysLeft = today.lengthOfMonth() - today.dayOfMonth + 1
+    val progress by animateFloatAsState((spent.toFloat() / limit.coerceAtLeast(1)).coerceIn(0f, 1f), tween(700), label = "overview")
+    Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp)) {
+            Text("${Periods.month(YearMonth.now(Periods.zone))} · $daysLeft days left", style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Row(verticalAlignment = Alignment.Bottom) {
+                AnimatedAmount(spent, MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("  of ${Money.format(limit, showPaise = false)}", style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(bottom = 4.dp))
+            }
+            LinearProgressIndicator(
+                progress = { progress }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(8.dp).clip(CircleShape),
+                color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
+                drawStopIndicator = {},
+            )
+        }
+    }
+}
+
+@Composable
+private fun AlertLevel(current: Int, onChange: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Alert me at", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        for (p in listOf(80, 90, 95)) FilterChip(selected = current == p, onClick = { onChange(p) }, label = { Text("$p%") })
+    }
+}
+
+@Composable
+private fun BudgetCard(l: BudgetLine, alertAt: Int, onOpen: () -> Unit, onEdit: () -> Unit) {
+    val ratio = l.spent.toFloat() / l.limit.coerceAtLeast(1)
     val over = l.spent > l.limit
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            CategoryBadge(l.category)
+    val near = !over && ratio * 100 >= alertAt
+    val target = when { over -> MaterialTheme.colorScheme.error; near -> Color(0xFFF29900); else -> l.category.color }
+    val barColor by animateColorAsState(target, tween(400), label = "bar")
+    val progress by animateFloatAsState(ratio.coerceIn(0f, 1f), tween(700), label = "budget")
+    val today = LocalDate.now(Periods.zone)
+    val daysLeft = today.lengthOfMonth() - today.dayOfMonth + 1
+    Card(Modifier.fillMaxWidth().pressable(onClick = onOpen)) {
+        Row(Modifier.padding(start = 14.dp, top = 14.dp, bottom = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            CategoryBadge(l.category, size = 42)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(l.category.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    Text("${Money.format(l.spent, showPaise = false)} of ${Money.format(l.limit, showPaise = false)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("${(ratio * 100).toInt()}%", style = MaterialTheme.typography.labelLarge, color = barColor)
                 }
+                // The exact amount, to the paisa.
+                Text("${Money.format(l.spent, showPaise = true)} of ${Money.format(l.limit, showPaise = false)}",
+                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 LinearProgressIndicator(
-                    progress = { (l.spent.toFloat() / l.limit).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                    color = if (over) MaterialTheme.colorScheme.error else l.category.color,
+                    progress = { progress }, modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp).height(6.dp).clip(CircleShape),
+                    color = barColor, trackColor = barColor.copy(alpha = 0.15f), drawStopIndicator = {},
                 )
+                val left = l.limit - l.spent
                 Text(
-                    if (over) "Over by ${Money.format(l.spent - l.limit, showPaise = false)}" else "${Money.format(l.limit - l.spent, showPaise = false)} left",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (over) "Over by ${Money.format(-left, showPaise = false)}"
+                    else "${Money.format(left, showPaise = false)} left · about ${Money.format(left / daysLeft, showPaise = false)} a day",
+                    style = MaterialTheme.typography.bodySmall, color = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, "Edit budget") }
         }
     }
 }
@@ -136,33 +232,38 @@ private fun BudgetCard(l: BudgetLine, onClick: () -> Unit) {
 private fun BudgetDialog(initial: BudgetLine?, taken: Set<Category>, onDismiss: () -> Unit, onSave: (Category, Long) -> Unit, onDelete: (() -> Unit)?) {
     var category by remember { mutableStateOf(initial?.category ?: Category.entries.first { it !in taken && it.isSpend }) }
     var amount by remember { mutableStateOf(initial?.limit?.let { (it / 100).toString() } ?: "") }
-    var menu by remember { mutableStateOf(false) }
-    val minor = amount.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }?.movePointRight(2)?.toLong()
+    var picking by remember { mutableStateOf(false) }
+    val minor = Money.parseInput(amount)?.takeIf { it > 0 }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial == null) "New budget" else "Edit budget") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box {
-                    OutlinedButton(onClick = { menu = initial == null }) { Text(category.label) }
-                    DropdownMenu(menu, { menu = false }) {
-                        Category.entries.filter { it.isSpend && (it !in taken || it == initial?.category) }.forEach { c ->
-                            DropdownMenuItem(text = { Text(c.label) }, onClick = { category = c; menu = false })
-                        }
+                OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = initial == null) { picking = true }) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CategoryBadge(category, size = 32)
+                        Spacer(Modifier.width(10.dp))
+                        Text(category.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        if (initial == null) Text("Change", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     }
                 }
-                OutlinedTextField(amount, { amount = it.filter { ch -> ch.isDigit() || ch == '.' } }, label = { Text("Monthly limit (₹)") },
+                OutlinedTextField(amount, { amount = it }, label = { Text("Monthly limit") }, prefix = { Text("₹") },
+                    supportingText = { Text("Applies every month") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
             }
         },
         confirmButton = { TextButton(enabled = minor != null, onClick = { onSave(category, minor!!) }) { Text("Save") } },
         dismissButton = {
             Row {
-                onDelete?.let { TextButton(onClick = it) { Text("Delete") } }
+                onDelete?.let { TextButton(onClick = it) { Text("Delete", color = MaterialTheme.colorScheme.error) } }
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
         },
     )
+    if (picking) {
+        CategorySheet(current = category, onPick = { if (it.isSpend && (it !in taken || it == initial?.category)) category = it }, onDismiss = { picking = false },
+            title = "Budget for which category?")
+    }
 }
 
 private val Category.isSpend: Boolean

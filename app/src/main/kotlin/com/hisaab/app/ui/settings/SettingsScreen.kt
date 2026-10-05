@@ -16,7 +16,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,7 +54,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hisaab.app.security.AppLockGate
 import com.hisaab.app.settings.ThemeMode
+import com.hisaab.app.notify.PaymentNotificationListener
+import com.hisaab.app.ui.components.Info
+import com.hisaab.app.ui.components.InfoButton
 import com.hisaab.app.ui.components.rememberSmsPermission
+import android.content.Intent
+import android.provider.Settings
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.email.auth.ConnectResult
 import com.hisaab.email.sync.GmailSettings
@@ -60,8 +70,16 @@ import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: SettingsViewModel = hiltViewModel()) {
+fun SettingsRoute(
+    onOpenBench: () -> Unit,
+    onOpenStatements: () -> Unit,
+    onOpenInvestments: () -> Unit,
+    contentPadding: PaddingValues,
+    vm: SettingsViewModel = hiltViewModel(),
+) {
     val s by vm.state.collectAsStateWithLifecycle()
+    val emails by vm.emails.collectAsStateWithLifecycle()
+    val update by vm.update.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = context as Activity
     val scope = rememberCoroutineScope()
@@ -94,7 +112,7 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
         val g = s.gmail
         Column(Modifier.padding(top = inner.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding()).verticalScroll(rememberScrollState())) {
             val lookback = g?.lookbackDays ?: GmailSettings.DEFAULT_LOOKBACK
-            Section("Fetch history")
+            Section("Fetch history", Info.FETCH_HISTORY)
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text("How far back to read SMS and email", style = MaterialTheme.typography.bodyLarge)
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
@@ -107,7 +125,7 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
             }
 
-            Section("SMS")
+            Section("SMS", Info.SMS)
             if (!sms.granted) {
                 ListItem(
                     headlineContent = { Text("SMS access is off", color = MaterialTheme.colorScheme.error) },
@@ -125,7 +143,38 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
                 trailingContent = { OutlinedButton(onClick = vm::rescanSms, enabled = !s.smsScanning && sms.granted) { Text("Rescan") } },
             )
 
-            Section("Email")
+            Section("Notifications")
+            SwitchRow(
+                "New transaction alerts",
+                "Each new transaction with its category. Expand the notification to pick a different one without opening the app; Hisaab remembers it for that merchant.",
+                app?.transactionNotifications ?: true, vm::setTransactionNotifications,
+            )
+
+            Section("UPI & payment apps", Info.PAYMENT_APPS)
+            var notifAccess by remember { mutableStateOf(PaymentNotificationListener.hasAccess(context)) }
+            LifecycleResumeEffect(Unit) { notifAccess = PaymentNotificationListener.hasAccess(context); onPauseOrDispose { } }
+            val openNotifAccess = {
+                AppLockGate.skipNextLock()
+                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            SwitchRow(
+                "Read payment app notifications",
+                "For UPI payments your bank doesn't send an SMS for. Only GPay, PhonePe, Paytm, BHIM, CRED, Amazon Pay and bank apps " +
+                    "are read, and only completed payments are kept. A later SMS or email for the same payment is merged, not counted twice.",
+                app?.appNotificationsEnabled ?: false,
+                { on -> vm.setAppNotifications(on); if (on && !notifAccess) openNotifAccess() },
+            )
+            if (app?.appNotificationsEnabled == true && !notifAccess) {
+                ListItem(
+                    headlineContent = { Text("Notification access needed", color = MaterialTheme.colorScheme.error) },
+                    supportingContent = {
+                        Text("Turn on Hisaab under Notification access. If it is greyed out, open App info for Hisaab, tap ⋮ and choose Allow restricted settings first.")
+                    },
+                    trailingContent = { Button(onClick = openNotifAccess) { Text("Allow") } },
+                )
+            }
+
+            Section("Email", Info.EMAIL)
             if (g == null || !g.connected) {
                 ListItem(
                     headlineContent = { Text("Connect email") },
@@ -139,7 +188,26 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
                         supportingContent = { Text(if (imap) "Your email provider refused the saved app password." else "Google needs you to approve Gmail access again.") },
                         trailingContent = { Button(onClick = { if (imap) connectingEmail = true else connectGoogle() }) { Text("Sign in") } })
                 }
-                SwitchRow("Sync email", (g.accountEmail ?: "Connected") + if (imap) " · email sign-in" else " · Google sign-in", g.enabled, vm::setGmailEnabled)
+                SwitchRow(
+                    "Sync email",
+                    if (imap) "${emails.size} address${if (emails.size == 1) "" else "es"} · email sign-in" else (g.accountEmail ?: "Connected") + " · Google sign-in",
+                    g.enabled, vm::setGmailEnabled,
+                )
+                if (imap) {
+                    emails.forEach { address ->
+                        ListItem(
+                            headlineContent = { Text(address) },
+                            leadingContent = { Icon(androidx.compose.material.icons.Icons.Filled.Email, null) },
+                            trailingContent = { TextButton(onClick = { vm.removeEmail(address) }) { Text("Remove", color = MaterialTheme.colorScheme.error) } },
+                        )
+                    }
+                    ListItem(
+                        headlineContent = { Text("Add another email") },
+                        supportingContent = { Text("Statements and alerts from every connected inbox are read together.") },
+                        leadingContent = { Icon(androidx.compose.material.icons.Icons.Filled.Add, null) },
+                        modifier = Modifier.clickable { connectingEmail = true },
+                    )
+                }
                 ListItem(
                     headlineContent = { Text(if (s.gmailSyncing) "Syncing…" else "Sync now") },
                     supportingContent = { Text((g.lastResult ?: "Not synced yet") + (g.lastSyncAt?.let { "\nLast: " + Periods.dateTime(it) } ?: "") + "\n${s.processedEmails} emails processed") },
@@ -151,7 +219,17 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
                     modifier = Modifier.clickable { editingSenders = true },
                     trailingContent = { TextButton(onClick = { editingSenders = true }) { Text("Edit") } },
                 )
-                SwitchRow("Read PDF statements", "Unlocked PDF attachments go through the same parser", g.readPdfStatements, vm::setReadPdf)
+                SwitchRow(
+                    "Read statement PDFs",
+                    "Card, bank, CAS and broker statements attached to these emails. Password-protected ones use your saved passwords, " +
+                        "or ask you once.",
+                    g.readPdfStatements, vm::setReadPdf,
+                )
+                ListItem(
+                    headlineContent = { Text("Re-read email for statements") },
+                    supportingContent = { Text("Goes through the last ${g.lookbackDays} days of email again, including archived mail, and reads any statements in it. Nothing is added twice.") },
+                    trailingContent = { OutlinedButton(onClick = vm::rereadEmail, enabled = g.enabled && !s.gmailSyncing) { Text("Re-read") } },
+                )
                 ListItem(
                     headlineContent = { Text(if (imap) "Disconnect email" else "Sign out and wipe tokens") },
                     supportingContent = {
@@ -162,12 +240,28 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
                 )
             }
 
-            Section("Security")
+            Section("Statements & investments", Info.STATEMENTS)
+            ListItem(
+                headlineContent = { Text("Statements & passwords") },
+                supportingContent = { Text("Card, bank and CAS statement PDFs from email or your phone. Save PDF passwords here.") },
+                leadingContent = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, null) }, modifier = Modifier.clickable(onClick = onOpenStatements),
+            )
+            ListItem(
+                headlineContent = { Text("Investments") },
+                supportingContent = { Text("EPF from EPFO SMS, mutual funds and shares from statements, and anything you add.") },
+                leadingContent = { Icon(Icons.Filled.PieChart, null) }, modifier = Modifier.clickable(onClick = onOpenInvestments),
+            )
+
+            Section("Security", Info.APP_LOCK)
             val canLock = remember {
                 BiometricManager.from(context).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS
             }
             SwitchRow("App lock", if (canLock) "Fingerprint, face, or screen lock when opening Hisaab" else "Set a screen lock on this phone first",
                 app?.appLock ?: false, vm::setAppLock, enabled = canLock)
+
+            Section("Privacy screen")
+            SwitchRow("Hide amounts", "Shows ₹•••• instead of figures everywhere. Also on the eye button on Home.",
+                app?.hideAmounts ?: false, vm::setHideAmounts)
 
             Section("Appearance")
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -185,15 +279,23 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
             ListItem(headlineContent = { Text("Import CSV") }, supportingContent = { Text("A Hisaab export; rows already present are skipped") },
                 trailingContent = { OutlinedButton(onClick = { AppLockGate.skipNextLock(); importLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) }) { Text("Import") } })
 
+            Section("About & updates")
+            UpdateRow(update, onCheck = vm::checkForUpdate, onInstall = vm::installUpdate)
+            SwitchRow("Check for updates", "Once a day, asks GitHub whether a newer Hisaab exists. Nothing about you is sent.",
+                app?.checkUpdates ?: true, vm::setCheckUpdates)
+
             Section("Tools")
             ListItem(headlineContent = { Text("Test the parser") }, supportingContent = { Text("Paste any bank SMS or email and see what is extracted") },
                 leadingContent = { Icon(Icons.Filled.Science, null) }, modifier = Modifier.clickable(onClick = onOpenBench))
 
             Section("Privacy")
             Text(
-                "Everything stays on this phone: no account, no server, no analytics. The internet permission is used only to talk to " +
-                    "your email provider when you connect it: to read bank alerts, and once to mail you a verification code. " +
-                    "Backups of the app's data are disabled.",
+                "Everything stays on this phone: no account, no server, no analytics, no cloud backup. Transactions, messages, " +
+                    "statements, passwords and investments are stored only in this app's private storage; passwords are encrypted with " +
+                    "a key that never leaves the phone. The internet is used only to talk to your own email provider after you connect " +
+                    "it: to download bank emails and statements, and once to mail yourself a verification code. Once a day it also asks GitHub " +
+                    "whether a newer Hisaab exists (switch off under About & updates). Nothing about you or your money is ever uploaded. " +
+                    "Screenshots and PDFs are read on the phone, and the text reader's usage reporting to Google is switched off.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp),
             )
         }
@@ -215,9 +317,43 @@ fun SettingsRoute(onOpenBench: () -> Unit, contentPadding: PaddingValues, vm: Se
 }
 
 @Composable
-private fun Section(title: String) {
+private fun UpdateRow(state: com.hisaab.app.update.UpdateState, onCheck: () -> Unit, onInstall: (com.hisaab.app.update.Release) -> Unit) {
+    val version = com.hisaab.app.BuildConfig.VERSION_NAME
+    when (state) {
+        is com.hisaab.app.update.UpdateState.Available -> ListItem(
+            headlineContent = { Text("Hisaab ${state.release.version} is available") },
+            supportingContent = { Text("You have $version. " + state.release.notes.lineSequence().take(4).joinToString("\n")) },
+            trailingContent = { Button(onClick = { onInstall(state.release) }) { Text("Install") } },
+        )
+        is com.hisaab.app.update.UpdateState.Downloading -> ListItem(
+            headlineContent = { Text("Downloading ${state.release.version}…") },
+            supportingContent = { androidx.compose.material3.LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) },
+        )
+        else -> ListItem(
+            headlineContent = { Text("Hisaab $version") },
+            supportingContent = {
+                Text(
+                    when (state) {
+                        com.hisaab.app.update.UpdateState.Checking -> "Checking…"
+                        com.hisaab.app.update.UpdateState.UpToDate -> "You have the latest version."
+                        is com.hisaab.app.update.UpdateState.Failed -> state.message
+                        else -> "Updates come from the project's GitHub releases."
+                    },
+                )
+            },
+            trailingContent = { OutlinedButton(onClick = onCheck, enabled = state != com.hisaab.app.update.UpdateState.Checking) { Text("Check") } },
+        )
+    }
+}
+
+@Composable
+private fun Section(title: String, info: Array<String>? = null) {
     HorizontalDivider(Modifier.padding(top = 8.dp))
-    Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp))
+    Row(Modifier.padding(start = 16.dp, top = 10.dp, end = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(vertical = if (info == null) 6.dp else 0.dp))
+        if (info != null) InfoButton(title, *info)
+    }
 }
 
 @Composable

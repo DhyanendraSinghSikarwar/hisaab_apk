@@ -12,6 +12,8 @@ import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.email.sync.GmailSettingsStore
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.registry.ParserRegistry
+import com.hisaab.parser.statement.InvestmentParser
+import com.hisaab.shared.repo.HoldingRepository
 import com.hisaab.shared.repo.IncomingMessage
 import com.hisaab.shared.repo.IngestReport
 import com.hisaab.shared.repo.TransactionRepository
@@ -39,6 +41,7 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
     private val repository: TransactionRepository,
     private val settings: AppSettingsStore,
     private val mailSettings: GmailSettingsStore,
+    private val holdings: HoldingRepository,
     private val notifier: TransactionsChangedNotifier,
 ) : CoroutineWorker(context, params) {
 
@@ -58,10 +61,13 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
         var parsed = 0
         var report = IngestReport.EMPTY
 
-        val examined = inbox.readBatches(since, BATCH_SIZE, registry::accepts) { batch ->
+        val examined = inbox.readBatches(since, BATCH_SIZE, { registry.accepts(it) || InvestmentParser.accepts(it) }) { batch ->
             bankMessages += batch.size
             cursor = maxOf(cursor, batch.maxOf { it.receivedAt })
-            val incoming = parseInParallel(batch)
+            // EPFO and similar: a holding's balance, not a bank transaction.
+            val (investments, bank) = batch.partition { InvestmentParser.accepts(it.sender) }
+            investments.mapNotNull { InvestmentParser.parse(it.body, it.sender, it.receivedAt) }.takeIf { it.isNotEmpty() }?.let { holdings.record(it, "SMS") }
+            val incoming = parseInParallel(bank)
             parsed += incoming.size
             report += repository.ingestBatch(incoming)
             setProgress(workDataOf(KEY_SCANNED to bankMessages, KEY_FOUND to parsed))

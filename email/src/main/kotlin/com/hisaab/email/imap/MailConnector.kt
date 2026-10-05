@@ -59,9 +59,16 @@ class MailConnector @Inject constructor(
         code.clear()
     }
 
-    /** Deletes the stored login and its Keystore key, and forgets the account. Transactions stay. */
+    /** Deletes every stored login and its Keystore key, and forgets the accounts. Transactions stay. */
     suspend fun signOut() {
         accounts.wipe()
         settings.clearAccount()
+    }
+
+    /** Disconnects one address. When it was the last one, email sync is switched off. */
+    suspend fun remove(email: String) {
+        accounts.remove(email)
+        settings.forgetSyncPosition(email)
+        if (accounts.logins().isEmpty()) settings.clearAccount()
     }
 }

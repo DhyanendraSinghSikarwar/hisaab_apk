@@ -9,26 +9,39 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** The outcome of opening a PDF: its text, a password is needed (or was wrong), or it could not be read at all. */
+sealed interface PdfOpen {
+    data class Text(val text: String) : PdfOpen
+    data object Locked : PdfOpen
+    data object Unreadable : PdfOpen
+}
+
 fun interface PdfTextSource {
     /** Text of the PDF, or null when it cannot be read (for example, a password-protected statement). */
     fun text(bytes: ByteArray): String?
 }
 
+/** PdfBox on the device. Nothing is sent anywhere; passwords are used for this call only. */
 @Singleton
 class PdfTextExtractor @Inject constructor(@ApplicationContext private val context: Context) : PdfTextSource {
     @Volatile private var initialized = false
 
-    override fun text(bytes: ByteArray): String? {
+    override fun text(bytes: ByteArray): String? = (open(bytes, null) as? PdfOpen.Text)?.text
+
+    fun open(bytes: ByteArray, password: String?): PdfOpen {
         if (!initialized) {
             PDFBoxResourceLoader.init(context)
             initialized = true
         }
         return try {
-            PDDocument.load(bytes).use { doc -> PDFTextStripper().getText(doc) }
+            val doc = if (password == null) PDDocument.load(bytes) else PDDocument.load(bytes, password)
+            doc.use { d -> PdfOpen.Text(PDFTextStripper().apply { sortByPosition = true }.getText(d)) }
         } catch (_: InvalidPasswordException) {
-            null
+            PdfOpen.Locked
         } catch (_: java.io.IOException) {
-            null
+            PdfOpen.Unreadable
+        } catch (_: RuntimeException) {
+            PdfOpen.Unreadable
         }
     }
 }

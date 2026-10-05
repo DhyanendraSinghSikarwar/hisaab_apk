@@ -13,14 +13,13 @@ A ready-built APK is in `apk/`:
 
 | File | Use |
 |------|-----|
-| `apk/Hisaab-1.1.0.apk` | Release build: R8 full mode, shrunk. **Install this one.** |
-| `apk/Hisaab-1.1.0-debug.apk` | Debug build, for development. |
+| `apk/Hisaab-1.4.0.apk` | Release build: R8 full mode, shrunk. **Install this one.** |
 
 To install:
 
 1. Copy the APK to your phone.
 2. Open it and allow **Install unknown apps** for your file manager.
-3. Or, over USB with debugging on: `adb install -r apk/Hisaab-1.1.0.apk`
+3. Or, over USB with debugging on: `adb install -r apk/Hisaab-1.4.0.apk`
 
 On first launch, tap **Allow SMS access**. The app scans the inbox, and new bank SMS appear as they arrive.
 If Android blocks it, see [Allow SMS access](#1-allow-sms-access) below.
@@ -47,7 +46,7 @@ On Android 13 and later, an app installed from an APK file (not the Play Store) 
 If **Allow restricted settings** isn't in the ⋮ menu, tap **Allow SMS access** in Hisaab once more so Android shows
 the block message, then go back to App info; the option appears after that. On Xiaomi, Redmi and POCO phones, also check
 **Settings → Apps → Manage apps → Hisaab → Other permissions**. If the option never appears, install the APK from
-**Files by Google** or with `adb install -r Hisaab-1.1.0.apk`; those installers are not restricted.
+**Files by Google** or with `adb install -r Hisaab-1.4.0.apk`; those installers are not restricted.
 
 ### 2. Connect your email (optional)
 
@@ -101,6 +100,141 @@ The **Create an app password** button in the Hisaab dialog opens the right page 
 **To disconnect:** **Settings → Email → Disconnect** deletes the stored app password. To revoke access from Google's
 side as well, delete the "Hisaab" entry at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
 Transactions already found stay in the app either way.
+
+### 3. UPI payments without an SMS (optional)
+
+Many banks don't send an SMS for small UPI payments, but GPay, PhonePe, Paytm and the rest always show a notification.
+Turn on **Settings → UPI & payment apps → Read payment app notifications**, then allow Hisaab under **Notification access**
+(if it's greyed out, use **Allow restricted settings** as in step 1).
+
+- Only known payment and bank apps are read; every other app's notifications are ignored.
+- Only completed payments count. Offers, cashback, requests, reminders, OTPs and failures are skipped.
+- When the bank's SMS or email for the same payment arrives later, it is merged into the same transaction, not counted twice.
+
+You can also add any payment yourself: **+** on Home or **Add** in Transactions. **Fill from a screenshot** reads a payment
+receipt on the phone (Google ML Kit, offline) and fills in the form for you to check.
+
+### 4. Statements and investments (optional)
+
+**Settings → Statements & passwords** handles statement PDFs:
+
+- PDFs attached to emails from your banks, card issuers, CAMS, KFintech, NSDL, CDSL and brokers (including INDmoney, Zerodha
+  and Groww) are read automatically once email is connected. **Import a statement PDF** reads one from your phone.
+- Most statements are password protected. Add the password once under **Saved passwords**; it is tried on every new
+  statement. A statement no saved password opens shows **Unlock**. Common formats:
+  - Credit cards: first 4 letters of your name + DDMM of birth (e.g. `RAHU0105`).
+  - CAS (CAMS, KFintech, NSDL, CDSL): your PAN in capitals.
+  - Bank statements: often your customer ID or date of birth.
+- Card and bank statement rows become transactions, and rows already recorded from an SMS or email are merged, not doubled.
+  A CAS or demat statement becomes holdings.
+
+**Settings → Investments** (or the Investments card on Home) shows EPF, mutual funds, shares, ETFs and anything you add:
+
+- **EPF:** the balance from EPFO's passbook SMS.
+- **Mutual funds and shares:** units and market value from your CAS. Request one at
+  [camsonline.com](https://www.camsonline.com/Investors/Statements/Consolidated-Account-Statement) (choose the PDF password; it
+  is emailed to you), or use the monthly NSDL/CDSL CAS.
+- **Anything else** (NPS, PPF, gold, FDs, US stocks): tap **Add** and enter the value. A newer statement updates holdings it covers.
+
+## Privacy: what stays on the phone
+
+Everything Hisaab stores stays in the app's private storage on this phone: transactions, the full SMS and email text,
+statements, investments, and passwords. Nothing is uploaded, and there is no Hisaab server or account.
+
+| What | Where it lives | Leaves the phone? |
+|------|----------------|-------------------|
+| Transactions, messages, investments | App-private database | No. Cloud backup and device transfer are switched off. |
+| Email app password, statement passwords, Google token | Encrypted with an Android Keystore key that can't be exported | No |
+| Locked statement PDFs | App-private, no-backup folder; deleted once unlocked | No |
+| Screenshots and PDFs you pick | Read on the phone; never copied out | No |
+
+The only network traffic is to your own email provider, after you connect email: Hisaab downloads bank emails and statements,
+and sends one verification email to yourself. All connections are encrypted; plain-text connections are blocked. Google's
+on-device text reader (ML Kit) normally reports anonymous usage counts to Google; Hisaab removes that uploader, so those
+counts are dropped on the phone.
+
+## Releases and in-app updates
+
+Every push to `main` runs the GitHub Actions pipeline in `.github/workflows/release.yml`:
+
+1. **Test:** all JVM suites (parser, database, email, app).
+2. **Release, only if every test passed and the version is new:** build the release APK, sign it with the Hisaab key
+   (plus the rotation proof from the old debug key), and publish it as a GitHub Release `v<versionName>` with its SHA-256
+   in the notes.
+
+To ship a new version, raise `versionCode` and `versionName` in `app/build.gradle.kts` and push to `main`. Pushes that
+don't change the version only run the tests. `ci.yml` runs the same tests on other branches and pull requests.
+
+The app checks the latest release once a day (**Settings → About & updates**, or the banner on Home), downloads the APK,
+checks its SHA-256, and opens Android's installer. Android refuses any APK not signed with the Hisaab key, so a tampered
+download can't be installed. The first time, Android asks you to allow Hisaab to install apps.
+
+**One-time setup: repository secrets** (GitHub → the repo → Settings → Secrets and variables → Actions → New repository secret).
+The base64 files are in `C:\Users\11624\keys` on the build PC:
+
+| Secret | Value |
+|--------|-------|
+| `HISAAB_RELEASE_KEYSTORE` | contents of `hisaab-release.jks.b64.txt` |
+| `HISAAB_KEYSTORE_PASSWORD` | `RELEASE_STORE_PASSWORD` from `signing.properties` |
+| `HISAAB_DEBUG_KEYSTORE` | contents of `debug.keystore.b64.txt` |
+| `HISAAB_KEY_LINEAGE` | contents of `lineage.bin.b64.txt` |
+
+Secrets are encrypted by GitHub and never shown in logs. Without them the tests still run, but nothing is released.
+
+## What's new in 1.7.0
+
+- **In-app updates** from GitHub Releases, published by the CI/CD pipeline after all tests pass (see above).
+- **New-transaction notifications** with the predicted category; expand one to pick another category without opening the app.
+- **Hisaab remembers your categories:** once you set a category for a merchant, its future transactions (and older
+  uncategorised ones) get it automatically.
+- **Several email addresses** can be connected; statements and alerts from all of them are read.
+- **Statements update your accounts:** a card statement sets the card's available limit (limit minus amount due), a bank
+  statement sets the account's closing balance. **Try all passwords** re-checks every locked statement.
+- **Remove an account or card from view** (edit → Remove from view) and show it again from the bottom of Accounts.
+- **Hide amounts** (eye button on Home, or Settings → Privacy screen), a **Budgets** card on Home, and a floating bottom bar.
+
+## What's new in 1.4.0
+
+- **"Statement detected" notification:** when a statement arrives by email that no saved password opens, Hisaab says so
+  ("HDFC Bank statement detected") and the tap goes straight to its password box. Home shows the same as a banner.
+- **Statement pages:** each statement opens to its details. Card statements show total due, minimum due, due date and credit
+  limit; bank statements show money in and out; every statement lists its transactions. Statements are grouped as credit card,
+  bank and investment.
+- **Investments is a tab** in the bottom bar, with EPF, NPS, Mutual funds, Stocks & ETFs and Other. NPS balances are read from
+  NPS SMS. Budgets moved to Home ("Where it went → Budgets").
+- **ⓘ buttons** explain the important settings: connecting email, app passwords, SMS, payment-app notifications, fetch
+  history, statement passwords, investments, card linking, manual balances and duplicates.
+- **New Home summary card**, and a smaller APK (phones only, no emulator code).
+- Signed with Hisaab's own release key instead of Android's shared debug key; it still installs over earlier versions.
+
+## What's new in 1.3.0
+
+- **Statement PDFs** from email or your phone, with saved passwords and **Unlock** for locked ones (see above).
+- **Investments:** EPF from EPFO SMS; mutual funds, shares and ETFs from CAS and broker statements; and holdings you add.
+- **Full message text** on every transaction: the whole SMS or email, or the statement line, is shown and can be selected and copied.
+- **Privacy:** ML Kit's usage reporting is switched off, plain-text network connections are blocked, and the privacy
+  details are listed in Settings and above.
+
+## What's new in 1.2.0
+
+- **Category popup:** one sheet with icons, grouped (Food & drink, Shopping & lifestyle, Transport & travel, Home & bills,
+  Health & education, Money, Income), with search. New categories: Subscriptions, Personal Care, Household, Gifts, Donations,
+  Taxes, Bank Fees & Charges.
+- **Accounts and cards are separate tabs**, each with the bank's logo and a colour by kind (blue accounts, orange credit cards,
+  purple debit cards). Set an account's type (Savings, Current, Salary, NRE, NRO, Wallet, FD, RD, PPF, Loan) and a card's type
+  and network (Visa, Mastercard, RuPay, American Express, Diners Club, Discover, JCB, Maestro, UnionPay). FD, RD, PPF and loans
+  are left out of the Home balance.
+- **Debit cards link to their bank account.** The Cards tab suggests the link, using the balance a debit-card SMS reports.
+  A linked card's spends and withdrawals count against that account, and its SMS balance updates the account.
+- **Debit-card withdrawals** ("Withdrawn Rs.10000 From HDFC Bank Card...") are recorded as cash withdrawals.
+- **Cards that print only two digits** ("SBI Card number ending with 96") are now read. Foreign-currency spends are kept in their
+  own currency and are not added to the ₹ totals.
+- **Bulk actions:** long-press a transaction to select, then change the category or delete. Deleted transactions don't come back on a rescan.
+- **Duplicates:** dates on every row, tap to open each one, and **Compare** shows both side by side with their original messages.
+- **Add a transaction** by hand or from a screenshot, and **read UPI payments from payment-app notifications** (see above).
+
+Bank and card-network logos are single-colour icons from [Simple Icons](https://simpleicons.org) (CC0). Banks it doesn't cover
+are shown as a monogram in the bank's colour. The logos are trademarks of their owners.
 
 ## What's new in 1.1.0
 

@@ -24,6 +24,7 @@ import com.hisaab.parser.registry.SenderKeys
 import com.hisaab.parser.rules.RejectionRules
 import com.hisaab.parser.template.Template
 import com.hisaab.parser.text.TextNormalizer
+import com.hisaab.parser.text.rx
 import java.time.Instant
 
 /**
@@ -83,6 +84,9 @@ abstract class BaseBankParser(protected val config: ParserConfig) : BankParser {
 
         val balance = hit?.balance?.let(Money::parseSigned) ?: BalanceExtractor.balance(text, lower)
         val limit = if (kind == AccountKind.CARD) BalanceExtractor.limit(text, lower) else null
+        // A debit card reports its bank account's balance ("Bal Rs.5,73,096"); a credit card reports a limit.
+        val isDebitCard = kind == AccountKind.CARD &&
+            (DEBIT_CARD.containsMatchIn(text) || (balance != null && limit == null && !CREDIT_CARD.containsMatchIn(text)))
 
         val (time, explicit) = resolveTime(DateTimeExtractor.extract(text, lower), timestamp)
         val date = Instant.ofEpochMilli(time).atZone(config.zone).toLocalDate()
@@ -104,7 +108,7 @@ abstract class BaseBankParser(protected val config: ParserConfig) : BankParser {
             upiId = raw.vpa?.lowercase(),
             referenceNumber = reference,
             channel = channel,
-            balanceMinor = if (kind == AccountKind.CARD) null else balance,
+            balanceMinor = if (kind == AccountKind.CARD && !isDebitCard) null else balance,
             availableLimitMinor = limit,
             transactionTime = time,
             hasExplicitTime = explicit,
@@ -114,6 +118,7 @@ abstract class BaseBankParser(protected val config: ParserConfig) : BankParser {
             messageTimestamp = timestamp,
             confidence = confidence.coerceAtMost(1f),
             transactionHash = TransactionHasher.hash(money.minor, type, last4, date, reference),
+            isDebitCard = isDebitCard,
         )
     }
 
@@ -130,5 +135,7 @@ abstract class BaseBankParser(protected val config: ParserConfig) : BankParser {
 
     private companion object {
         const val MIN_LENGTH = 20
+        val DEBIT_CARD = rx("""\bdebit\s+card\b|\bBLOCK\s+DC\b""")
+        val CREDIT_CARD = rx("""\bcredit\s+card\b|\bBLOCK\s+CC\b""")
     }
 }

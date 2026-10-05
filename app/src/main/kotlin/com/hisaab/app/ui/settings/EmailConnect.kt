@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -164,7 +165,11 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, vm: Em
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (s.step) {
                     ConnectStep.ADDRESS -> {
-                        Text("Hisaab reads bank alert emails from your inbox, on this phone only.", style = MaterialTheme.typography.bodyMedium)
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text("Hisaab reads bank alert emails and statements from your inbox, on this phone only.",
+                                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            com.hisaab.app.ui.components.InfoButton("Connecting email", *com.hisaab.app.ui.components.Info.EMAIL)
+                        }
                         OutlinedTextField(
                             email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email address") }, singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
@@ -182,6 +187,10 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, vm: Em
                             if (s.server?.provider == "Gmail") {
                                 Text("Gmail needs 2-Step Verification turned on before it offers app passwords.", style = MaterialTheme.typography.bodySmall)
                             }
+                        }
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text("What's an app password?", style = MaterialTheme.typography.labelLarge)
+                            com.hisaab.app.ui.components.InfoButton("App password", *com.hisaab.app.ui.components.Info.APP_PASSWORD)
                         }
                         OutlinedTextField(
                             password, { password = it }, Modifier.fillMaxWidth(), label = { Text("App password") }, singleLine = true,

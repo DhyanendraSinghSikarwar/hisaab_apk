@@ -12,6 +12,8 @@ object AccountExtractor {
             """\s*[:.\-]?\s*(?:\d{0,6}[x*#.][x*#.\s]*)?(\d{3,6})\b""")
     private val MASKED = rx("""(?<![\w*])[x*]{2,}(\d{3,4})\b""")
     private val CARD_WORD = rx("""\bcard\b""")
+    /** Some issuers print only two digits: "SBI Corporate Card number ending with 96". */
+    private val SHORT_ENDING = rx("""\b(card|a/c|ac|acct|account)(?:\s*(?:no|number|num)\.?)?\s+(?:ending|ends)(?:\s+(?:with|in))?\s*[x*]*(\d{2})\b""")
 
     fun extract(text: String): AccountRef? {
         LABELLED.find(text)?.let { m ->
@@ -23,6 +25,9 @@ object AccountExtractor {
         MASKED.find(text)?.let { m ->
             val kind = if (CARD_WORD.containsMatchIn(text)) AccountKind.CARD else AccountKind.ACCOUNT
             return AccountRef(m.groupValues[1], kind)
+        }
+        SHORT_ENDING.find(text)?.let { m ->
+            return AccountRef(m.groupValues[2], if (m.groupValues[1].equals("card", ignoreCase = true)) AccountKind.CARD else AccountKind.ACCOUNT)
         }
         return null
     }

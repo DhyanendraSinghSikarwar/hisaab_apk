@@ -52,7 +52,9 @@ class SettingsViewModel @Inject constructor(
     private val gmail: GmailSettingsStore,
     private val auth: GmailAuthManager,
     private val mail: MailConnector,
-    processed: ProcessedEmailDao,
+    private val updater: com.hisaab.app.update.Updater,
+    mailAccounts: com.hisaab.email.imap.MailAccountStore,
+    private val processedEmails: ProcessedEmailDao,
     private val transactions: TransactionDao,
     private val repository: TransactionRepository,
     private val notifier: TransactionsChangedNotifier,
@@ -61,10 +63,26 @@ class SettingsViewModel @Inject constructor(
     private fun running(infos: List<WorkInfo>) = infos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
 
     val state = combine(
-        appSettings.settings, gmail.settings, processed.observeCount(),
+        appSettings.settings, gmail.settings, processedEmails.observeCount(),
         work.getWorkInfosForUniqueWorkFlow(GmailScheduler.NOW), work.getWorkInfosForUniqueWorkFlow(SmsScanScheduler.WORK_NAME),
     ) { a, g, count, gw, sw -> SettingsState(a, g, count, running(gw), running(sw)) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsState())
+
+    val update = updater.state
+    fun checkForUpdate() = viewModelScope.launch { updater.check() }
+    fun installUpdate(r: com.hisaab.app.update.Release) = viewModelScope.launch {
+        com.hisaab.app.security.AppLockGate.skipNextLock()
+        updater.downloadAndInstall(r)
+    }
+    fun setCheckUpdates(value: Boolean) = viewModelScope.launch { appSettings.setCheckUpdates(value) }
+
+    /** Every connected email address. */
+    val emails = mailAccounts.emails.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun removeEmail(email: String) = viewModelScope.launch {
+        mail.remove(email)
+        say("$email disconnected. Its saved app password was deleted; transactions stay.")
+    }
 
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages = _messages.receiveAsFlow()
@@ -118,10 +136,24 @@ class SettingsViewModel @Inject constructor(
     fun setReadPdf(value: Boolean) = viewModelScope.launch { gmail.setReadPdf(value) }
     fun syncGmailNow() = GmailScheduler.syncNow(context)
 
+    /**
+     * Reads every email in the look-back window again, so statement PDFs in mail seen before statements were
+     * supported get read now. Transactions already recorded are recognised by their message id and not added twice.
+     */
+    fun rereadEmail() = viewModelScope.launch {
+        processedEmails.clear()
+        gmail.forgetSyncPosition()
+        GmailScheduler.syncNow(context)
+        say("Reading your email again for statements. This can take a few minutes.")
+    }
+
     // SMS
 
     fun rescanSms() = SmsScanScheduler.scan(context, full = true)
     fun setSmsEnabled(value: Boolean) = viewModelScope.launch { appSettings.setSmsEnabled(value) }
+    fun setAppNotifications(value: Boolean) = viewModelScope.launch { appSettings.setAppNotificationsEnabled(value) }
+    fun setTransactionNotifications(value: Boolean) = viewModelScope.launch { appSettings.setTransactionNotifications(value) }
+    fun setHideAmounts(value: Boolean) = viewModelScope.launch { appSettings.setHideAmounts(value) }
 
     // App
 

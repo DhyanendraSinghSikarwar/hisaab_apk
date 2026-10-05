@@ -8,6 +8,8 @@ import com.hisaab.app.ApplicationScope
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.registry.ParserRegistry
+import com.hisaab.parser.statement.InvestmentParser
+import com.hisaab.shared.repo.HoldingRepository
 import com.hisaab.shared.repo.IncomingMessage
 import com.hisaab.shared.repo.IngestOutcome
 import com.hisaab.shared.repo.TransactionRepository
@@ -30,6 +32,8 @@ class SmsReceiver : BroadcastReceiver() {
         fun repository(): TransactionRepository
         fun notifier(): TransactionsChangedNotifier
         fun settings(): AppSettingsStore
+        fun holdings(): HoldingRepository
+        fun newTransactions(): com.hisaab.app.notify.NewTransactionNotifier
         @ApplicationScope fun scope(): CoroutineScope
     }
 
@@ -41,7 +45,7 @@ class SmsReceiver : BroadcastReceiver() {
         // A long SMS arrives as several parts; join them per sender.
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
         val bySender = messages.filter { it.originatingAddress != null }.groupBy { it.originatingAddress!! }
-            .filterKeys(registry::accepts)
+            .filterKeys { registry.accepts(it) || InvestmentParser.accepts(it) }
         if (bySender.isEmpty()) return
 
         val pending = goAsync()
@@ -52,9 +56,15 @@ class SmsReceiver : BroadcastReceiver() {
                 for ((sender, parts) in bySender) {
                     val body = parts.joinToString("") { it.messageBody.orEmpty() }
                     val sentAt = parts.first().timestampMillis
+                    if (InvestmentParser.accepts(sender)) {
+                        InvestmentParser.parse(body, sender, sentAt)?.let { deps.holdings().record(listOf(it), "SMS") }
+                        continue
+                    }
                     val tx = registry.parse(body, sender, System.currentTimeMillis(), Source.SMS) ?: continue
-                    val outcome = deps.repository().ingest(IncomingMessage(tx, SmsIds.of(sender, sentAt, body), body))
+                    val messageId = SmsIds.of(sender, sentAt, body)
+                    val outcome = deps.repository().ingest(IncomingMessage(tx, messageId, body))
                     if (outcome != IngestOutcome.ALREADY_PROCESSED) changed = true
+                    deps.newTransactions().onIngested(outcome, "SMS", messageId)
                 }
                 if (changed) deps.notifier().onTransactionsChanged()
             } finally {

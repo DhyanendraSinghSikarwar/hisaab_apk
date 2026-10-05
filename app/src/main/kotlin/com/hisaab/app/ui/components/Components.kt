@@ -1,7 +1,11 @@
 package com.hisaab.app.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,13 +61,30 @@ fun signedAmount(tx: TransactionEntity): String = when (tx.type) {
     else -> "−" + Money.format(tx.amountMinor, tx.currency)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TransactionRow(tx: TransactionEntity, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun TransactionRow(
+    tx: TransactionEntity,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+    selected: Boolean = false,
+    showDate: Boolean = false,
+) {
     Row(
-        modifier = modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = modifier.fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CategoryBadge(tx.category)
+        if (selected) {
+            Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.Check, "Selected", tint = MaterialTheme.colorScheme.onPrimary)
+            }
+        } else {
+            CategoryBadge(tx.category)
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -72,7 +93,7 @@ fun TransactionRow(tx: TransactionEntity, onClick: () -> Unit, modifier: Modifie
             )
             val account = tx.accountLast4?.let { " ••$it" }.orEmpty()
             Text(
-                "${tx.bankName}$account · ${Periods.time(tx.timestamp)}",
+                "${tx.bankName}$account · ${if (showDate) Periods.dateTime(tx.timestamp) else Periods.time(tx.timestamp)}",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
             )
         }

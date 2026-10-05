@@ -18,8 +18,10 @@ object TypeClassifier {
     private val TRANSFER = Guarded(
         """\bpayment\b.{0,60}?\breceived\b.{0,60}?card\b|\breceived\s+(?:your\s+)?payment\b.{0,70}?card\b|""" +
             """\bthank\s+you\s+for\s+(?:your\s+|the\s+)?payment\b|\bself[\s-]transfer\b|\bown\s+account\b|""" +
-            """\bbetween\s+your\s+(?:own\s+)?accounts\b""",
-        "payment", "self", "own account", "between your",
+            """\bbetween\s+your\s+(?:own\s+)?accounts\b|""" +
+            // Bank side of a card bill: "debited ... towards your HDFC Bank Credit Card XX5678", "CC bill payment".
+            """\btowards\s+(?:your\s+)?(?:[A-Za-z]+\s+){0,3}credit\s+card\b|\b(?:credit\s+card|cc)\s+(?:bill\s+)?payment\b|\bcard\s+bill\b""",
+        "payment", "self", "own account", "between your", "towards", "card bill",
     )
     private val INVESTMENT = Guarded(
         """\b(?:mutual\s+fund|MF|SIP|zerodha|groww|upstox|kuvera|iccl|indian\s+clearing|nse\s+clearing|clearing\s+corp|""" +
@@ -50,7 +52,8 @@ object TypeClassifier {
 }
 
 object ChannelDetector {
-    private val ATM = Guarded("""\bATM\b|\bcash\s+withdrawal\b""", "atm", "cash")
+    // "Withdrawn Rs.10000 From HDFC Bank Card x2139 At +NALLAGANDLA" is a debit-card cash withdrawal.
+    private val ATM = Guarded("""\bATM\b|\bcash\s+withdrawal\b|\bwithdrawn\b""", "atm", "cash", "withdrawn")
     private val UPI = Guarded(
         """\bUPI\b|\bVPA\b|@(?:ok\w+|ybl|ibl|axl|paytm|upi|icici|hdfcbank|sbi|axisbank|apl|ptyes|ptsbi|pthdfc|ptaxis|kotak|idfcbank)\b""",
         "upi", "vpa", "@",

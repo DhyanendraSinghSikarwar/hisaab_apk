@@ -13,6 +13,10 @@ import androidx.sqlite.execSQL
         ProcessedEmailEntity::class,
         AccountEntity::class,
         BudgetEntity::class,
+        DeletedMessageEntity::class,
+        StatementEntity::class,
+        HoldingEntity::class,
+        MerchantRuleEntity::class,
     ],
     version = HisaabDatabase.VERSION,
     exportSchema = true,
@@ -23,10 +27,14 @@ abstract class HisaabDatabase : RoomDatabase() {
     abstract fun processedEmails(): ProcessedEmailDao
     abstract fun accounts(): AccountDao
     abstract fun budgets(): BudgetDao
+    abstract fun deletedMessages(): DeletedMessageDao
+    abstract fun statements(): StatementDao
+    abstract fun holdings(): HoldingDao
+    abstract fun merchantRules(): MerchantRuleDao
 
     companion object {
         const val NAME = "hisaab.db"
-        const val VERSION = 2
+        const val VERSION = 7
     }
 }
 
@@ -43,5 +51,65 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+    /** 2 -> 3: account type, card network and debit-card links; tombstones for deleted transactions. */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN accountType TEXT DEFAULT NULL")
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN cardNetwork TEXT DEFAULT NULL")
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN linkedAccountId INTEGER DEFAULT NULL")
+            connection.execSQL(
+                "CREATE TABLE IF NOT EXISTS `deleted_messages` (`source` TEXT NOT NULL, `messageId` TEXT NOT NULL, " +
+                    "`deletedAt` INTEGER NOT NULL, PRIMARY KEY(`source`, `messageId`))",
+            )
+        }
+    }
+
+    /** 3 -> 4: statement PDFs and investment holdings. */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL(
+                "CREATE TABLE IF NOT EXISTS `statements` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `key` TEXT NOT NULL, " +
+                    "`source` TEXT NOT NULL, `sender` TEXT NOT NULL, `subject` TEXT, `fileName` TEXT NOT NULL, `receivedAt` INTEGER NOT NULL, " +
+                    "`status` TEXT NOT NULL, `transactionCount` INTEGER NOT NULL, `holdingCount` INTEGER NOT NULL, `filePath` TEXT, " +
+                    "`bankName` TEXT, `last4` TEXT, `processedAt` INTEGER NOT NULL)",
+            )
+            connection.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_statements_key` ON `statements` (`key`)")
+            connection.execSQL(
+                "CREATE TABLE IF NOT EXISTS `holdings` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `kind` TEXT NOT NULL, " +
+                    "`name` TEXT NOT NULL, `identifier` TEXT NOT NULL, `units` REAL, `valueMinor` INTEGER, `investedMinor` INTEGER, " +
+                    "`asOf` INTEGER, `source` TEXT NOT NULL, `note` TEXT, `updatedAt` INTEGER NOT NULL)",
+            )
+            connection.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_holdings_identifier` ON `holdings` (`identifier`)")
+        }
+    }
+
+    /** 4 -> 5: statement type and its summary figures (dues, due date, limit). */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(connection: SQLiteConnection) {
+            for (col in listOf("kind TEXT", "totalDueMinor INTEGER", "minDueMinor INTEGER", "dueEpochDay INTEGER", "creditLimitMinor INTEGER", "statementEpochDay INTEGER")) {
+                connection.execSQL("ALTER TABLE statements ADD COLUMN $col DEFAULT NULL")
+            }
+        }
+    }
+
+    /** 5 -> 6: a holding's previous value, to measure EPF/NPS growth. */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE holdings ADD COLUMN previousValueMinor INTEGER DEFAULT NULL")
+            connection.execSQL("ALTER TABLE holdings ADD COLUMN previousAsOf INTEGER DEFAULT NULL")
+        }
+    }
+
+    /** 6 -> 7: hidden accounts, and remembered merchant categories. */
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+            connection.execSQL(
+                "CREATE TABLE IF NOT EXISTS `merchant_rules` (`merchantKey` TEXT NOT NULL, `category` TEXT NOT NULL, " +
+                    "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`merchantKey`))",
+            )
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 }

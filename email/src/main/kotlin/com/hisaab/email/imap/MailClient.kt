@@ -20,6 +20,7 @@ import javax.mail.UIDFolder
 import javax.mail.internet.ContentType
 import javax.mail.internet.InternetAddress
 import javax.mail.internet.MimeMessage
+import javax.mail.internet.MimeUtility
 import javax.mail.search.ComparisonTerm
 import javax.mail.search.ReceivedDateTerm
 
@@ -36,6 +37,7 @@ data class FetchedMail(
     val text: String,
     val receivedAt: Long,
     val pdfs: List<ByteArray>,
+    val pdfNames: List<String> = emptyList(),
 )
 
 interface MailClient {
@@ -86,7 +88,8 @@ class JavaMailClient @Inject constructor() : MailClient {
         val store = session(login).getStore("imaps")
         store.connect(login.server.imapHost, login.server.imapPort, login.email, login.password)
         try {
-            val inbox = store.getFolder("INBOX")
+            // Statements are often archived or filtered under a label; Gmail's "All Mail" holds them all.
+            val inbox = allMailFolder(store) ?: store.getFolder("INBOX")
             inbox.open(Folder.READ_ONLY)
             try {
                 val found = inbox.search(ReceivedDateTerm(ComparisonTerm.GE, Date(since)))
@@ -116,7 +119,7 @@ class JavaMailClient @Inject constructor() : MailClient {
             ?: ""
         return FetchedMail(
             id = "imap:$id", from = from, subject = m.subject, text = text,
-            receivedAt = (m.receivedDate ?: m.sentDate)?.time ?: 0L, pdfs = parts.pdfs,
+            receivedAt = (m.receivedDate ?: m.sentDate)?.time ?: 0L, pdfs = parts.pdfs, pdfNames = parts.pdfNames,
         )
     }
 
@@ -124,10 +127,12 @@ class JavaMailClient @Inject constructor() : MailClient {
         var plain: String? = null
         var html: String? = null
         val pdfs = ArrayList<ByteArray>()
+        val pdfNames = ArrayList<String>()
     }
 
     private fun walk(part: Part, out: BodyParts, withPdfs: Boolean) {
-        val name = part.fileName.orEmpty()
+        // Some banks send the name MIME-encoded ("=?UTF-8?B?...?=") with a generic content type.
+        val name = part.fileName?.let { runCatching { MimeUtility.decodeText(it) }.getOrDefault(it) }.orEmpty()
         when {
             part.isMimeType("multipart/*") -> {
                 val mp = part.content as? Multipart ?: return
@@ -135,7 +140,10 @@ class JavaMailClient @Inject constructor() : MailClient {
             }
             part.isMimeType("message/rfc822") -> (part.content as? Part)?.let { walk(it, out, withPdfs) }
             part.isMimeType("application/pdf") || name.endsWith(".pdf", ignoreCase = true) -> {
-                if (withPdfs && out.pdfs.size < MAX_PDFS) out.pdfs += part.inputStream.use { it.readBytes() }
+                if (withPdfs && out.pdfs.size < MAX_PDFS) {
+                    out.pdfs += part.inputStream.use { it.readBytes() }
+                    out.pdfNames += name.ifEmpty { "statement.pdf" }
+                }
             }
             name.isNotEmpty() || Part.ATTACHMENT.equals(part.disposition, ignoreCase = true) -> Unit
             part.isMimeType("text/plain") && out.plain == null -> out.plain = readText(part)
@@ -149,6 +157,13 @@ class JavaMailClient @Inject constructor() : MailClient {
             ?.let { runCatching { charset(javax.mail.internet.MimeUtility.javaCharset(it)) }.getOrNull() } ?: Charsets.UTF_8
         return part.inputStream.use { String(it.readBytes(), charset) }
     }
+
+    /** The folder with the IMAP \\All attribute (Gmail's "All Mail", whatever its language), or null. */
+    private fun allMailFolder(store: javax.mail.Store): Folder? = runCatching {
+        store.defaultFolder.list("*").firstOrNull { f ->
+            (f as? com.sun.mail.imap.IMAPFolder)?.attributes?.any { it.equals("\\All", ignoreCase = true) } == true
+        }
+    }.getOrNull()
 
     private fun session(login: MailLogin): Session = Session.getInstance(
         Properties().apply {

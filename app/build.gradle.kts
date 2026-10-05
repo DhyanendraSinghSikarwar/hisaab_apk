@@ -15,9 +15,11 @@ android {
         applicationId = "com.hisaab"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 10
+        versionName = "1.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Phones only: drops the emulator (x86) copies of ML Kit's text reader, about 23 MB.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     signingConfigs {
@@ -53,6 +55,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true // the app compares its version with the latest GitHub release
     }
 
     packaging {
@@ -97,12 +100,12 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.kotlinx.coroutines.android)
 
-    implementation(libs.compose.charts)
     implementation(libs.haze)
-    implementation(libs.colorpicker.compose)
     implementation(libs.glance.appwidget)
     implementation(libs.glance.material3)
     implementation(libs.opencsv)
+    // On-device text recognition for "Add from screenshot"; the Latin model ships inside the APK, no download.
+    implementation(libs.mlkit.text.recognition)
     implementation(libs.androidx.profileinstaller)
 
     debugImplementation(libs.compose.ui.tooling)

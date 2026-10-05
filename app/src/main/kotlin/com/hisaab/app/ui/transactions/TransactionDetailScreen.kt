@@ -1,8 +1,8 @@
 package com.hisaab.app.ui.transactions
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,13 +13,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -47,6 +50,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.hisaab.app.ui.components.CategoryBadge
+import com.hisaab.app.ui.components.CategorySheet
 import com.hisaab.app.ui.components.signedAmount
 import com.hisaab.app.ui.components.signedAmountColor
 import com.hisaab.app.ui.format.Money
@@ -73,9 +77,11 @@ class TransactionDetailViewModel @Inject constructor(
     val transaction = dao.observeById(id).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val sources = sources.observeForTransaction(id).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun setCategory(c: Category) = viewModelScope.launch { dao.setCategory(id, c.name) }
+    /** Also remembered for this merchant, so its next transactions get the same category. */
+    fun setCategory(c: Category) = viewModelScope.launch { repository.setCategory(listOf(id), c) }
     fun setNote(note: String) = viewModelScope.launch { dao.setNote(id, note.trim().ifEmpty { null }) }
     fun split(source: TransactionSourceEntity) = viewModelScope.launch { repository.split(id, source.id) }
+    fun delete(then: () -> Unit) = viewModelScope.launch { repository.deleteTransactions(listOf(id)); then() }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,9 +89,23 @@ class TransactionDetailViewModel @Inject constructor(
 fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = hiltViewModel()) {
     val tx by vm.transaction.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
+    var confirmDelete by remember { mutableStateOf(false) }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Transaction") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+        TopAppBar(
+            title = { Text("Transaction") },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete") } },
+        )
     }) { inner ->
+        if (confirmDelete) {
+            AlertDialog(
+                onDismissRequest = { confirmDelete = false },
+                title = { Text("Delete this transaction?") },
+                text = { Text("It is removed from Hisaab and won't come back on a rescan. The message itself is not touched.") },
+                confirmButton = { TextButton(onClick = { confirmDelete = false; vm.delete(onBack) }) { Text("Delete") } },
+                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            )
+        }
         val t = tx ?: return@Scaffold
         Column(Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -134,35 +154,45 @@ private fun Field(label: String, value: String) {
     }
 }
 
+/** The current category as a row; tapping it opens the category sheet. */
 @Composable
 private fun CategoryPicker(current: Category, onPick: (Category) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    Box {
-        AssistChip(onClick = { open = true }, label = { Text("Category: ${current.label}") })
-        DropdownMenu(open, { open = false }) {
-            Category.entries.forEach { c -> DropdownMenuItem(text = { Text(c.label) }, onClick = { open = false; onPick(c) }) }
+    Card(Modifier.fillMaxWidth().clickable { open = true }) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            CategoryBadge(current, size = 36)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text("Category", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(current.label, style = MaterialTheme.typography.bodyLarge)
+            }
+            Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
     }
+    if (open) CategorySheet(current = current, onPick = onPick, onDismiss = { open = false })
 }
 
 @Composable
 private fun SourceCard(s: TransactionSourceEntity, canSplit: Boolean, onSplit: () -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(true) }
     Card(Modifier.fillMaxWidth().clickable { expanded = !expanded }) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    when (s.source) { "EMAIL" -> Icons.Filled.Email; "CSV" -> Icons.Filled.UploadFile; else -> Icons.Filled.Sms },
+                    when (s.source) {
+                        "EMAIL" -> Icons.Filled.Email; "CSV" -> Icons.Filled.UploadFile; "APP" -> Icons.Filled.Notifications
+                        "SCREENSHOT" -> Icons.Filled.Image; "MANUAL" -> Icons.Filled.Edit; "STATEMENT" -> Icons.Filled.Description
+                        else -> Icons.Filled.Sms
+                    },
                     null, modifier = Modifier.padding(end = 8.dp),
                 )
                 Column(Modifier.weight(1f)) {
-                    Text("${s.source.lowercase().replaceFirstChar { it.uppercase() }} from ${s.sender}", style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                    Text(sourceLabel(s), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
                     Text(Periods.dateTime(s.receivedAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (expanded && s.rawText != null) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Text(s.rawText!!, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                SelectionContainer { Text(s.rawText!!, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
                 if (canSplit) {
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = onSplit) { Text("Not the same transaction: split it out") }
@@ -170,4 +200,15 @@ private fun SourceCard(s: TransactionSourceEntity, canSplit: Boolean, onSplit: (
             }
         }
     }
+}
+
+private fun sourceLabel(s: TransactionSourceEntity): String = when (s.source) {
+    "SMS" -> "SMS from ${s.sender}"
+    "EMAIL" -> "Email from ${s.sender}"
+    "APP" -> "${s.sender} notification"
+    "SCREENSHOT" -> "Added from a screenshot"
+    "MANUAL" -> "Added by you"
+    "CSV" -> "Imported from CSV"
+    "STATEMENT" -> "Statement from ${s.sender.substringBefore('<').trim().ifEmpty { s.sender }}"
+    else -> "${s.source} from ${s.sender}"
 }

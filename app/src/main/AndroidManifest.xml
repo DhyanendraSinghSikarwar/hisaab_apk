@@ -10,6 +10,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Only to say "a statement needs its password". -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Only to hand a downloaded Hisaab update to Android's installer, after the user taps Install. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".HisaabApplication"
@@ -20,6 +24,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.Hisaab"
         tools:targetApi="36">
 
@@ -32,6 +37,20 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- From the "statement needs a password" notification. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="hisaab" android:host="statements" />
+            </intent-filter>
+            <!-- From budget and bill alerts. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="hisaab" android:host="budgets" />
+                <data android:scheme="hisaab" android:host="bills" />
+                <data android:scheme="hisaab" android:host="transaction" />
+            </intent-filter>
         </activity>
 
         <receiver
@@ -42,6 +61,28 @@
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
+
+        <!-- Reads payment-app notifications (GPay, PhonePe...) only after the user turns it on in Settings. -->
+        <service
+            android:name=".notify.PaymentNotificationListener"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
+        </provider>
+
+        <!-- Category buttons on the new-transaction notification. -->
+        <receiver android:name=".notify.CategoryActionReceiver" android:exported="false" />
 
         <receiver
             android:name=".widget.SpendWidgetReceiver"
@@ -54,6 +95,18 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/spend_widget_info" />
         </receiver>
+
+        <!--
+            Privacy: ML Kit (the on-device screenshot reader) ships Google's datatransport uploader for anonymous
+            usage counters. Removing its only backend means those events are dropped on the phone, never sent.
+        -->
+        <service
+            android:name="com.google.android.datatransport.runtime.backends.TransportBackendDiscovery"
+            tools:node="merge">
+            <meta-data
+                android:name="backend:com.google.android.datatransport.cct.CctBackendFactory"
+                tools:node="remove" />
+        </service>
 
         <!-- WorkManager is initialised by HisaabApplication with Hilt's worker factory. -->
         <provider

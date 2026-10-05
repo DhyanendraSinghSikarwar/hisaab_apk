@@ -48,11 +48,22 @@ class ParserRegistry(
         return parser.parse(body, sender, timestamp, source)
     }
 
-    /** Domains for the default Gmail sender whitelist. */
+    /** Domains for the default email sender whitelist: banks, plus the senders of investment and card statements. */
     val defaultEmailSenders: List<String>
-        get() = parsers.filterIsInstance<BaseBankParser>().flatMap { it.emailSenders }.distinct()
+        get() = (parsers.filterIsInstance<BaseBankParser>().flatMap { it.emailSenders } + STATEMENT_SENDERS).distinct()
 
     companion object {
+        /** CAS and broker statements (CAMS, KFintech, NSDL, CDSL, brokers), EPFO, and card issuers without a parser. */
+        val STATEMENT_SENDERS = listOf(
+            "camsonline.com", "kfintech.com", "karvy.com", "nsdl.co.in", "nsdl.com", "cdslindia.com", "cdslstatement.com",
+            "indmoney.com", "zerodha.com", "zerodha.net", "groww.in", "upstox.com", "angelone.in", "dhan.co", "kuvera.in",
+            "epfindia.gov.in", "sbicard.com", "americanexpress.co.in", "aexp.com", "rblbank.com", "indusind.com", "hsbc.co.in",
+            "sc.com", "onecard.in", "federalbank.co.in", "aubank.in",
+            "getonecard.app", "slicepay.in", "sliceit.com", "jupiter.money", "fi.money", "scapia.cards", "uni.cards", "bobfinancial.com",
+            "bajajfinserv.in", "kfintech.net", "camsonline.co.in", "indusind.bank.in", "canarabank.com", "unionbankofindia.co.in",
+            "citibank.com", "dbs.com", "paytmbank.com", "nps-proteantech.in", "proteantech.in",
+        )
+
         fun default(config: ParserConfig = ParserConfig()): ParserRegistry = ParserRegistry(
             parsers = listOf(
                 HdfcBankParser(config), IciciBankParser(config), SbiParser(config), AxisBankParser(config),

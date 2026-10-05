@@ -5,7 +5,8 @@ import com.hisaab.email.api.GmailMessage
 import com.hisaab.email.api.HistoryExpiredException
 import com.hisaab.email.mime.EmailContent
 import com.hisaab.email.mime.MimeParser
-import com.hisaab.email.mime.PdfTextSource
+import com.hisaab.email.statement.StatementHandler
+import com.hisaab.email.statement.StatementMeta
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.registry.ParserRegistry
 import com.hisaab.parser.registry.SenderKeys
@@ -54,7 +55,8 @@ class GmailSyncEngine(
     private val state: SyncStateStore,
     private val sink: EmailSink,
     private val registry: ParserRegistry,
-    private val pdf: PdfTextSource?,
+    /** Reads statement PDFs (card, bank, CAS); null skips attachments. */
+    private val pdf: StatementHandler?,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun sync(): SyncReport {
@@ -144,13 +146,10 @@ class GmailSyncEngine(
         if (readPdf && pdf != null) {
             for ((index, attachment) in content.pdfAttachments.withIndex()) {
                 val data = attachment.inlineData ?: attachment.attachmentId?.let { api.attachment(messageId, it).data } ?: continue
-                val text = pdf.text(MimeParser.decodeBase64Url(data)) ?: continue
-                // A statement is many transactions: feed it to the same parser one line at a time.
-                text.lineSequence().map { it.trim() }.filter { it.length > MIN_LINE }.forEachIndexed { line, body ->
-                    registry.parse(body, content.from, content.receivedAt, Source.EMAIL)?.let {
-                        out += IncomingMessage(it, "$messageId#pdf$index:$line", body)
-                    }
-                }
+                out += pdf.read(
+                    MimeParser.decodeBase64Url(data),
+                    StatementMeta("EMAIL", "$messageId#pdf$index", content.from, content.subject, attachment.filename, content.receivedAt),
+                )
             }
         }
         return out
@@ -161,7 +160,6 @@ class GmailSyncEngine(
     companion object {
         const val PAGE_SIZE = 100
         const val MAX_CONCURRENT_FETCHES = 8
-        private const val MIN_LINE = 20
         const val OUTCOME_PARSED = "PARSED"
         const val OUTCOME_REJECTED = "REJECTED"
         const val OUTCOME_SKIPPED = "SKIPPED"

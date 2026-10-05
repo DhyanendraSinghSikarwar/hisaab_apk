@@ -1,45 +1,57 @@
 package com.hisaab.app.ui.accounts
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,31 +63,91 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.github.skydoves.colorpicker.compose.HsvColorPicker
-import com.github.skydoves.colorpicker.compose.rememberColorPickerController
+import com.hisaab.app.ui.components.AccountAvatar
+import com.hisaab.app.ui.components.BrandMark
+import com.hisaab.app.ui.components.Brands
 import com.hisaab.app.ui.components.EmptyState
+import com.hisaab.app.ui.components.pressable
+import com.hisaab.app.ui.components.Info
+import com.hisaab.app.ui.components.InfoButton
+import com.hisaab.app.ui.components.KindColors
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.parser.model.AccountKind
 import com.hisaab.shared.db.AccountDao
+import com.hisaab.shared.db.AccountType
 import com.hisaab.shared.db.AccountWithActivity
+import com.hisaab.shared.db.CardNetwork
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** A debit card that probably belongs to [account], and why we think so. */
+data class LinkSuggestion(val card: AccountWithActivity, val account: AccountWithActivity, val reason: String)
+
+data class AccountsState(
+    val accounts: List<AccountWithActivity> = emptyList(),
+    val cards: List<AccountWithActivity> = emptyList(),
+    val suggestions: List<LinkSuggestion> = emptyList(),
+    val byId: Map<Long, AccountWithActivity> = emptyMap(),
+    /** Removed from view by the user; shown again from the bottom of the screen. */
+    val hidden: List<AccountWithActivity> = emptyList(),
+)
+
+data class AccountEdit(
+    val nickname: String, val color: Int?, val type: AccountType?, val network: CardNetwork?, val linkedAccountId: Long?,
+    val balance: String, val clearBalance: Boolean,
+)
+
 @HiltViewModel
 class AccountsViewModel @Inject constructor(private val dao: AccountDao) : ViewModel() {
-    val accounts = dao.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis()))
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val dismissed = MutableStateFlow(emptySet<Long>())
 
-    /** [balance] is what the user typed: blank leaves the balance alone, [clearBalance] removes the one they set. */
-    fun save(id: Long, nickname: String, color: Int?, balance: String, clearBalance: Boolean) = viewModelScope.launch {
-        dao.rename(id, nickname.trim().ifEmpty { null }, color)
+    val state = combine(dao.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())), dismissed) { all, dismissedCards ->
+        val visible = all.filter { !it.hidden }
+        val accounts = visible.filter { it.kind == AccountKind.ACCOUNT }
+        val cards = visible.filter { it.kind == AccountKind.CARD }
+        AccountsState(accounts, cards, suggestions(cards, accounts).filter { it.card.id !in dismissedCards }, all.associateBy { it.id },
+            hidden = all.filter { it.hidden })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AccountsState())
+
+    /**
+     * Debit cards with no account yet. A debit-card SMS states the account balance, so a card whose last
+     * balance equals one account's balance is a strong match; otherwise the only account at the same bank.
+     */
+    private fun suggestions(cards: List<AccountWithActivity>, accounts: List<AccountWithActivity>): List<LinkSuggestion> =
+        cards.filter { it.linkedAccountId == null && (it.isDebitCard || (it.accountType == null && it.latestBalanceMinor != null)) }
+            .mapNotNull { card ->
+                val sameBank = accounts.filter { it.bankName == card.bankName && it.isLiquid }
+                val byBalance = sameBank.firstOrNull { card.latestBalanceMinor != null && it.latestBalanceMinor == card.latestBalanceMinor }
+                when {
+                    byBalance != null -> LinkSuggestion(card, byBalance, "The balance in this card's SMS matches this account.")
+                    sameBank.size == 1 -> LinkSuggestion(card, sameBank.first(), "It's your only ${card.bankName} account.")
+                    sameBank.isNotEmpty() -> LinkSuggestion(card, sameBank.maxBy { it.transactionCount }, "Your most used ${card.bankName} account.")
+                    else -> null
+                }
+            }
+
+    fun link(card: AccountWithActivity, account: AccountWithActivity) = viewModelScope.launch {
+        dao.link(card.id, account.id)
+        if (card.accountType == null) dao.setType(card.id, AccountType.DEBIT_CARD, card.cardNetwork)
+    }
+
+    fun dismiss(card: AccountWithActivity) = dismissed.update { it + card.id }
+    fun setHidden(a: AccountWithActivity, hidden: Boolean) = viewModelScope.launch { dao.setHidden(a.id, hidden) }
+
+    fun save(a: AccountWithActivity, e: AccountEdit) = viewModelScope.launch {
+        dao.rename(a.id, e.nickname.trim().ifEmpty { null }, e.color)
+        dao.setType(a.id, e.type, if (a.kind == AccountKind.CARD) e.network else null)
+        dao.link(a.id, if (e.type == AccountType.DEBIT_CARD) e.linkedAccountId else null)
         when {
-            clearBalance -> dao.setManualBalance(id, null, null)
-            else -> Money.parseInput(balance)?.let { dao.setManualBalance(id, it, System.currentTimeMillis()) }
+            e.clearBalance -> dao.setManualBalance(a.id, null, null)
+            else -> Money.parseInput(e.balance)?.let { dao.setManualBalance(a.id, it, System.currentTimeMillis()) }
         }
     }
 }
@@ -83,83 +155,244 @@ class AccountsViewModel @Inject constructor(private val dao: AccountDao) : ViewM
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, vm: AccountsViewModel = hiltViewModel()) {
-    val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val s by vm.state.collectAsStateWithLifecycle()
+    var tab by rememberSaveable { mutableStateOf(0) }
     var editing by remember { mutableStateOf<AccountWithActivity?>(null) }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Accounts") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
-    }) { inner ->
-        if (accounts.isEmpty()) {
-            EmptyState(Icons.Filled.AccountBalance, "No accounts yet", "Accounts are created from the bank and last 4 digits in your messages.", Modifier.padding(inner))
+        Column {
+            TopAppBar(title = { Text("Accounts & cards") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+            PrimaryTabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Accounts (${s.accounts.size})") },
+                    icon = { Icon(Icons.Filled.AccountBalance, null, tint = KindColors.account) })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Cards (${s.cards.size})") },
+                    icon = { Icon(Icons.Filled.CreditCard, null, tint = KindColors.creditCard) })
+            }
         }
-        LazyColumn(contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(accounts, key = { it.id }) { a -> AccountCard(a, onClick = { onOpenAccount(a.id) }, onEdit = { editing = a }) }
+    }) { inner ->
+        val list = if (tab == 0) s.accounts else s.cards
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = inner.calculateTopPadding() + 12.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (tab == 0 && s.accounts.isNotEmpty()) item { BalanceSummary(s.accounts) }
+            if (tab == 1) {
+                items(s.suggestions, key = { "s${it.card.id}" }) { sug ->
+                    SuggestionCard(sug, onLink = { vm.link(sug.card, sug.account) }, onDismiss = { vm.dismiss(sug.card) })
+                }
+            }
+            if (list.isEmpty()) {
+                item {
+                    EmptyState(
+                        if (tab == 0) Icons.Filled.AccountBalance else Icons.Filled.CreditCard,
+                        if (tab == 0) "No accounts yet" else "No cards yet",
+                        "They are created from the bank and the last digits in your messages.",
+                    )
+                }
+            }
+            items(list, key = { it.id }) { a ->
+                AccountCard(a, linked = a.linkedAccountId?.let(s.byId::get), onClick = { onOpenAccount(a.id) }, onEdit = { editing = a },
+                    modifier = Modifier.animateItem())
+            }
+            val hiddenHere = s.hidden.filter { (it.kind == AccountKind.ACCOUNT) == (tab == 0) }
+            if (hiddenHere.isNotEmpty()) {
+                item(key = "hidden-header") {
+                    Text("Hidden (${hiddenHere.size})", style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp, start = 4.dp))
+                }
+                items(hiddenHere, key = { "h${it.id}" }) { a ->
+                    Row(Modifier.fillMaxWidth().animateItem().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AccountAvatar(a.bankName, a.kind, a.accountType, size = 32.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("${title(a)} ••${a.last4}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = { vm.setHidden(a, false) }) { Text("Show again") }
+                    }
+                }
+            }
         }
     }
     editing?.let { a ->
-        EditDialog(a, onDismiss = { editing = null }, onSave = { name, color, balance, clear -> vm.save(a.id, name, color, balance, clear); editing = null })
+        EditSheet(a, accounts = s.accounts, onDismiss = { editing = null }, onSave = { e -> vm.save(a, e); editing = null },
+            onHide = { vm.setHidden(a, true); editing = null })
     }
 }
 
 @Composable
-private fun AccountCard(a: AccountWithActivity, onClick: () -> Unit, onEdit: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            val tint = a.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
-            Box(Modifier.size(44.dp).background(tint.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
-                Icon(if (a.kind == AccountKind.CARD) Icons.Filled.CreditCard else Icons.Filled.AccountBalance, null, tint = tint)
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(a.nickname ?: a.bankName, style = MaterialTheme.typography.titleMedium)
-                Text("${if (a.kind == AccountKind.CARD) "Card" else "Account"} •• ${a.last4} · ${a.transactionCount} transactions",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Spent this month ${Money.format(a.monthSpent, showPaise = false)}", style = MaterialTheme.typography.bodySmall)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(a.currentBalanceMinor?.let { Money.format(it, showPaise = false) } ?: "—", style = MaterialTheme.typography.titleMedium)
-                Text(balanceCaption(a), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, "Edit") }
+private fun BalanceSummary(accounts: List<AccountWithActivity>) {
+    val liquid = accounts.filter { it.isLiquid && it.currentBalanceMinor != null }
+    val deposits = accounts.filter { !it.isLiquid && it.currentBalanceMinor != null }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text("In your bank accounts", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(
+                if (liquid.isEmpty()) "—" else Money.format(liquid.sumOf { it.currentBalanceMinor!! }, showPaise = false),
+                style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            if (deposits.isNotEmpty()) {
+                Text(
+                    "Plus ${Money.format(deposits.sumOf { it.currentBalanceMinor!! }, showPaise = false)} in deposits, PPF and loans",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
             }
         }
     }
 }
 
-private fun balanceCaption(a: AccountWithActivity): String {
-    val what = if (a.kind == AccountKind.CARD) "limit left" else "balance"
-    if (a.currentBalanceMinor == null) return what
-    val source = if (a.balanceIsManual) ", set by you" else ""
-    return a.balanceAsOf?.let { "$what$source · " + Periods.dateTime(it) } ?: what
+@Composable
+private fun SuggestionCard(s: LinkSuggestion, onLink: () -> Unit, onDismiss: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Link, null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                Spacer(Modifier.width(8.dp))
+                Text("Link this debit card?", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.weight(1f))
+                InfoButton("Linking a debit card", *Info.CARD_LINK)
+            }
+            Text(
+                "${title(s.card)} card ••${s.card.last4} → ${title(s.account)} ••${s.account.last4}. ${s.reason} " +
+                    "Its spends and withdrawals will then count against that account.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                TextButton(onClick = onDismiss) { Text("Not now") }
+                Button(onClick = onLink) { Text("Link") }
+            }
+        }
+    }
 }
 
+private fun title(a: AccountWithActivity) = a.nickname ?: a.bankName
+
 @Composable
-private fun EditDialog(a: AccountWithActivity, onDismiss: () -> Unit, onSave: (name: String, color: Int?, balance: String, clearBalance: Boolean) -> Unit) {
+private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, onClick: () -> Unit, onEdit: () -> Unit, modifier: Modifier = Modifier) {
+    val accent = a.colorArgb?.let { Color(it) }
+    Card(
+        modifier.fillMaxWidth().pressable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = accent?.copy(alpha = 0.10f) ?: MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Row(Modifier.padding(start = 14.dp, top = 14.dp, bottom = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            AccountAvatar(a.bankName, a.kind, a.accountType)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title(a), style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                val kindLabel = a.accountType?.label ?: if (a.kind == AccountKind.CARD) "Card" else "Bank account"
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("$kindLabel · ••${a.last4}", style = MaterialTheme.typography.bodySmall, color = KindColors.of(a.kind, a.accountType))
+                    a.cardNetwork?.let { n -> Spacer(Modifier.width(6.dp)); BrandMark(Brands.forNetwork(n), size = 20.dp) }
+                }
+                val sub = when {
+                    linked != null -> "Linked to ${title(linked)} ••${linked.last4}"
+                    else -> "Spent this month ${Money.format(a.monthSpent, showPaise = false)} · ${a.transactionCount} transactions"
+                }
+                Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                val (value, caption) = valueFor(a, linked)
+                Text(value, style = MaterialTheme.typography.titleMedium)
+                Text(caption, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, "Edit") }
+        }
+    }
+}
+
+/** What the right-hand figure shows: an account's balance, a credit card's limit left, or a debit card's account balance. */
+private fun valueFor(a: AccountWithActivity, linked: AccountWithActivity?): Pair<String, String> = when {
+    a.isDebitCard || (a.kind == AccountKind.CARD && a.accountType == null && a.latestBalanceMinor != null) -> {
+        val bal = linked?.currentBalanceMinor ?: a.latestBalanceMinor
+        (bal?.let { Money.format(it, showPaise = false) } ?: "—") to "account balance"
+    }
+    a.kind == AccountKind.CARD -> (a.currentBalanceMinor?.let { Money.format(it, showPaise = false) } ?: "—") to "limit left"
+    else -> (a.currentBalanceMinor?.let { Money.format(it, showPaise = false) } ?: "—") to
+        (a.balanceAsOf?.let { (if (a.balanceIsManual) "set by you · " else "") + Periods.dateTime(it) } ?: "balance")
+}
+
+private val SWATCHES = listOf(
+    Color(0xFF1A63C6), Color(0xFF00897B), Color(0xFF43A047), Color(0xFFF9A825),
+    Color(0xFFE65100), Color(0xFFC62828), Color(0xFF8E24AA), Color(0xFF546E7A),
+)
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity>, onDismiss: () -> Unit, onSave: (AccountEdit) -> Unit, onHide: () -> Unit) {
+    val isCard = a.kind == AccountKind.CARD
     var name by remember { mutableStateOf(a.nickname.orEmpty()) }
     var color by remember { mutableStateOf(a.colorArgb) }
+    var type by remember { mutableStateOf(a.accountType) }
+    var network by remember { mutableStateOf(a.cardNetwork) }
+    var linkedId by remember { mutableStateOf(a.linkedAccountId) }
     var balance by remember { mutableStateOf("") }
     var clearBalance by remember { mutableStateOf(false) }
     val invalid = balance.isNotBlank() && Money.parseInput(balance) == null
-    val controller = rememberColorPickerController()
-    val isCard = a.kind == AccountKind.CARD
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("${a.bankName} •• ${a.last4}") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nickname") }, singleLine = true)
+    val showBalance = !(isCard && type == AccountType.DEBIT_CARD)
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AccountAvatar(a.bankName, a.kind, type, size = 48.dp)
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(a.bankName, style = MaterialTheme.typography.titleLarge)
+                    Text("••${a.last4}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Nickname") }, singleLine = true)
+
+            Label(if (isCard) "Card type" else "Account type")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                AccountType.forKind(a.kind).forEach { t ->
+                    FilterChip(selected = type == t, onClick = { type = if (type == t) null else t }, label = { Text(t.label) })
+                }
+            }
+            if (!isCard && type?.liquid == false) {
+                Text("Not counted in your Home balance.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            if (isCard) {
+                Label("Network")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CardNetwork.entries.forEach { n ->
+                        FilterChip(
+                            selected = network == n, onClick = { network = if (network == n) null else n }, label = { Text(n.label) },
+                            leadingIcon = { BrandMark(Brands.forNetwork(n), size = 18.dp) },
+                        )
+                    }
+                }
+            }
+
+            if (isCard && type == AccountType.DEBIT_CARD) {
+                Label("Bank account this card draws from")
+                val options = accounts.sortedByDescending { it.bankName == a.bankName }
+                if (options.isEmpty()) Text("No bank accounts yet.", style = MaterialTheme.typography.bodySmall)
+                options.forEach { acc ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { linkedId = if (linkedId == acc.id) null else acc.id }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        AccountAvatar(acc.bankName, acc.kind, acc.accountType, size = 32.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("${title(acc)} ••${acc.last4}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        if (linkedId == acc.id) Icon(Icons.Filled.Check, "Linked", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+
+            if (showBalance) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Label(if (isCard) "Available limit" else "Current balance")
+                    InfoButton(if (isCard) "Available limit" else "Current balance", *Info.MANUAL_BALANCE)
+                }
                 OutlinedTextField(
-                    balance, { balance = it; clearBalance = false },
+                    balance, { balance = it; clearBalance = false }, Modifier.fillMaxWidth(),
                     label = { Text(if (isCard) "Available limit (optional)" else "Current balance (optional)") },
                     placeholder = { a.currentBalanceMinor?.let { Text(Money.format(it)) } },
-                    prefix = { Text("₹") },
-                    singleLine = true,
-                    isError = invalid,
+                    prefix = { Text("₹") }, singleLine = true, isError = invalid,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     supportingText = {
-                        Text(
-                            if (invalid) "Enter an amount, like 12500 or 12,500.50"
-                            else "Leave blank to keep it as is. New transactions update it; a newer balance in a bank message replaces it.",
-                        )
+                        Text(if (invalid) "Enter an amount, like 12500 or 12,500.50"
+                        else "Leave blank to keep it. New transactions update it; a newer balance in a bank message replaces it.")
                     },
                 )
                 if (a.manualBalanceMinor != null) {
@@ -168,14 +401,40 @@ private fun EditDialog(a: AccountWithActivity, onDismiss: () -> Unit, onSave: (n
                         Text("Remove the balance I set", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                Text("Colour", style = MaterialTheme.typography.labelLarge)
-                HsvColorPicker(
-                    modifier = Modifier.fillMaxWidth().height(180.dp), controller = controller,
-                    onColorChanged = { if (it.fromUser) color = it.color.toArgb() },
-                )
             }
-        },
-        confirmButton = { TextButton(onClick = { onSave(name, color, balance, clearBalance) }, enabled = !invalid) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+
+            Label("Colour")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Swatch(null, selected = color == null) { color = null }
+                SWATCHES.forEach { c -> Swatch(c, selected = color == c.toArgb()) { color = c.toArgb() } }
+            }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onHide) { Text("Remove from view", color = MaterialTheme.colorScheme.error) }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                Button(onClick = { onSave(AccountEdit(name, color, type, network, linkedId, balance, clearBalance)) }, enabled = !invalid) { Text("Save") }
+            }
+            Text("Removing from view hides it from your lists and balance. Its transactions stay, and you can show it again at the bottom of Accounts.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun Label(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun Swatch(color: Color?, selected: Boolean, onClick: () -> Unit) {
+    val outline = MaterialTheme.colorScheme.outline
+    Box(
+        Modifier.size(30.dp).background(color ?: MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape)
+            .border(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.onSurface else outline, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (color == null) Text("—", style = MaterialTheme.typography.labelSmall)
+    }
 }

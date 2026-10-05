@@ -50,6 +50,9 @@ interface DedupLookup {
 object DuplicateMatcher {
     const val WINDOW_MILLIS: Long = 30 * 60 * 1000L
     const val REVIEW_WINDOW_MILLIS: Long = 12 * 60 * 60 * 1000L
+    const val STATEMENT_WINDOW_MILLIS: Long = 36 * 60 * 60 * 1000L
+    private val LOOSE_SOURCES = setOf("APP", "SCREENSHOT", "MANUAL")
+    private const val STATEMENT = "STATEMENT"
 
     suspend fun decide(tx: ParsedTransaction, lookup: DedupLookup): DedupDecision {
         tx.referenceNumber?.let { ref ->
@@ -68,7 +71,7 @@ object DuplicateMatcher {
         }
 
         val candidates = lookup.potentialDuplicates(
-            tx.amountMinor, tx.transactionTime - REVIEW_WINDOW_MILLIS, tx.transactionTime + REVIEW_WINDOW_MILLIS,
+            tx.amountMinor, tx.transactionTime - STATEMENT_WINDOW_MILLIS, tx.transactionTime + STATEMENT_WINDOW_MILLIS,
         ).filter { it.type.direction == tx.type.direction }
             .sortedBy { abs(it.transactionTime - tx.transactionTime) }
 
@@ -84,8 +87,24 @@ object DuplicateMatcher {
             val crossSource = tx.source.name !in c.sources
             val close = abs(c.transactionTime - tx.transactionTime) <= WINDOW_MILLIS
 
+            // A payment-app notification, a screenshot or a typed entry rarely names the account; when it meets
+            // a bank message for the same amount within the window, it is the same payment.
+            val loose = tx.source.name in LOOSE_SOURCES || c.sources.any { it in LOOSE_SOURCES }
+            val accountless = c.accountLast4 == null || tx.accountLast4 == null
+            val gap = abs(c.transactionTime - tx.transactionTime)
+
+            // A statement row has only a date (stored at noon), so it matches the SMS or email for the same
+            // amount and account within a day and a half either side.
+            val statement = tx.source.name == STATEMENT || STATEMENT in c.sources
+            if (statement) {
+                if (crossSource && gap <= STATEMENT_WINDOW_MILLIS && (sameAccount || accountless)) return DedupDecision.Duplicate(c.id, MatchReason.FUZZY)
+                continue
+            }
+            if (gap > REVIEW_WINDOW_MILLIS) continue
+
             when {
                 close && crossSource && (sameAccount || sameMerchant) -> return DedupDecision.Duplicate(c.id, MatchReason.FUZZY)
+                close && crossSource && loose && accountless -> return DedupDecision.Duplicate(c.id, MatchReason.FUZZY)
                 review != null -> Unit
                 close && (sameAccount || sameMerchant) -> review = c to "Same amount and ${if (sameAccount) "account" else "merchant"} within 30 minutes"
                 close && crossSource -> review = c to "Same amount from SMS and email within 30 minutes"

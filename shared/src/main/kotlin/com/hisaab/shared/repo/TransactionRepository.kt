@@ -9,8 +9,13 @@ import com.hisaab.parser.dedup.StoredTransaction
 import com.hisaab.parser.model.AccountKind
 import com.hisaab.parser.model.ParsedTransaction
 import com.hisaab.parser.model.Source
+import com.hisaab.parser.model.TransactionType
 import com.hisaab.parser.registry.ParserRegistry
+import com.hisaab.parser.model.Category
 import com.hisaab.shared.db.AccountEntity
+import com.hisaab.shared.db.AccountType
+import com.hisaab.shared.db.DeletedMessageEntity
+import com.hisaab.shared.db.MerchantRuleEntity
 import com.hisaab.shared.db.HisaabDatabase
 import com.hisaab.shared.db.ProcessedEmailEntity
 import com.hisaab.shared.db.TransactionEntity
@@ -52,6 +57,8 @@ class TransactionRepository @Inject constructor(
     private val sourceDao = db.sources()
     private val accountDao = db.accounts()
     private val processedDao = db.processedEmails()
+    private val deletedDao = db.deletedMessages()
+    private val rules = db.merchantRules()
 
     private val lookup = object : DedupLookup {
         override suspend fun byReference(referenceNumber: String) = stored(txDao.findByReference(referenceNumber))
@@ -95,11 +102,16 @@ class TransactionRepository @Inject constructor(
     }
 
     private suspend fun ingestInTransaction(m: IncomingMessage, now: Long): IngestOutcome {
-        val tx = m.parsed
+        // A category the user chose for this merchant before wins over the parser's guess.
+        val tx = MerchantRuleEntity.keyOf(m.parsed.merchant, m.parsed.upiId)
+            ?.takeIf { m.parsed.type != TransactionType.TRANSFER }
+            ?.let { rules.get(it) }
+            ?.let { m.parsed.copy(category = it.category) } ?: m.parsed
         if (sourceDao.exists(m.sourceName, m.sourceMessageId)) return IngestOutcome.ALREADY_PROCESSED
+        if (deletedDao.exists(m.sourceName, m.sourceMessageId)) return IngestOutcome.ALREADY_PROCESSED
 
         val decision = DuplicateMatcher.decide(tx, lookup)
-        val accountId = ensureAccount(tx)
+        val accountId = ensureAccount(tx, m.rawText)
         val txId: Long
         val outcome: IngestOutcome
         when (decision) {
@@ -130,6 +142,7 @@ class TransactionRepository @Inject constructor(
                 }
             }
         }
+        if (outcome == IngestOutcome.INSERTED) pairTransfers(txId)
         sourceDao.insert(
             TransactionSourceEntity(
                 transactionId = txId, source = m.sourceName, sourceMessageId = m.sourceMessageId, sender = tx.sender,
@@ -137,17 +150,114 @@ class TransactionRepository @Inject constructor(
             ),
         )
         if (accountId != null) {
-            val balance = tx.balanceMinor.takeIf { tx.accountKind == AccountKind.ACCOUNT }
+            val balance = tx.balanceMinor.takeIf { tx.accountKind == AccountKind.ACCOUNT || tx.isDebitCard }
             if (balance != null || tx.availableLimitMinor != null) accountDao.updateBalance(accountId, balance, tx.availableLimitMinor, tx.transactionTime)
+            // A debit card's SMS states its bank account's balance.
+            if (tx.isDebitCard && balance != null) {
+                accountDao.getById(accountId)?.linkedAccountId?.let { accountDao.updateBalance(it, balance, null, tx.transactionTime) }
+            }
         }
         return outcome
     }
 
-    private suspend fun ensureAccount(tx: ParsedTransaction): Long? {
+    private suspend fun ensureAccount(tx: ParsedTransaction, rawText: String? = null): Long? {
         val last4 = tx.accountLast4 ?: return null
-        accountDao.find(tx.bankName, last4)?.let { return it.id }
-        val id = accountDao.insert(AccountEntity(bankName = tx.bankName, last4 = last4, kind = tx.accountKind, createdAt = System.currentTimeMillis()))
+        accountDao.find(tx.bankName, last4)?.let { existing ->
+            if (existing.accountType == null && tx.isDebitCard) accountDao.setType(existing.id, AccountType.DEBIT_CARD, existing.cardNetwork)
+            return existing.id
+        }
+        val guess = AccountGuess.of(tx, rawText)
+        val id = accountDao.insert(
+            AccountEntity(
+                bankName = tx.bankName, last4 = last4, kind = tx.accountKind, createdAt = System.currentTimeMillis(),
+                accountType = guess.type, cardNetwork = guess.network,
+            ),
+        )
         return if (id != -1L) id else accountDao.find(tx.bankName, last4)?.id
+    }
+
+    /**
+     * Money that only moved between the user's own accounts is neither spending nor income:
+     *  - a debit on one account and a credit of the same amount on another of theirs within 2 hours (self transfer);
+     *  - a bank debit and a card's "payment received" for the same amount within 3 days (credit card bill).
+     * Both sides become TRANSFER, so totals don't count the money twice.
+     */
+    private suspend fun pairTransfers(id: Long) {
+        val t = txDao.getById(id) ?: return
+        val accountId = t.accountId ?: return
+        val hour = 60 * 60 * 1000L
+        when {
+            t.type == TransactionType.DEBIT || t.type == TransactionType.CREDIT -> {
+                val want = if (t.type == TransactionType.DEBIT) TransactionType.CREDIT else TransactionType.DEBIT
+                val mate = txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - 2 * hour, t.timestamp + 2 * hour)
+                    .firstOrNull { it.type == want && it.accountId != null && it.accountId != accountId && it.accountKind == AccountKind.ACCOUNT && t.accountKind == AccountKind.ACCOUNT }
+                if (mate != null) {
+                    markTransfer(t, "Self transfer between your accounts")
+                    markTransfer(mate, "Self transfer between your accounts")
+                    return
+                }
+                // A bank debit that pays a card bill already recorded on the card side.
+                if (t.type == TransactionType.DEBIT && t.accountKind == AccountKind.ACCOUNT) {
+                    txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - 72 * hour, t.timestamp + 72 * hour)
+                        .firstOrNull { it.type == TransactionType.TRANSFER && it.accountKind == AccountKind.CARD }
+                        ?.let { markTransfer(t, "Credit card bill payment") }
+                }
+            }
+            t.type == TransactionType.TRANSFER && t.accountKind == AccountKind.CARD -> {
+                txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - 72 * hour, t.timestamp + 72 * hour)
+                    .firstOrNull { it.type == TransactionType.DEBIT && it.accountKind == AccountKind.ACCOUNT }
+                    ?.let { markTransfer(it, "Credit card bill payment") }
+            }
+        }
+    }
+
+    private suspend fun markTransfer(t: TransactionEntity, note: String) {
+        txDao.update(t.copy(type = TransactionType.TRANSFER, category = Category.TRANSFER, note = t.note ?: note))
+    }
+
+    /** A transaction typed in, or read from a screenshot. Goes through dedup like any message. */
+    suspend fun addManual(tx: ParsedTransaction, rawText: String?): IngestOutcome =
+        ingest(IncomingMessage(tx, "${tx.source.name.lowercase()}:${java.util.UUID.randomUUID()}", rawText, tx.source.name))
+
+    /** Deletes transactions, and remembers their messages so a rescan does not add them back. */
+    suspend fun deleteTransactions(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        write {
+            val now = System.currentTimeMillis()
+            for (chunk in ids.chunked(SQLITE_MAX_ARGS)) {
+                deletedDao.insertAll(sourceDao.forTransactions(chunk).map { DeletedMessageEntity(it.source, it.sourceMessageId, now) })
+                txDao.deleteAll(chunk)
+            }
+        }
+    }
+
+    /**
+     * Sets the category and remembers it for each merchant involved, so their future transactions (and past
+     * ones still uncategorised) get it too.
+     */
+    suspend fun setCategory(ids: List<Long>, category: Category) {
+        for (chunk in ids.chunked(SQLITE_MAX_ARGS)) txDao.setCategoryFor(chunk, category.name)
+        val now = System.currentTimeMillis()
+        val keys = ids.mapNotNull { txDao.getById(it) }.filter { it.type != TransactionType.TRANSFER }
+            .mapNotNull { MerchantRuleEntity.keyOf(it.merchant, it.upiId) }.distinct()
+        for (k in keys) {
+            rules.upsert(MerchantRuleEntity(k, category, now))
+            rules.applyToUncategorised(k, category.name)
+        }
+    }
+
+    /**
+     * What a statement says about the account: a card's credit limit and amount due give its available limit;
+     * a bank statement's last running balance is the account balance. Only a newer figure replaces an older one.
+     */
+    suspend fun applyStatementToAccount(bankName: String, last4: String, kind: AccountKind, closingBalance: Long?, creditLimit: Long?, totalDue: Long?, at: Long) {
+        val id = accountDao.find(bankName, last4)?.id
+            ?: accountDao.insert(AccountEntity(bankName = bankName, last4 = last4, kind = kind, createdAt = System.currentTimeMillis())).takeIf { it != -1L }
+            ?: return
+        when (kind) {
+            AccountKind.CARD -> if (creditLimit != null) accountDao.setLimitFromStatement(id, (creditLimit - (totalDue ?: 0)).coerceAtLeast(0), at)
+            AccountKind.ACCOUNT -> if (closingBalance != null) accountDao.updateBalance(id, closingBalance, null, at)
+        }
     }
 
     // Review actions.
@@ -222,7 +332,7 @@ class TransactionRepository @Inject constructor(
     }
 
     private companion object {
-        const val RAW_TEXT_CAP = 4000
+        const val RAW_TEXT_CAP = 20_000
         const val CSV = "CSV"
         const val SQLITE_MAX_ARGS = 900
     }

@@ -96,6 +96,14 @@ interface TransactionDao {
     )
     fun observeMonthly(from: Long, to: Long, offsetMillis: Long): Flow<List<MonthTotal>>
 
+    /** Where the money went, by merchant, biggest first. */
+    @Query(
+        """SELECT COALESCE(merchant, bankName) AS name, SUM(amountMinor) AS total, COUNT(*) AS count FROM transactions
+           WHERE type IN ('DEBIT', 'INVESTMENT') AND currency = 'INR' AND timestamp BETWEEN :from AND :to
+           GROUP BY name ORDER BY total DESC LIMIT :limit""",
+    )
+    fun observeTopMerchants(from: Long, to: Long, limit: Int): Flow<List<MerchantTotal>>
+
     @Query("SELECT COUNT(*) FROM transactions WHERE needsReview = 1")
     fun observeReviewCount(): Flow<Int>
 
@@ -105,6 +113,13 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY timestamp")
     suspend fun getAll(): List<TransactionEntity>
 
+    /** Everything since [from], for planning (recurring payments, insurance, savings, insights). */
+    @Query("SELECT * FROM transactions WHERE timestamp >= :from ORDER BY timestamp")
+    fun observeSince(from: Long): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM transactions WHERE timestamp >= :from ORDER BY timestamp")
+    suspend fun since(from: Long): List<TransactionEntity>
+
     @Query("SELECT COUNT(*) FROM transactions")
     suspend fun count(): Int
 
@@ -113,6 +128,55 @@ interface TransactionDao {
 
     @Query("UPDATE transactions SET note = :note WHERE id = :id")
     suspend fun setNote(id: Long, note: String?)
+
+    /** The transactions a statement produced, or merged into: its sources are named "stmt:<statement key>:<row>". */
+    @Query(
+        """SELECT DISTINCT t.* FROM transactions t JOIN transaction_sources s ON s.transactionId = t.id
+           WHERE s.source = 'STATEMENT' AND s.sourceMessageId LIKE 'stmt:' || :statementKey || ':%' ORDER BY t.timestamp""",
+    )
+    fun observeForStatement(statementKey: String): Flow<List<TransactionEntity>>
+
+    /** How often each category was used for this type of transaction since [from], most used first. */
+    @Query("SELECT category, COUNT(*) AS count FROM transactions WHERE type = :type AND timestamp >= :from GROUP BY category ORDER BY count DESC")
+    suspend fun categoryUsage(type: String, from: Long): List<CategoryCount>
+
+    @Query("UPDATE transactions SET category = :category WHERE id IN (:ids)")
+    suspend fun setCategoryFor(ids: List<Long>, category: String)
+
+    @Query("DELETE FROM transactions WHERE id IN (:ids)")
+    suspend fun deleteAll(ids: List<Long>)
+}
+
+@Dao
+interface MerchantRuleDao {
+    @Query("SELECT * FROM merchant_rules WHERE merchantKey = :key")
+    suspend fun get(key: String): MerchantRuleEntity?
+
+    @androidx.room.Upsert
+    suspend fun upsert(rule: MerchantRuleEntity)
+
+    @Query("DELETE FROM merchant_rules WHERE merchantKey = :key")
+    suspend fun delete(key: String)
+
+    @Query("SELECT * FROM merchant_rules ORDER BY merchantKey")
+    fun observeAll(): Flow<List<MerchantRuleEntity>>
+
+    /** Earlier transactions from the same merchant that were never categorised, so the new rule can fix them too. */
+    @Query(
+        """UPDATE transactions SET category = :category
+           WHERE category = 'OTHER' AND type IN ('DEBIT', 'CREDIT', 'INVESTMENT')
+             AND (LOWER(TRIM(merchant)) = :key OR (merchant IS NULL AND LOWER(TRIM(upiId)) = :key))""",
+    )
+    suspend fun applyToUncategorised(key: String, category: String): Int
+}
+
+@Dao
+interface DeletedMessageDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(rows: List<DeletedMessageEntity>)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM deleted_messages WHERE source = :source AND messageId = :messageId)")
+    suspend fun exists(source: String, messageId: String): Boolean
 }
 
 @Dao
@@ -134,6 +198,12 @@ interface TransactionSourceDao {
 
     @Query("SELECT * FROM transaction_sources WHERE id = :id")
     suspend fun getById(id: Long): TransactionSourceEntity?
+
+    @Query("SELECT transactionId FROM transaction_sources WHERE source = :source AND sourceMessageId = :messageId")
+    suspend fun transactionIdFor(source: String, messageId: String): Long?
+
+    @Query("SELECT * FROM transaction_sources WHERE transactionId IN (:ids)")
+    suspend fun forTransactions(ids: List<Long>): List<TransactionSourceEntity>
 
     @Query("UPDATE transaction_sources SET transactionId = :to WHERE transactionId = :from")
     suspend fun reassign(from: Long, to: Long)
@@ -179,26 +249,47 @@ interface AccountDao {
     @Query("UPDATE accounts SET nickname = :nickname, colorArgb = :colorArgb WHERE id = :id")
     suspend fun rename(id: Long, nickname: String?, colorArgb: Int?)
 
+    @Query("UPDATE accounts SET accountType = :type, cardNetwork = :network WHERE id = :id")
+    suspend fun setType(id: Long, type: AccountType?, network: CardNetwork?)
+
+    @Query("UPDATE accounts SET hidden = :hidden WHERE id = :id")
+    suspend fun setHidden(id: Long, hidden: Boolean)
+
+    /** A card's limit from its statement: the available limit is the limit minus what is due. */
+    @Query(
+        """UPDATE accounts SET availableLimitMinor = :available, balanceUpdatedAt = :at
+           WHERE id = :id AND (balanceUpdatedAt IS NULL OR balanceUpdatedAt <= :at)""",
+    )
+    suspend fun setLimitFromStatement(id: Long, available: Long, at: Long)
+
+    /** Links a debit card to its bank account, or with null unlinks it. */
+    @Query("UPDATE accounts SET linkedAccountId = :accountId WHERE id = :cardId")
+    suspend fun link(cardId: Long, accountId: Long?)
+
     /** Sets, or with nulls clears, the balance the user typed in. */
     @Query("UPDATE accounts SET manualBalanceMinor = :balance, manualBalanceAt = :at WHERE id = :id")
     suspend fun setManualBalance(id: Long, balance: Long?, at: Long?)
 
     /**
-     * Accounts with their spend in [from, to). changeSinceManual is what the transactions after the
-     * user's own balance did to it: credits add, spends subtract, and a card bill payment (TRANSFER)
-     * frees up card limit. Transactions still waiting in review are left out.
+     * Accounts with their spend in [from, to). A bank account also counts the transactions of the debit
+     * cards linked to it. changeSinceManual is what the transactions after the user's own balance did to
+     * it: credits add, spends subtract, and a card bill payment (TRANSFER) frees up card limit.
+     * Transactions still waiting in review are left out.
      */
     @Query(
         """SELECT a.id, a.bankName, a.last4, a.kind, a.nickname, a.colorArgb, a.latestBalanceMinor, a.availableLimitMinor,
-                  a.balanceUpdatedAt, a.manualBalanceMinor, a.manualBalanceAt,
-                  COALESCE((SELECT SUM(t.amountMinor) FROM transactions t WHERE t.accountId = a.id
+                  a.balanceUpdatedAt, a.manualBalanceMinor, a.manualBalanceAt, a.accountType, a.cardNetwork, a.linkedAccountId, a.hidden,
+                  COALESCE((SELECT SUM(t.amountMinor) FROM transactions t
+                            WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id))
                             AND t.type IN ('DEBIT', 'INVESTMENT') AND t.timestamp >= :from AND t.timestamp < :to), 0) AS monthSpent,
                   (SELECT COUNT(*) FROM transactions t WHERE t.accountId = a.id) AS transactionCount,
                   COALESCE((SELECT SUM(CASE WHEN t.type = 'CREDIT' THEN t.amountMinor
                                             WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.amountMinor
                                             WHEN t.type = 'TRANSFER' AND a.kind = 'CARD' THEN t.amountMinor
                                             ELSE 0 END)
-                            FROM transactions t WHERE t.accountId = a.id AND a.manualBalanceAt IS NOT NULL
+                            FROM transactions t
+                            WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id))
+                            AND a.manualBalanceAt IS NOT NULL
                             AND t.timestamp > a.manualBalanceAt AND t.needsReview = 0 AND t.currency = 'INR'), 0) AS changeSinceManual
            FROM accounts a ORDER BY a.bankName, a.last4""",
     )

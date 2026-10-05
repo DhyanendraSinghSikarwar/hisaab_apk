@@ -29,11 +29,25 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.draw.clip
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.material.icons.filled.PieChart
+import com.hisaab.app.ui.invest.StatementDetailRoute
 import com.hisaab.app.ui.accounts.AccountsRoute
 import com.hisaab.app.ui.analytics.AnalyticsRoute
 import com.hisaab.app.ui.bench.ParserBenchRoute
 import com.hisaab.app.ui.budgets.BudgetsRoute
 import com.hisaab.app.ui.home.HomeRoute
+import com.hisaab.app.ui.add.AddTransactionRoute
+import com.hisaab.app.ui.invest.InvestmentsRoute
+import com.hisaab.app.ui.invest.StatementsRoute
+import com.hisaab.app.ui.review.CompareRoute
 import com.hisaab.app.ui.review.ReviewRoute
 import com.hisaab.app.ui.settings.SettingsRoute
 import com.hisaab.app.ui.transactions.TransactionDetailRoute
@@ -46,8 +60,8 @@ import dev.chrisbanes.haze.rememberHazeState
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Home", Icons.Filled.Home),
     TRANSACTIONS("transactions", "Transactions", Icons.AutoMirrored.Filled.ReceiptLong),
+    INVESTMENTS("investments", "Invest", Icons.Filled.PieChart),
     ANALYTICS("analytics", "Analytics", Icons.Filled.Insights),
-    BUDGETS("budgets", "Budgets", Icons.Filled.Savings),
     SETTINGS("settings", "Settings", Icons.Filled.Settings),
 }
 
@@ -63,22 +77,27 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
         bottomBar = {
             if (showBar) {
                 // The content blurs through the translucent bar.
+                // A floating, rounded bar that the content blurs through, as in PennyWise and other modern finance apps.
+                val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
                 NavigationBar(
                     containerColor = Color.Transparent,
-                    modifier = Modifier.hazeEffect(state = haze) {
-                        blurRadius = 24.dp
-                        tints = listOf(HazeTint(barColor.copy(alpha = 0.8f)))
-                    },
+                    tonalElevation = 0.dp,
+                    windowInsets = androidx.compose.foundation.layout.WindowInsets(0),
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
+                        .hazeEffect(state = haze) {
+                            blurRadius = 24.dp
+                            tints = listOf(HazeTint(barColor.copy(alpha = 0.85f)))
+                        },
                 ) {
                     Tab.entries.forEach { tab ->
                         NavigationBarItem(
                             selected = route == tab.route,
                             onClick = {
-                                nav.navigate(tab.route) {
-                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+                                if (route != tab.route) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                if (tab == Tab.HOME) nav.goHome() else nav.openTab(tab.route)
                             },
                             icon = { Icon(tab.icon, null) },
                             label = { Text(tab.label) },
@@ -90,33 +109,121 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
         },
     ) { padding ->
         val bottom = PaddingValues(bottom = padding.calculateBottomPadding())
-        NavHost(nav, startDestination = Tab.HOME.route, modifier = Modifier.fillMaxSize().hazeSource(haze)) {
+        NavHost(
+            nav, startDestination = Tab.HOME.route, modifier = Modifier.fillMaxSize().hazeSource(haze),
+            // Tab to tab: a quick cross-fade. Into a detail screen: it slides in a little and fades, and back reverses it.
+            enterTransition = {
+                if (isTabSwitch()) fadeIn(tween(TAB_MS))
+                else fadeIn(tween(PUSH_MS)) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(PUSH_MS)) { it / 8 }
+            },
+            exitTransition = {
+                if (isTabSwitch()) fadeOut(tween(TAB_MS))
+                else fadeOut(tween(PUSH_MS / 2)) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(PUSH_MS)) { it / 12 }
+            },
+            popEnterTransition = {
+                if (isTabSwitch()) fadeIn(tween(TAB_MS))
+                else fadeIn(tween(PUSH_MS)) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(PUSH_MS)) { it / 12 }
+            },
+            popExitTransition = {
+                if (isTabSwitch()) fadeOut(tween(TAB_MS))
+                else fadeOut(tween(PUSH_MS / 2)) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(PUSH_MS)) { it / 8 }
+            },
+        ) {
             composable(Tab.HOME.route) {
                 HomeRoute(
                     onOpenTransaction = { nav.navigate("transaction/$it") },
-                    onSeeAllTransactions = { nav.navigate(Tab.TRANSACTIONS.route) },
+                    // Switch tabs rather than push a tab onto Home's stack, or the Home tab stops responding.
+                    onSeeAllTransactions = { month -> nav.openTab("${Tab.TRANSACTIONS.route}?month=$month", restore = false) },
                     onOpenAccounts = { nav.navigate("accounts") },
                     onOpenReview = { nav.navigate("review") },
-                    onOpenBudgets = { nav.navigate(Tab.BUDGETS.route) },
+                    onOpenBudgets = { nav.navigate("budgets") },
+                    onAdd = { nav.navigate("add") },
+                    onOpenInvestments = { nav.openTab(Tab.INVESTMENTS.route) },
+                    onOpenStatements = { nav.navigate("statements") },
+                    onOpenBills = { nav.navigate("bills") },
+                    onOpenAnalytics = { nav.openTab(Tab.ANALYTICS.route) },
+                    onOpenCategory = { c, m -> nav.navigate("transactions?category=${c.name}&month=$m") },
+                    onOpenSettings = { nav.openTab(Tab.SETTINGS.route) },
                     contentPadding = bottom,
                 )
             }
             composable(
-                "transactions?accountId={accountId}&category={category}",
+                "transactions?accountId={accountId}&category={category}&month={month}",
                 arguments = listOf(
                     navArgument("accountId") { type = NavType.LongType; defaultValue = -1L },
                     navArgument("category") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("month") { type = NavType.StringType; nullable = true; defaultValue = null },
                 ),
-            ) { TransactionsRoute(onOpen = { nav.navigate("transaction/$it") }, contentPadding = bottom) }
+            ) { TransactionsRoute(onOpen = { nav.navigate("transaction/$it") }, onAdd = { nav.navigate("add") }, contentPadding = bottom) }
             composable(Tab.ANALYTICS.route) { AnalyticsRoute(contentPadding = bottom) }
-            composable(Tab.BUDGETS.route) { BudgetsRoute(contentPadding = bottom) }
-            composable(Tab.SETTINGS.route) { SettingsRoute(onOpenBench = { nav.navigate("bench") }, contentPadding = bottom) }
-            composable("transaction/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
+            composable(Tab.INVESTMENTS.route) { InvestmentsRoute(onOpenStatements = { nav.navigate("statements") }, contentPadding = bottom) }
+            composable("budgets", deepLinks = listOf(navDeepLink { uriPattern = "hisaab://budgets" })) {
+                BudgetsRoute(
+                    contentPadding = bottom, onBack = { if (!nav.popBackStack()) nav.goHome() },
+                    onOpenCategory = { c -> nav.navigate("transactions?category=${c.name}&month=${java.time.YearMonth.now()}") },
+                )
+            }
+            composable("bills", deepLinks = listOf(navDeepLink { uriPattern = "hisaab://bills" })) {
+                com.hisaab.app.ui.plan.BillsRoute(onBack = { if (!nav.popBackStack()) nav.goHome() })
+            }
+            composable(Tab.SETTINGS.route) {
+                SettingsRoute(
+                    onOpenBench = { nav.navigate("bench") }, onOpenStatements = { nav.navigate("statements") },
+                    onOpenInvestments = { nav.openTab(Tab.INVESTMENTS.route) }, contentPadding = bottom,
+                )
+            }
+            composable(
+                "transaction/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                deepLinks = listOf(navDeepLink { uriPattern = "hisaab://transaction/{id}" }),
+            ) {
                 TransactionDetailRoute(onBack = nav::popBackStack)
             }
             composable("accounts") { AccountsRoute(onBack = nav::popBackStack, onOpenAccount = { nav.navigate("transactions?accountId=$it") }) }
-            composable("review") { ReviewRoute(onBack = nav::popBackStack, onOpen = { nav.navigate("transaction/$it") }) }
+            composable("review") {
+                ReviewRoute(onBack = nav::popBackStack, onOpen = { nav.navigate("transaction/$it") }, onCompare = { a, b -> nav.navigate("compare/$a/$b") })
+            }
+            composable("compare/{a}/{b}", arguments = listOf(navArgument("a") { type = NavType.LongType }, navArgument("b") { type = NavType.LongType })) {
+                CompareRoute(onBack = nav::popBackStack)
+            }
+            composable("add") { AddTransactionRoute(onDone = nav::popBackStack) }
+            composable(
+                "statements?unlock={unlock}",
+                arguments = listOf(navArgument("unlock") { type = NavType.LongType; defaultValue = -1L }),
+                deepLinks = listOf(navDeepLink { uriPattern = "hisaab://statements?unlock={unlock}" }),
+            ) { entry ->
+                StatementsRoute(
+                    onBack = { if (!nav.popBackStack()) nav.goHome() },
+                    onOpenStatement = { nav.navigate("statement/$it") },
+                    unlockId = entry.arguments?.getLong("unlock")?.takeIf { it > 0 },
+                )
+            }
+            composable("statement/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
+                StatementDetailRoute(
+                    onBack = nav::popBackStack, onOpenTransaction = { nav.navigate("transaction/$it") },
+                    onOpenInvestments = { nav.openTab(Tab.INVESTMENTS.route) },
+                )
+            }
             composable("bench") { ParserBenchRoute(onBack = nav::popBackStack) }
         }
     }
+}
+
+private const val TAB_MS = 180
+private const val PUSH_MS = 280
+
+private fun AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.isTabSwitch(): Boolean {
+    fun base(e: androidx.navigation.NavBackStackEntry) = e.destination.route?.substringBefore('?')
+    return Tab.entries.any { it.route == base(initialState) } && Tab.entries.any { it.route == base(targetState) }
+}
+
+/** Switches to a bottom-bar tab, keeping each tab's own back stack. [restore] false opens it fresh (new arguments win). */
+private fun NavHostController.openTab(route: String, restore: Boolean = true) = navigate(route) {
+    popUpTo(graph.findStartDestination().id) { saveState = restore }
+    launchSingleTop = true
+    restoreState = restore
+}
+
+/** Home is the start destination: pop back to it, so it always responds whatever is stacked above it. */
+private fun NavHostController.goHome() {
+    if (!popBackStack(Tab.HOME.route, inclusive = false)) navigate(Tab.HOME.route) { launchSingleTop = true }
 }

@@ -9,12 +9,24 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Currency
 import java.util.Locale
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
+/**
+ * "Hide amounts": while on, every amount shows as ₹••••. It is Compose state, so flipping it redraws every
+ * screen that shows money, without each screen knowing about it.
+ */
+object AmountPrivacy {
+    var hidden by androidx.compose.runtime.mutableStateOf(false)
+}
 
 object Money {
     private val india = Locale.forLanguageTag("en-IN")
+    private const val MASK = "••••"
 
     /** ₹1,23,456.50 (Indian digit grouping). Whole rupees drop the paise. */
     fun format(minor: Long, currency: String = "INR", showPaise: Boolean = minor % 100 != 0L): String {
+        if (AmountPrivacy.hidden) return (if (currency == "INR") "₹" else "$currency ") + MASK
         val f = NumberFormat.getCurrencyInstance(india)
         runCatching { f.currency = Currency.getInstance(currency) }
         f.minimumFractionDigits = if (showPaise) 2 else 0
@@ -33,6 +45,7 @@ object Money {
 
     /** ₹1.2L, ₹45K: for chart axes and tight cards. */
     fun compact(minor: Long): String {
+        if (AmountPrivacy.hidden) return "₹$MASK"
         val rupees = minor / 100.0
         return when {
             rupees >= 1_00_00_000 -> "₹%.1fCr".format(rupees / 1_00_00_000)

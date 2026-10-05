@@ -8,7 +8,7 @@ import com.hisaab.email.imap.ImapSyncState
 import com.hisaab.email.imap.JavaMailClient
 import com.hisaab.email.imap.MailAccountStore
 import com.hisaab.email.imap.MailClient
-import com.hisaab.email.mime.PdfTextExtractor
+import com.hisaab.email.statement.StatementProcessor
 import com.hisaab.email.sync.EmailSink
 import com.hisaab.email.sync.GmailSettingsStore
 import com.hisaab.email.sync.GmailSyncEngine
@@ -57,7 +57,7 @@ object EmailModule {
     }
 
     @Provides
-    fun syncEngine(api: GmailApi, settings: GmailSettingsStore, sink: EmailSink, registry: ParserRegistry, pdf: PdfTextExtractor) =
+    fun syncEngine(api: GmailApi, settings: GmailSettingsStore, sink: EmailSink, registry: ParserRegistry, pdf: StatementProcessor) =
         GmailSyncEngine(api, settings, sink, registry, pdf)
 
     @Provides
@@ -65,16 +65,16 @@ object EmailModule {
 
     @Provides
     fun imapSyncEngine(
-        client: MailClient, settings: GmailSettingsStore, accounts: MailAccountStore, sink: EmailSink, registry: ParserRegistry, pdf: PdfTextExtractor,
+        client: MailClient, settings: GmailSettingsStore, accounts: MailAccountStore, sink: EmailSink, registry: ParserRegistry, pdf: StatementProcessor,
     ): ImapSyncEngine {
         val state = object : ImapSyncState {
-            override suspend fun login() = accounts.login()
+            override suspend fun logins() = accounts.logins()
             override suspend fun lookbackDays() = settings.read().lookbackDays
             override suspend fun senders() = settings.read().senders
             override suspend fun readPdfStatements() = settings.read().readPdfStatements
             override suspend fun enabled() = settings.read().enabled
-            override suspend fun lastSyncAt() = settings.read().imapSyncedAt
-            override suspend fun saveSync(at: Long, result: String) = settings.saveImapSync(at, result)
+            override suspend fun lastSyncAt(email: String) = settings.imapSyncedAt(email)
+            override suspend fun saveSync(email: String, at: Long, result: String) = settings.saveImapSync(email, at, result)
         }
         return ImapSyncEngine(client, state, sink, registry, pdf)
     }

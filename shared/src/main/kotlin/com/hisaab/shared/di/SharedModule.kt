@@ -6,6 +6,8 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.hisaab.parser.registry.ParserRegistry
 import com.hisaab.shared.db.AccountDao
 import com.hisaab.shared.db.BudgetDao
+import com.hisaab.shared.db.HoldingDao
+import com.hisaab.shared.db.StatementDao
 import com.hisaab.shared.db.HisaabDatabase
 import com.hisaab.shared.db.Migrations
 import com.hisaab.shared.db.ProcessedEmailDao
@@ -37,6 +39,9 @@ object SharedModule {
     @Provides fun processedEmailDao(db: HisaabDatabase): ProcessedEmailDao = db.processedEmails()
     @Provides fun accountDao(db: HisaabDatabase): AccountDao = db.accounts()
     @Provides fun budgetDao(db: HisaabDatabase): BudgetDao = db.budgets()
+    @Provides fun statementDao(db: HisaabDatabase): StatementDao = db.statements()
+    @Provides fun holdingDao(db: HisaabDatabase): HoldingDao = db.holdings()
+    @Provides fun merchantRuleDao(db: HisaabDatabase): com.hisaab.shared.db.MerchantRuleDao = db.merchantRules()
 
     @Provides
     @Singleton

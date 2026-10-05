@@ -84,7 +84,7 @@ fun ParserBenchRoute(onBack: () -> Unit, vm: ParserBenchViewModel = hiltViewMode
     }) { inner ->
         Column(Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Source.entries.forEach { s -> FilterChip(selected = source == s, onClick = { source = s }, label = { Text(s.name) }) }
+                listOf(Source.SMS, Source.EMAIL).forEach { s -> FilterChip(selected = source == s, onClick = { source = s }, label = { Text(s.name) }) }
             }
             OutlinedTextField(sender, { sender = it }, Modifier.fillMaxWidth(), label = { Text("Sender") }, singleLine = true)
             OutlinedTextField(body, { body = it }, Modifier.fillMaxWidth().heightIn(min = 140.dp).testTag("bench-body"), label = { Text("Message text") })

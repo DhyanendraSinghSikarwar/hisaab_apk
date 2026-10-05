@@ -41,6 +41,7 @@ credentials = "1.6.0"
 playServicesAuth = "22.0.0"
 googleId = "1.2.1"
 androidMail = "1.6.8"
+mlkitText = "16.0.1"
 
 junit4 = "4.13.2"
 junit5 = "5.14.4"
@@ -127,6 +128,7 @@ play-services-auth = { module = "com.google.android.gms:play-services-auth", ver
 googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleId" }
 # Email by address and app password (IMAP to read, SMTP for the verification code)
 android-mail = { module = "com.sun.mail:android-mail", version.ref = "androidMail" }
+mlkit-text-recognition = { module = "com.google.mlkit:text-recognition", version.ref = "mlkitText" }
 android-activation = { module = "com.sun.mail:android-activation", version.ref = "androidMail" }
 
 # Performance

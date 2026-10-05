@@ -1,7 +1,27 @@
 package com.hisaab.parser.model
 
-/** Where a message came from. */
-enum class Source { SMS, EMAIL }
+/** Where a message came from: a bank SMS or email, a payment app's notification, a screenshot, or typed in. */
+enum class Source { SMS, EMAIL, APP, SCREENSHOT, MANUAL, STATEMENT }
+
+/** What an investment holding is. */
+enum class HoldingKind(val label: String) {
+    EPF("EPF"), MUTUAL_FUND("Mutual fund"), STOCK("Stock"), ETF("ETF"), NPS("NPS"), PPF("PPF"), BOND("Bond"),
+    GOLD("Gold"), FD("Fixed deposit"), OTHER("Other"),
+}
+
+/**
+ * A holding's value at one moment, read from an SMS (EPFO) or a statement (CAS). [identifier] is stable
+ * across statements (an ISIN, or a masked UAN), so a newer snapshot replaces the older one.
+ */
+data class HoldingSnapshot(
+    val kind: HoldingKind,
+    val name: String,
+    val identifier: String,
+    val units: Double?,
+    val valueMinor: Long?,
+    val investedMinor: Long?,
+    val asOf: Long,
+)
 
 enum class TransactionType {
     DEBIT, CREDIT, TRANSFER, INVESTMENT;
@@ -39,6 +59,13 @@ enum class Category(val label: String) {
     EMI_LOAN("EMI & Loans"),
     INVESTMENT("Investment"),
     CASH("Cash Withdrawal"),
+    SUBSCRIPTIONS("Subscriptions"),
+    PERSONAL_CARE("Personal Care"),
+    HOUSEHOLD("Household"),
+    GIFTS("Gifts"),
+    DONATIONS("Donations"),
+    TAXES("Taxes"),
+    FEES("Bank Fees & Charges"),
     SALARY("Salary"),
     INCOME("Income"),
     REFUND("Refund"),
@@ -74,4 +101,6 @@ data class ParsedTransaction(
     val messageTimestamp: Long,
     val confidence: Float,
     val transactionHash: String,
+    /** A debit card: its balance is the linked bank account's, and it spends that account's money. */
+    val isDebitCard: Boolean = false,
 )

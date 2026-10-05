@@ -45,6 +45,7 @@ class MainActivity : FragmentActivity() {
                 if (lockEnabled == false && s.appLock) unlocked = true
                 lockEnabled = s.appLock
                 theme = s.theme
+                com.hisaab.app.ui.format.AmountPrivacy.hidden = s.hideAmounts
                 if (s.appLock && !unlocked) promptUnlock()
             }
         }
