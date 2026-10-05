@@ -53,6 +53,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -151,6 +153,8 @@ fun InvestmentsRoute(
     onOpenStatements: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
     onBack: (() -> Unit)? = null,
+    /** Opens Accounts on a tab: 0 accounts, 1 cards, 2 deposits & loans. */
+    onOpenAccounts: (Int) -> Unit = {},
     vm: InvestmentsViewModel = hiltViewModel(),
 ) {
     val all by vm.holdings.collectAsStateWithLifecycle()
@@ -163,10 +167,9 @@ fun InvestmentsRoute(
         topBar = {
             Column {
                 TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
-                    title = { Text("Investments") },
+                    title = { Text("Portfolio") },
                     navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
                     actions = {
-                        InfoButton("Investments", *Info.INVESTMENTS)
                         TextButton(onClick = onOpenStatements) { Icon(Icons.AutoMirrored.Filled.ReceiptLong, null); Spacer(Modifier.width(6.dp)); Text("Statements") }
                     },
                 )
@@ -191,6 +194,23 @@ fun InvestmentsRoute(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item { Summary(holdings) }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        Triple("Accounts", Icons.Filled.AccountBalance, 0),
+                        Triple("Cards", Icons.Filled.CreditCard, 1),
+                        Triple("Deposits & loans", Icons.Filled.Savings, 2),
+                    ).forEach { (label, icon, tab) ->
+                        Card(Modifier.weight(1f).clickable { onOpenAccounts(tab) }) {
+                            Column(Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+                                Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1,
+                                    modifier = Modifier.padding(top = 6.dp))
+                            }
+                        }
+                    }
+                }
+            }
             if (locked > 0) {
                 item {
                     Card(Modifier.fillMaxWidth().clickable(onClick = onOpenStatements),

@@ -78,6 +78,7 @@ import com.hisaab.app.ui.format.Periods
 import com.hisaab.parser.model.AccountKind
 import com.hisaab.shared.db.AccountDao
 import com.hisaab.shared.db.AccountType
+import androidx.compose.material.icons.filled.Savings
 import com.hisaab.shared.db.AccountWithActivity
 import com.hisaab.shared.db.CardNetwork
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -95,6 +96,8 @@ data class LinkSuggestion(val card: AccountWithActivity, val account: AccountWit
 data class AccountsState(
     val accounts: List<AccountWithActivity> = emptyList(),
     val cards: List<AccountWithActivity> = emptyList(),
+    /** FD, RD, PPF and loans: money that isn't spendable, kept on its own tab. */
+    val deposits: List<AccountWithActivity> = emptyList(),
     val suggestions: List<LinkSuggestion> = emptyList(),
     val byId: Map<Long, AccountWithActivity> = emptyMap(),
     /** Removed from view by the user; shown again from the bottom of the screen. */
@@ -113,9 +116,10 @@ class AccountsViewModel @Inject constructor(private val dao: AccountDao) : ViewM
 
     val state = combine(dao.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())), dismissed) { all, dismissedCards ->
         val visible = all.filter { !it.hidden }
-        val accounts = visible.filter { it.kind == AccountKind.ACCOUNT }
+        val accounts = visible.filter { it.kind == AccountKind.ACCOUNT && it.accountType?.liquid != false }
         val cards = visible.filter { it.kind == AccountKind.CARD }
-        AccountsState(accounts, cards, suggestions(cards, accounts).filter { it.card.id !in dismissedCards }, all.associateBy { it.id },
+        val deposits = visible.filter { it.kind == AccountKind.ACCOUNT && it.accountType?.liquid == false }
+        AccountsState(accounts, cards, deposits, suggestions(cards, accounts).filter { it.card.id !in dismissedCards }, all.associateBy { it.id },
             hidden = all.filter { it.hidden })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AccountsState())
 
@@ -158,28 +162,33 @@ class AccountsViewModel @Inject constructor(private val dao: AccountDao) : ViewM
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, vm: AccountsViewModel = hiltViewModel()) {
+fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, initialTab: Int = 0, vm: AccountsViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
-    var tab by rememberSaveable { mutableStateOf(0) }
+    var tab by rememberSaveable { mutableStateOf(initialTab.coerceIn(0, 2)) }
     var editing by remember { mutableStateOf<AccountWithActivity?>(null) }
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         Column {
-            TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Accounts & cards") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
-            PrimaryTabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Accounts (${s.accounts.size})") },
-                    icon = { Icon(Icons.Filled.AccountBalance, null, tint = KindColors.account) })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Cards (${s.cards.size})") },
-                    icon = { Icon(Icons.Filled.CreditCard, null, tint = KindColors.creditCard) })
+            TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Accounts") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+            PrimaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
+                listOf(
+                    Triple("Accounts", Icons.Filled.AccountBalance, s.accounts.size),
+                    Triple("Cards", Icons.Filled.CreditCard, s.cards.size),
+                    Triple("Deposits & loans", Icons.Filled.Savings, s.deposits.size),
+                ).forEachIndexed { i, (label, icon, n) ->
+                    Tab(selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
+                        text = { Text(if (n > 0) "$label · $n" else label, maxLines = 1, style = MaterialTheme.typography.labelMedium) })
+                }
             }
         }
     }) { inner ->
-        val list = if (tab == 0) s.accounts else s.cards
+        val list = when (tab) { 0 -> s.accounts; 1 -> s.cards; else -> s.deposits }
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = inner.calculateTopPadding() + 12.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (tab == 0 && s.accounts.isNotEmpty()) item { BalanceSummary(s.accounts) }
+            if (tab == 2 && s.deposits.isNotEmpty()) item { DepositSummary(s.deposits) }
             if (tab == 1) {
                 items(s.suggestions, key = { "s${it.card.id}" }) { sug ->
                     SuggestionCard(sug, onLink = { vm.link(sug.card, sug.account) }, onDismiss = { vm.dismiss(sug.card) })
@@ -188,9 +197,9 @@ fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, vm: Account
             if (list.isEmpty()) {
                 item {
                     EmptyState(
-                        if (tab == 0) Icons.Filled.AccountBalance else Icons.Filled.CreditCard,
-                        if (tab == 0) "No accounts yet" else "No cards yet",
-                        "They are created from the bank and the last digits in your messages.",
+                        when (tab) { 0 -> Icons.Filled.AccountBalance; 1 -> Icons.Filled.CreditCard; else -> Icons.Filled.Savings },
+                        when (tab) { 0 -> "No accounts yet"; 1 -> "No cards yet"; else -> "No deposits or loans" },
+                        if (tab == 2) "Set an account's type to FD, RD, PPF or Loan." else "Added automatically from your bank messages.",
                     )
                 }
             }
@@ -198,7 +207,13 @@ fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, vm: Account
                 AccountCard(a, linked = a.linkedAccountId?.let(s.byId::get), onClick = { onOpenAccount(a.id) }, onEdit = { editing = a },
                     modifier = Modifier.animateItem())
             }
-            val hiddenHere = s.hidden.filter { (it.kind == AccountKind.ACCOUNT) == (tab == 0) }
+            val hiddenHere = s.hidden.filter {
+                when (tab) {
+                    0 -> it.kind == AccountKind.ACCOUNT && it.accountType?.liquid != false
+                    1 -> it.kind == AccountKind.CARD
+                    else -> it.kind == AccountKind.ACCOUNT && it.accountType?.liquid == false
+                }
+            }
             if (hiddenHere.isNotEmpty()) {
                 item(key = "hidden-header") {
                     Text("Hidden (${hiddenHere.size})", style = MaterialTheme.typography.titleSmall,
@@ -217,8 +232,26 @@ fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, vm: Account
         }
     }
     editing?.let { a ->
-        EditSheet(a, accounts = s.accounts, onDismiss = { editing = null }, onSave = { e -> vm.save(a, e); editing = null },
+        EditSheet(a, accounts = s.accounts + s.deposits, onDismiss = { editing = null }, onSave = { e -> vm.save(a, e); editing = null },
             onHide = { vm.setHidden(a, true); editing = null })
+    }
+}
+
+@Composable
+private fun DepositSummary(deposits: List<AccountWithActivity>) {
+    val saved = deposits.filter { it.accountType != AccountType.LOAN }.sumOf { it.currentBalanceMinor ?: 0 }
+    val owed = deposits.filter { it.accountType == AccountType.LOAN }.sumOf { it.currentBalanceMinor ?: 0 }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Row(Modifier.fillMaxWidth().padding(16.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Deposits", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(Money.format(saved, showPaise = false), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            if (owed > 0) Column(Modifier.weight(1f)) {
+                Text("Loans", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(Money.format(owed, showPaise = false), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
     }
 }
 
@@ -365,7 +398,8 @@ private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity
             Label(if (isCard) "Card type" else "Account type")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AccountType.forKind(a.kind).forEach { t ->
-                    FilterChip(selected = type == t, onClick = { type = if (type == t) null else t }, label = { Text(t.label) })
+                    FilterChip(selected = type == t, onClick = { type = if (type == t) null else t }, label = { Text(t.label) },
+                        leadingIcon = com.hisaab.app.ui.components.typeShort(t)?.let { code -> { com.hisaab.app.ui.components.TypeCode(code, 22.dp) } })
                 }
             }
             if (!isCard && type?.liquid == false) {

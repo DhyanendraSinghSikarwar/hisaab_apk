@@ -65,12 +65,21 @@ object GmailScheduler {
 
     private val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
+    /**
+     * Once a night (around 2:30 am) on a network, when the battery isn't low. The refresh button on Home syncs
+     * on demand, so nothing needs to wake the phone during the day.
+     */
     fun schedulePeriodic(context: Context) {
-        val request = PeriodicWorkRequestBuilder<GmailSyncWorker>(1, TimeUnit.HOURS)
-            .setConstraints(constraints)
+        val now = java.time.ZonedDateTime.now()
+        var night = now.with(java.time.LocalTime.of(2, 30))
+        if (!night.isAfter(now)) night = night.plusDays(1)
+        val request = PeriodicWorkRequestBuilder<GmailSyncWorker>(1, TimeUnit.DAYS)
+            .setInitialDelay(java.time.Duration.between(now, night).toMinutes(), TimeUnit.MINUTES)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).setRequiresBatteryNotLow(true).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, request)
+        // UPDATE replaces the hourly job older versions scheduled.
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
     fun syncNow(context: Context) {

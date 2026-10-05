@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Science
@@ -26,6 +27,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -76,6 +79,7 @@ fun SettingsRoute(
     onOpenInvestments: () -> Unit,
     contentPadding: PaddingValues,
     onOpenProfile: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -108,50 +112,40 @@ fun SettingsRoute(
         }
     }
 
-    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = { TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Settings") }) }, snackbarHost = { SnackbarHost(snackbar) }) { inner ->
+    Scaffold(
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        topBar = {
+            TopAppBar(
+                colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Settings") },
+                navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbar) },
+    ) { inner ->
         val app = s.app
         val g = s.gmail
         Column(Modifier.padding(top = inner.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding()).verticalScroll(rememberScrollState())) {
             val lookback = g?.lookbackDays ?: GmailSettings.DEFAULT_LOOKBACK
-            Section("Fetch history", Info.FETCH_HISTORY)
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("How far back to read SMS and email", style = MaterialTheme.typography.bodyLarge)
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                    GmailSettings.LOOKBACK_CHOICES.forEachIndexed { i, days ->
-                        SegmentedButton(selected = lookback == days, onClick = { vm.setLookback(days) },
-                            shape = SegmentedButtonDefaults.itemShape(i, GmailSettings.LOOKBACK_CHOICES.size)) { Text("${days}d") }
-                    }
+            Section("History to read")
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                GmailSettings.LOOKBACK_CHOICES.forEachIndexed { i, days ->
+                    SegmentedButton(selected = lookback == days, onClick = { vm.setLookback(days) },
+                        shape = SegmentedButtonDefaults.itemShape(i, GmailSettings.LOOKBACK_CHOICES.size)) { Text("${days}d") }
                 }
-                Text("Changing it rescans the SMS inbox and re-syncs email for the new period. Transactions already found stay.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
             }
 
-            Section("SMS", Info.SMS)
+            Section("SMS")
             if (!sms.granted) {
                 ListItem(
                     headlineContent = { Text("SMS access is off", color = MaterialTheme.colorScheme.error) },
-                    supportingContent = {
-                        Text(if (sms.blocked) "Allow SMS in App settings. If it is greyed out, use the menu in App info: Allow restricted settings."
-                        else "Needed to read bank alerts from your inbox.")
-                    },
+                    supportingContent = { if (sms.blocked) Text("Allow it in App info → ⋮ → Allow restricted settings.") },
                     trailingContent = { Button(onClick = sms::request) { Text(if (sms.blocked) "Settings" else "Allow") } },
                 )
             }
-            SwitchRow("Read bank SMS", "Real-time for new messages, plus inbox scans", app?.smsEnabled ?: true, vm::setSmsEnabled)
-            ListItem(
-                headlineContent = { Text(if (s.smsScanning) "Scanning inbox…" else "Rescan last $lookback days") },
-                supportingContent = { Text(app?.lastSmsResult ?: "Not scanned yet") },
-                trailingContent = { OutlinedButton(onClick = vm::rescanSms, enabled = !s.smsScanning && sms.granted) { Text("Rescan") } },
-            )
+            SwitchRow("Read bank SMS", "New messages, as they arrive", app?.smsEnabled ?: true, vm::setSmsEnabled)
 
             Section("Notifications")
-            SwitchRow(
-                "New transaction alerts",
-                "Each new transaction with its category. Expand the notification to pick a different one without opening the app; Hisaab remembers it for that merchant.",
-                app?.transactionNotifications ?: true, vm::setTransactionNotifications,
-            )
-
-            Section("UPI & payment apps", Info.PAYMENT_APPS)
+            SwitchRow("Transaction alerts", "With quick category buttons", app?.transactionNotifications ?: true, vm::setTransactionNotifications)
             var notifAccess by remember { mutableStateOf(PaymentNotificationListener.hasAccess(context)) }
             LifecycleResumeEffect(Unit) { notifAccess = PaymentNotificationListener.hasAccess(context); onPauseOrDispose { } }
             val openNotifAccess = {
@@ -159,41 +153,32 @@ fun SettingsRoute(
                 context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
             SwitchRow(
-                "Read payment app notifications",
-                "For UPI payments your bank doesn't send an SMS for. Only GPay, PhonePe, Paytm, BHIM, CRED, Amazon Pay and bank apps " +
-                    "are read, and only completed payments are kept. A later SMS or email for the same payment is merged, not counted twice.",
+                "UPI app payments", "From GPay, PhonePe, Paytm and others with no bank SMS",
                 app?.appNotificationsEnabled ?: false,
                 { on -> vm.setAppNotifications(on); if (on && !notifAccess) openNotifAccess() },
             )
             if (app?.appNotificationsEnabled == true && !notifAccess) {
                 ListItem(
                     headlineContent = { Text("Notification access needed", color = MaterialTheme.colorScheme.error) },
-                    supportingContent = {
-                        Text("Turn on Hisaab under Notification access. If it is greyed out, open App info for Hisaab, tap ⋮ and choose Allow restricted settings first.")
-                    },
                     trailingContent = { Button(onClick = openNotifAccess) { Text("Allow") } },
                 )
             }
 
-            Section("Email", Info.EMAIL)
+            Section("Email")
             if (g == null || !g.connected) {
                 ListItem(
                     headlineContent = { Text("Connect email") },
-                    supportingContent = { Text("Enter your email, sign in, and confirm the code we mail you. Bank alerts are then read on this phone only.") },
+                    supportingContent = { Text("Bank alerts and statements") },
+                    leadingContent = { Icon(androidx.compose.material.icons.Icons.Filled.Email, null) },
                     trailingContent = { Button(onClick = { connectingEmail = true }) { Text("Connect") } },
                 )
             } else {
                 val imap = g.connection == MailConnection.IMAP
                 if (g.needsReauth) {
                     ListItem(headlineContent = { Text("Sign in again", color = MaterialTheme.colorScheme.error) },
-                        supportingContent = { Text(if (imap) "Your email provider refused the saved app password." else "Google needs you to approve Gmail access again.") },
                         trailingContent = { Button(onClick = { if (imap) connectingEmail = true else connectGoogle() }) { Text("Sign in") } })
                 }
-                SwitchRow(
-                    "Sync email",
-                    if (imap) "${emails.size} address${if (emails.size == 1) "" else "es"} · email sign-in" else (g.accountEmail ?: "Connected") + " · Google sign-in",
-                    g.enabled, vm::setGmailEnabled,
-                )
+                SwitchRow("Read email", g.lastSyncAt?.let { "Last synced ${Periods.dateTime(it)}" } ?: "Not synced yet", g.enabled, vm::setGmailEnabled)
                 if (imap) {
                     emails.forEach { address ->
                         ListItem(
@@ -204,106 +189,62 @@ fun SettingsRoute(
                     }
                     ListItem(
                         headlineContent = { Text("Add another email") },
-                        supportingContent = { Text("Statements and alerts from every connected inbox are read together.") },
                         leadingContent = { Icon(androidx.compose.material.icons.Icons.Filled.Add, null) },
                         modifier = Modifier.clickable { connectingEmail = true },
                     )
+                } else {
+                    ListItem(headlineContent = { Text(g.accountEmail ?: "Google account") }, leadingContent = { Icon(androidx.compose.material.icons.Icons.Filled.Email, null) })
                 }
                 ListItem(
-                    headlineContent = { Text(if (s.gmailSyncing) "Syncing…" else "Sync now") },
-                    supportingContent = { Text((g.lastResult ?: "Not synced yet") + (g.lastSyncAt?.let { "\nLast: " + Periods.dateTime(it) } ?: "") + "\n${s.processedEmails} emails processed") },
-                    trailingContent = { OutlinedButton(onClick = vm::syncGmailNow, enabled = g.enabled && !s.gmailSyncing) { Text("Sync") } },
-                )
-                ListItem(
                     headlineContent = { Text("Bank senders") },
-                    supportingContent = { Text("${g.senders.size} addresses and domains in the email filter") },
+                    supportingContent = { Text("${g.senders.size} in the filter") },
                     modifier = Modifier.clickable { editingSenders = true },
                     trailingContent = { TextButton(onClick = { editingSenders = true }) { Text("Edit") } },
                 )
-                SwitchRow(
-                    "Read statement PDFs",
-                    "Card, bank, CAS and broker statements attached to these emails. Password-protected ones use your saved passwords, " +
-                        "or ask you once.",
-                    g.readPdfStatements, vm::setReadPdf,
-                )
                 ListItem(
-                    headlineContent = { Text("Re-read email for statements") },
-                    supportingContent = { Text("Goes through the last ${g.lookbackDays} days of email again, including archived mail, and reads any statements in it. Nothing is added twice.") },
-                    trailingContent = { OutlinedButton(onClick = vm::rereadEmail, enabled = g.enabled && !s.gmailSyncing) { Text("Re-read") } },
-                )
-                ListItem(
-                    headlineContent = { Text(if (imap) "Disconnect email" else "Sign out and wipe tokens") },
-                    supportingContent = {
-                        Text(if (imap) "Deletes the saved app password and its key. Transactions stay."
-                        else "Revokes access and deletes the encrypted token and its key. Transactions stay.")
-                    },
-                    trailingContent = { OutlinedButton(onClick = { confirmSignOut = true }) { Text("Sign out") } },
+                    headlineContent = { Text(if (imap) "Disconnect email" else "Sign out") },
+                    trailingContent = { OutlinedButton(onClick = { confirmSignOut = true }) { Text("Disconnect") } },
                 )
             }
 
-            Section("Statements & investments", Info.STATEMENTS)
-            ListItem(
-                headlineContent = { Text("Statements & passwords") },
-                supportingContent = { Text("Card, bank and CAS statement PDFs from email or your phone. Save PDF passwords here.") },
-                leadingContent = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, null) }, modifier = Modifier.clickable(onClick = onOpenStatements),
-            )
-            ListItem(
-                headlineContent = { Text("Investments") },
-                supportingContent = { Text("EPF from EPFO SMS, mutual funds and shares from statements, and anything you add.") },
-                leadingContent = { Icon(Icons.Filled.PieChart, null) }, modifier = Modifier.clickable(onClick = onOpenInvestments),
-            )
-
-            Section("Security", Info.APP_LOCK)
+            Section("Security")
             val canLock = remember {
                 BiometricManager.from(context).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS
             }
-            SwitchRow("App lock", if (canLock) "Fingerprint, face, or screen lock when opening Hisaab" else "Set a screen lock on this phone first",
+            SwitchRow("App lock", if (canLock) "Fingerprint, face or screen lock" else "Set a screen lock on this phone first",
                 app?.appLock ?: false, vm::setAppLock, enabled = canLock)
 
-            Section("Privacy screen")
-            SwitchRow("Hide amounts", "Shows ₹•••• instead of figures everywhere. Also on the eye button on Home.",
-                app?.hideAmounts ?: false, vm::setHideAmounts)
-
             Section("Appearance")
-            ListItem(
-                headlineContent = { Text("Profile") },
-                supportingContent = { Text(app?.displayName?.let { "$it · name, photo and contact" } ?: "Add your name and photo") },
-                leadingContent = { com.hisaab.app.ui.profile.ProfileAvatar(app?.displayName ?: "You", app?.profile?.photoPath, 40.dp) },
-                modifier = Modifier.clickable(onClick = onOpenProfile),
-            )
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    ThemeMode.entries.forEachIndexed { i, mode ->
-                        SegmentedButton(selected = (app?.theme ?: ThemeMode.SYSTEM) == mode, onClick = { vm.setTheme(mode) },
-                            shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size)) { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }
-                    }
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                ThemeMode.entries.forEachIndexed { i, mode ->
+                    SegmentedButton(selected = (app?.theme ?: ThemeMode.SYSTEM) == mode, onClick = { vm.setTheme(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size)) { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }
                 }
             }
 
             Section("Data")
-            ListItem(headlineContent = { Text("Export CSV") }, supportingContent = { Text("All transactions, readable by any spreadsheet") },
+            ListItem(headlineContent = { Text("Export CSV") },
                 trailingContent = { OutlinedButton(onClick = { AppLockGate.skipNextLock(); exportLauncher.launch("hisaab-${LocalDate.now()}.csv") }) { Text("Export") } })
-            ListItem(headlineContent = { Text("Import CSV") }, supportingContent = { Text("A Hisaab export; rows already present are skipped") },
+            ListItem(headlineContent = { Text("Import CSV") },
                 trailingContent = { OutlinedButton(onClick = { AppLockGate.skipNextLock(); importLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) }) { Text("Import") } })
 
             Section("About & updates")
             UpdateRow(update, onCheck = vm::checkForUpdate, onInstall = vm::installUpdate)
-            SwitchRow("Check for updates", "Once a day, asks GitHub whether a newer Hisaab exists. Nothing about you is sent.",
-                app?.checkUpdates ?: true, vm::setCheckUpdates)
-
-            Section("Tools")
-            ListItem(headlineContent = { Text("Test the parser") }, supportingContent = { Text("Paste any bank SMS or email and see what is extracted") },
-                leadingContent = { Icon(Icons.Filled.Science, null) }, modifier = Modifier.clickable(onClick = onOpenBench))
 
             Section("Privacy")
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Icon(androidx.compose.material.icons.Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    "Your data never leaves this phone. No account, no servers, no tracking.",
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp),
+                )
+            }
+
             Text(
-                "Everything stays on this phone: no account, no server, no analytics, no cloud backup. Transactions, messages, " +
-                    "statements, passwords and investments are stored only in this app's private storage; passwords are encrypted with " +
-                    "a key that never leaves the phone. The internet is used only to talk to your own email provider after you connect " +
-                    "it: to download bank emails and statements, and once to mail yourself a verification code. Once a day it also asks GitHub " +
-                    "whether a newer Hisaab exists (switch off under About & updates). Nothing about you or your money is ever uploaded. " +
-                    "Screenshots and PDFs are read on the phone, and the text reader's usage reporting to Google is switched off.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp),
+                "Hisaab v${com.hisaab.app.BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 32.dp),
             )
         }
     }
@@ -329,7 +270,7 @@ private fun UpdateRow(state: com.hisaab.app.update.UpdateState, onCheck: () -> U
     when (state) {
         is com.hisaab.app.update.UpdateState.Available -> ListItem(
             headlineContent = { Text("Hisaab ${state.release.version} is available") },
-            supportingContent = { Text("You have $version. " + state.release.notes.lineSequence().take(4).joinToString("\n")) },
+            supportingContent = { Text("You have $version") },
             trailingContent = { Button(onClick = { onInstall(state.release) }) { Text("Install") } },
         )
         is com.hisaab.app.update.UpdateState.Downloading -> ListItem(
@@ -337,14 +278,14 @@ private fun UpdateRow(state: com.hisaab.app.update.UpdateState, onCheck: () -> U
             supportingContent = { androidx.compose.material3.LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) },
         )
         else -> ListItem(
-            headlineContent = { Text("Hisaab $version") },
+            headlineContent = { Text("Check for updates") },
             supportingContent = {
                 Text(
                     when (state) {
                         com.hisaab.app.update.UpdateState.Checking -> "Checking…"
                         com.hisaab.app.update.UpdateState.UpToDate -> "You have the latest version."
                         is com.hisaab.app.update.UpdateState.Failed -> state.message
-                        else -> "Updates come from the project's GitHub releases."
+                        else -> "Checked daily"
                     },
                 )
             },
@@ -355,11 +296,9 @@ private fun UpdateRow(state: com.hisaab.app.update.UpdateState, onCheck: () -> U
 
 @Composable
 private fun Section(title: String, info: Array<String>? = null) {
-    HorizontalDivider(Modifier.padding(top = 8.dp))
-    Row(Modifier.padding(start = 16.dp, top = 10.dp, end = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+    Row(Modifier.padding(start = 16.dp, top = 16.dp, end = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(vertical = if (info == null) 6.dp else 0.dp))
-        if (info != null) InfoButton(title, *info)
+            modifier = Modifier.padding(vertical = 6.dp))
     }
 }
 

@@ -32,8 +32,8 @@ fun Modifier.appBackdrop(): Modifier {
         val w = size.width
         val h = size.height
         val wash = Brush.verticalGradient(listOf(top, bottom))
-        val g1 = Brush.radialGradient(listOf(BackdropColors.emerald.copy(alpha = 0.30f * glow), Color.Transparent), Offset(w * 0.0f, h * 0.02f), w * 0.95f)
-        val g2 = Brush.radialGradient(listOf(BackdropColors.sapphire.copy(alpha = 0.24f * glow), Color.Transparent), Offset(w * 1.0f, h * 0.22f), w * 0.9f)
+        val g1 = Brush.radialGradient(listOf(BackdropColors.emerald.copy(alpha = 0.30f * glow), Color.Transparent), Offset(w * 0.0f, h * 0.16f), w * 0.95f)
+        val g2 = Brush.radialGradient(listOf(BackdropColors.sapphire.copy(alpha = 0.24f * glow), Color.Transparent), Offset(w * 1.0f, h * 0.32f), w * 0.9f)
         val g3 = Brush.radialGradient(listOf(BackdropColors.gold.copy(alpha = 0.10f * glow), Color.Transparent), Offset(w * 0.15f, h * 0.95f), w * 0.8f)
         onDrawBehind {
             drawRect(wash)
@@ -44,7 +44,13 @@ fun Modifier.appBackdrop(): Modifier {
     }
 }
 
-/** Top bars sit on the backdrop instead of covering it with a flat band. */
+/**
+ * Top bars in the backdrop's own top colour, solid, so content scrolling up never shows through them. The glows
+ * start below the bar, so it still blends in.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun clearTopBar(): TopAppBarColors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent)
+fun clearTopBar(): TopAppBarColors {
+    val bar = androidx.compose.material3.MaterialTheme.colorScheme.background
+    return TopAppBarDefaults.topAppBarColors(containerColor = bar, scrolledContainerColor = bar)
+}

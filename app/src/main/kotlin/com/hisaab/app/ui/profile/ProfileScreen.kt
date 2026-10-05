@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.Button
@@ -147,7 +148,7 @@ fun ProfileAvatar(name: String, photoPath: String?, size: Dp, modifier: Modifier
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileRoute(onBack: () -> Unit, vm: ProfileViewModel = hiltViewModel()) {
+fun ProfileRoute(onBack: () -> Unit, onOpenSettings: () -> Unit = {}, vm: ProfileViewModel = hiltViewModel()) {
     val profile by vm.profile.collectAsStateWithLifecycle()
     val count by vm.count.collectAsStateWithLifecycle()
     val p = profile ?: return
@@ -163,6 +164,7 @@ fun ProfileRoute(onBack: () -> Unit, vm: ProfileViewModel = hiltViewModel()) {
         TopAppBar(
             colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Profile") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            actions = { IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, "Settings") } },
         )
     }) { inner ->
         Column(

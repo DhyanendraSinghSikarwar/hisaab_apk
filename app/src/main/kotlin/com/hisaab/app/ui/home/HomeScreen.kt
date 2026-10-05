@@ -44,6 +44,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -66,6 +69,8 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.draw.rotate
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.setValue
@@ -117,8 +122,8 @@ fun HomeRoute(
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     val profile by vm.profile.collectAsStateWithLifecycle()
     val customSpend by vm.customSpend.collectAsStateWithLifecycle()
+    val savingsTrend by vm.savingsTrend.collectAsStateWithLifecycle()
     var setupDismissed by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    if (profile?.second == true && !setupDismissed) com.hisaab.app.ui.profile.ProfileSetupSheet(onDone = { setupDismissed = true })
     var addingRecurring by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     if (addingRecurring) com.hisaab.app.ui.plan.RecurringSheet(existing = null, onDismiss = { addingRecurring = false })
     val sms = rememberSmsPermission(onGranted = { vm.scanInbox(full = true) })
@@ -142,6 +147,7 @@ fun HomeRoute(
         activity = activity, syncing = syncing, onSync = vm::syncAll, onAddRecurring = { addingRecurring = true },
         photoPath = profile?.first?.photoPath, onOpenProfile = onOpenProfile,
         customSpend = customSpend, onOpenCategoryKey = { onOpenCategoryKey("$it?month=${state.month}") },
+        savingsTrend = savingsTrend,
     )
 }
 
@@ -180,7 +186,18 @@ fun HomeScreen(
     customSpend: List<Pair<com.hisaab.shared.db.CustomCategoryEntity, Long>> = emptyList(),
     onOpenCategoryKey: (String) -> Unit = {},
     onAddRecurring: () -> Unit = {},
+    savingsTrend: List<com.hisaab.shared.db.MonthTotal> = emptyList(),
 ) {
+    var showNotices by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val notices = buildList {
+        if (state.reviewCount > 0) add(HomeNotice("${state.reviewCount} possible duplicate${if (state.reviewCount > 1) "s" else ""}", "Review and merge",
+            Icons.Filled.ContentCopy, onOpenReview))
+        state.lockedStatements.forEach { st ->
+            add(HomeNotice("Statement needs a password", st.bankName ?: st.sender.substringBefore('<').trim(), Icons.Filled.Lock, onOpenStatements))
+        }
+        updateVersion?.let { add(HomeNotice("Hisaab $it is available", "Install the update", Icons.Filled.SystemUpdate, onOpenSettings)) }
+    }
+    if (showNotices) NotificationsSheet(notices, onDismiss = { showNotices = false })
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     // Once the big header has scrolled away, a compact one floats at the top.
     val collapsed by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex > 0 } }
@@ -194,7 +211,7 @@ fun HomeScreen(
             contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + 96.dp),
         ) {
             item(key = "header") {
-                HomeHeader(name, onOpenAccounts, onToggleHide, onOpenSettings, onOpenBills, photoPath = photoPath, onOpenProfile = onOpenProfile,
+                HomeHeader(name, onOpenAccounts, onOpenProfile, notices.size, { showNotices = true }, photoPath = photoPath,
                     hasName = state.displayName != null,
                     modifier = Modifier.statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 20.dp, bottom = 16.dp))
             }
@@ -202,21 +219,6 @@ fun HomeScreen(
 
             if (!hasSmsPermission && !state.smsPromptDismissed) item { PermissionCard(smsBlocked, onGrantSms, onDismissSms) }
             if (state.scan.running) item { ScanCard(state.scan) }
-            if (state.reviewCount > 0) item { ReviewBanner(state.reviewCount, onOpenReview) }
-            if (state.lockedStatements.isNotEmpty()) item { LockedStatementsBanner(state.lockedStatements, onOpenStatements) }
-            updateVersion?.let { v ->
-                item {
-                    Card(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable(onClick = onOpenSettings),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    ) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Hisaab $v is available", Modifier.weight(1f), fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                            Text("Update", color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-            }
 
             // Budgets
             item(key = "budgets-h") { HomeSection("Budgets", "View All", onOpenBudgets) }
@@ -229,20 +231,17 @@ fun HomeScreen(
                 }
             }
 
-            // Recent transactions
-            item(key = "recent-h") {
-                HomeSection(if (state.isCurrentMonth) "Recent Transactions" else "Latest in ${Periods.monthShort(state.month)}", "View All", onSeeAllTransactions) {
-                    IconButton(onClick = onSeeAllTransactions) { Icon(Icons.Filled.Search, "Search transactions", tint = MaterialTheme.colorScheme.primary) }
-                }
+            // Savings, and the accounts as cards
+            item(key = "savings-h") { HomeSection("Savings & accounts", "Manage", onOpenAccounts) }
+            item(key = "savings") {
+                val deposits = state.accounts.filter { it.accountType?.liquid == false && it.accountType != com.hisaab.shared.db.AccountType.LOAN }
+                    .sumOf { it.currentBalanceMinor ?: 0 }
+                SavingsOverview(savingsTrend, state.balance, deposits)
             }
-            if (state.recent.isEmpty() && state.loaded) {
-                item {
-                    EmptyState(Icons.Filled.Inbox, if (state.isCurrentMonth) "No transactions this month" else "No transactions in ${Periods.month(state.month)}",
-                        if (hasSmsPermission) "Bank SMS appear here as soon as they're read. Connect email in Settings for email alerts and statements."
-                        else "Allow SMS access to read bank alerts from your inbox.")
-                }
+            val cardAccounts = state.accounts.filter { it.kind == com.hisaab.parser.model.AccountKind.ACCOUNT && it.accountType != com.hisaab.shared.db.AccountType.LOAN }
+            if (cardAccounts.isNotEmpty()) {
+                item(key = "account-cards") { Spacer(Modifier.height(12.dp)); AccountCardsRow(cardAccounts, onOpenAccounts) }
             }
-            items(state.recent, key = { it.id }) { tx -> TransactionRow(tx, onClick = { onOpenTransaction(tx.id) }, modifier = Modifier.animateItem()) }
 
             // Upcoming subscriptions and payments
             val regular = plan.recurring.filter { !it.income }
@@ -273,10 +272,6 @@ fun HomeScreen(
             item(key = "activity-h") { HomeSection("Activity") }
             item(key = "activity") { ActivityHeatmap(activity) }
 
-            plan.savings?.let { s -> if (s.lastMonth != null || s.averageMonthlyMinor != 0L) item(key = "savings") { SavingsCard(s) } }
-            state.lastScanResult?.let {
-                item { Text("Last SMS scan: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp)) }
-            }
         }
 
         androidx.compose.animation.AnimatedVisibility(
@@ -284,8 +279,14 @@ fun HomeScreen(
             enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it },
             exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it },
         ) {
-            CollapsedHeader { HomeHeader(name, onOpenAccounts, onToggleHide, onOpenSettings, onOpenBills, compact = true, photoPath = photoPath, onOpenProfile = onOpenProfile) }
+            CollapsedHeader { HomeHeader(name, onOpenAccounts, onOpenProfile, notices.size, { showNotices = true }, compact = true, photoPath = photoPath) }
         }
+        // Nothing scrolls visibly behind the status bar.
+        Box(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                .windowInsetsTopHeight(WindowInsets.statusBars)
+                .background(MaterialTheme.colorScheme.background),
+        )
 
         HomeFabs(
             onAdd = onAdd, onAddRecurring = onAddRecurring, syncing = syncing, onSync = onSync,

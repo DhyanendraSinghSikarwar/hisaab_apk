@@ -14,6 +14,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.hisaab.app.security.AppLockGate
+import androidx.compose.foundation.layout.fillMaxSize
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.settings.ThemeMode
 import com.hisaab.app.ui.lock.LockScreen
@@ -52,7 +53,13 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             HisaabTheme(theme) {
-                if (lockEnabled == true && !unlocked) LockScreen(onUnlock = ::promptUnlock) else if (lockEnabled != null) HisaabNavHost()
+                // The app stays composed under the lock, so unlocking returns to the same screen.
+                if (lockEnabled != null) {
+                    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+                        HisaabNavHost()
+                        if (lockEnabled == true && !unlocked) LockScreen(onUnlock = ::promptUnlock)
+                    }
+                }
             }
         }
     }

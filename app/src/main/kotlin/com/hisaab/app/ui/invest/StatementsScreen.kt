@@ -165,20 +165,12 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
             TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
                 title = { Text("Statements") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                actions = { InfoButton("Statements", *Info.STATEMENTS) },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { inner ->
         LazyColumn(contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, start = 16.dp, end = 16.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item {
-                Text(
-                    "Credit card, bank and investment statements (CAS from CAMS, KFintech, NSDL or CDSL, and broker statements). " +
-                        "PDFs attached to bank emails are read automatically when email is connected. Everything is read on this phone.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
             item {
                 Button(onClick = { AppLockGate.skipNextLock(); picker.launch(arrayOf("application/pdf")) }, Modifier.fillMaxWidth(), enabled = !busy) {
                     Icon(Icons.Filled.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("Import a statement PDF")
@@ -189,16 +181,11 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
             item {
                 Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Saved passwords", style = MaterialTheme.typography.titleMedium)
-                    InfoButton("Statement passwords", *Info.STATEMENT_PASSWORDS)
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { addingPassword = true }) { Text("Add") }
                 }
-                Text(
-                    "Tried automatically on every new statement. Kept encrypted on this phone. Common formats: card statements often use the " +
-                        "first 4 letters of your name + DDMM of birth (e.g. RAHU0105); CAS uses your PAN in capitals; bank statements often use " +
-                        "customer ID or date of birth.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("Tried on every new statement. Encrypted on this phone.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (saved.isEmpty()) item { Text("None yet.", style = MaterialTheme.typography.bodyMedium) }
             if (saved.isNotEmpty() && statements.any { it.status == StatementEntity.LOCKED }) {

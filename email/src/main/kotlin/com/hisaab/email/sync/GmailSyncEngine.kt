@@ -129,7 +129,7 @@ class GmailSyncEngine(
                     processed += ProcessedEmailEntity(m.id, now, OUTCOME_SKIPPED, null)
                     continue
                 }
-                val found = parseEmail(m.id, content, s.readPdfStatements)
+                val found = parseEmail(m.id, content, true)
                 incoming += found
                 processed += ProcessedEmailEntity(m.id, now, if (found.isEmpty()) OUTCOME_REJECTED else OUTCOME_PARSED, null)
             }

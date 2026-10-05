@@ -60,6 +60,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
@@ -132,16 +134,14 @@ fun Avatar(name: String, size: androidx.compose.ui.unit.Dp = 48.dp) {
     }
 }
 
-/** Avatar, name and greeting, with Accounts and a ••• menu. */
+/** Avatar, greeting and name (tap for the profile), then Accounts and the notification bell. */
 @Composable
 fun HomeHeader(
-    name: String, onOpenAccounts: () -> Unit, onToggleHide: () -> Unit, onOpenSettings: () -> Unit, onOpenBills: () -> Unit,
-    modifier: Modifier = Modifier, compact: Boolean = false,
-    photoPath: String? = null, onOpenProfile: () -> Unit = {}, hasName: Boolean = true,
+    name: String, onOpenAccounts: () -> Unit, onOpenProfile: () -> Unit,
+    notifications: Int, onOpenNotifications: () -> Unit,
+    modifier: Modifier = Modifier, compact: Boolean = false, photoPath: String? = null, hasName: Boolean = true,
 ) {
-    var menu by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        // Avatar and name open the profile.
         Row(
             Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).clickable(onClick = onOpenProfile).padding(end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -151,25 +151,114 @@ fun HomeHeader(
             Column(Modifier.weight(1f)) {
                 if (!compact) Text(greeting(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(name, style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall, maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                if (!compact && !hasName) {
-                    Text("Tap to create your profile", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                }
+                    overflow = TextOverflow.Ellipsis)
+                if (!compact && !hasName) Text("Tap to set up your profile", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
         }
         IconButton(onClick = onOpenAccounts) { Icon(Icons.Filled.AccountBalance, "Accounts") }
-        Box {
-            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreHoriz, "More") }
-            DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem(text = { Text(if (AmountPrivacy.hidden) "Show amounts" else "Hide amounts") },
-                    leadingIcon = { Icon(if (AmountPrivacy.hidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, null) },
-                    onClick = { menu = false; onToggleHide() })
-                DropdownMenuItem(text = { Text("Bills & insurance") }, leadingIcon = { Icon(Icons.Filled.EventRepeat, null) },
-                    onClick = { menu = false; onOpenBills() })
-                DropdownMenuItem(text = { Text("Profile") }, leadingIcon = { Icon(Icons.Filled.Person, null) },
-                    onClick = { menu = false; onOpenProfile() })
-                DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { Icon(Icons.Filled.MoreHoriz, null) },
-                    onClick = { menu = false; onOpenSettings() })
+        IconButton(onClick = onOpenNotifications) {
+            androidx.compose.material3.BadgedBox(badge = { if (notifications > 0) androidx.compose.material3.Badge { Text("$notifications") } }) {
+                Icon(Icons.Filled.Notifications, "Notifications")
+            }
+        }
+    }
+}
+
+/** One thing that needs the user: a review, a locked statement, an update. */
+data class HomeNotice(val title: String, val detail: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val onOpen: () -> Unit)
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun NotificationsSheet(notices: List<HomeNotice>, onDismiss: () -> Unit) {
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
+            Text("Notifications", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
+            if (notices.isEmpty()) {
+                Text("You're all caught up.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 24.dp))
+            }
+            notices.forEach { n ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onDismiss(); n.onOpen() }.padding(vertical = 12.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(n.icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text(n.title, style = MaterialTheme.typography.bodyLarge)
+                        Text(n.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Savings at a glance: the running total saved (income minus spending) month by month as a line, with what is
+ * in the accounts right now beside it.
+ */
+@Composable
+fun SavingsOverview(months: List<com.hisaab.shared.db.MonthTotal>, balance: Long?, deposits: Long) {
+    val running = remember(months) { months.map { it.income - it.spent }.runningReduce { a, b -> a + b } }
+    val c = MaterialTheme.colorScheme
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp), shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = c.surfaceContainerHigh)) {
+        Column(Modifier.padding(18.dp)) {
+            Row {
+                Column(Modifier.weight(1f)) {
+                    Text("Saved · ${months.size} months", style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant)
+                    Text(Money.format(running.lastOrNull() ?: 0, showPaise = false), style = MaterialTheme.typography.headlineSmall,
+                        color = if ((running.lastOrNull() ?: 0) >= 0) com.hisaab.app.ui.theme.MoneyColors.credit else com.hisaab.app.ui.theme.MoneyColors.debit)
+                }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                    Text("In accounts now", style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant)
+                    Text(balance?.let { Money.format(it, showPaise = false) } ?: "—", style = MaterialTheme.typography.headlineSmall)
+                    if (deposits > 0) Text("+ ${Money.format(deposits, showPaise = false)} in deposits", style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant)
+                }
+            }
+            if (running.size >= 2) {
+                Spacer(Modifier.height(12.dp))
+                com.hisaab.app.ui.charts.AreaLineChart(
+                    values = running, compare = null, color = c.primary, height = 140.dp,
+                    xLabel = { i -> months.getOrNull(i)?.month?.let { Periods.monthShort(java.time.YearMonth.parse(it)) } ?: "" },
+                    format = { Money.compact(it) }, seriesName = "Saved",
+                )
+            }
+        }
+    }
+}
+
+/** Accounts as cards: the bank's colour, its logo, the last digits and the balance. */
+@Composable
+fun AccountCardsRow(accounts: List<AccountWithActivity>, onOpen: () -> Unit) {
+    androidx.compose.foundation.lazy.LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(accounts, key = { it.id }) { a ->
+            val brand = Brands.forBank(a.bankName)
+            val base = a.colorArgb?.let { Color(it) } ?: brand.color
+            Box(
+                Modifier.size(width = 240.dp, height = 140.dp).clip(RoundedCornerShape(22.dp))
+                    .background(Brush.linearGradient(listOf(base, androidx.compose.ui.graphics.lerp(base, Color.Black, 0.45f))))
+                    .clickable(onClick = onOpen).padding(16.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(34.dp).background(Color.White, RoundedCornerShape(10.dp)).padding(3.dp), contentAlignment = Alignment.Center) {
+                        BrandMark(brand, size = 28.dp)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(a.nickname ?: a.bankName, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    com.hisaab.app.ui.components.typeShort(a.accountType)?.let { Text(it, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium) }
+                }
+                Text("••••  ${a.last4}", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.titleMedium,
+                    letterSpacing = 2.sp, modifier = Modifier.align(Alignment.CenterStart).padding(top = 8.dp))
+                Column(Modifier.align(Alignment.BottomStart)) {
+                    Text("Balance", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
+                    Text(a.currentBalanceMinor?.let { Money.format(it, showPaise = false) } ?: "—", color = Color.White,
+                        style = MaterialTheme.typography.titleLarge)
+                }
             }
         }
     }

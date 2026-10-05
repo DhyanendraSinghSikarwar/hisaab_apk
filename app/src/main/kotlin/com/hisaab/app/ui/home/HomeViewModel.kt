@@ -75,6 +75,7 @@ class HomeViewModel @Inject constructor(
     private val budgets: BudgetDao,
     private val settings: AppSettingsStore,
     private val categoryDao: com.hisaab.shared.db.CategoryDao,
+    private val statementProcessor: com.hisaab.email.statement.StatementProcessor,
     holdings: HoldingDao,
     statements: StatementDao,
     plans: com.hisaab.app.ui.plan.PlanSource,
@@ -155,6 +156,14 @@ class HomeViewModel @Inject constructor(
     val update = updater.state
 
     /** Daily spending over the last ~18 weeks, for the Activity grid. */
+    /** Income and spending for the last 12 months, for the savings line on Home. */
+    val savingsTrend: StateFlow<List<com.hisaab.shared.db.MonthTotal>> = run {
+        val now = YearMonth.now(Periods.zone)
+        val from = Periods.range(now.minusMonths(11)).first
+        val to = Periods.range(now).last
+        transactions.observeMonthly(from, to, Periods.offsetMillis(from))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Spent this month in each category of the user's own (filed under Other in the built-in totals). */
     val customSpend: StateFlow<List<Pair<com.hisaab.shared.db.CustomCategoryEntity, Long>>> = month.flatMapLatest { m ->
         val r = Periods.range(m)
@@ -189,6 +198,8 @@ class HomeViewModel @Inject constructor(
         val mail = mailSettings.read()
         if (mail.connected && mail.enabled) com.hisaab.email.sync.GmailScheduler.syncNow(context)
         runCatching { alerts.checkBudgets(); alerts.checkUpcoming() }
+        // Statements that a newly saved password now opens.
+        runCatching { statementProcessor.retryLocked() }
     }
 
     /** Upcoming payments, savings and insights, shared with Bills and Analytics. */

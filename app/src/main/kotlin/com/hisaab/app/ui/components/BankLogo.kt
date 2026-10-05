@@ -131,10 +131,37 @@ fun BrandMark(brand: Brand, modifier: Modifier = Modifier, size: Dp = 40.dp) {
     }
 }
 
-/** An account's bank logo with a corner badge saying whether it is an account, a credit card, or a debit card. */
+/** "FD", "RD", "PPF" or "Loan" for money that isn't a spending account; null otherwise. */
+fun typeShort(type: AccountType?): String? = when (type) {
+    AccountType.FD -> "FD"; AccountType.RD -> "RD"; AccountType.PPF -> "PPF"; AccountType.LOAN -> "Loan"
+    else -> null
+}
+
+/** A small rounded tag with an account type's short code. */
+@Composable
+fun TypeCode(code: String, height: Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(width = height * (if (code.length > 2) 1.7f else 1.25f), height = height)
+            .background(if (code == "Loan") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary, RoundedCornerShape(height * 0.35f))
+            .border(1.5.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(height * 0.35f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(code, color = MaterialTheme.colorScheme.onTertiary, fontWeight = FontWeight.Bold, fontSize = (height.value * 0.48f).sp, maxLines = 1)
+    }
+}
+
+/** An account's bank logo with a corner badge: account, credit card or debit card, or FD/RD/PPF/Loan. */
 @Composable
 fun AccountAvatar(bankName: String, kind: AccountKind, type: AccountType?, modifier: Modifier = Modifier, size: Dp = 44.dp) {
     val kindColor = KindColors.of(kind, type)
+    val code = typeShort(type)
+    if (code != null) {
+        Box(modifier.size(size + 4.dp)) {
+            BrandMark(Brands.forBank(bankName), size = size)
+            TypeCode(code, size * 0.42f, Modifier.align(Alignment.BottomEnd).offset(x = 4.dp, y = 2.dp))
+        }
+        return
+    }
     Box(modifier.size(size + 4.dp)) {
         BrandMark(Brands.forBank(bankName), size = size)
         Box(

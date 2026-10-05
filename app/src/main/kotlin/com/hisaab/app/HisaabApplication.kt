@@ -28,6 +28,7 @@ class HisaabApplication : Application(), Configuration.Provider {
         appScope.launch {
             SmsScanScheduler.scanIfPermitted(this@HisaabApplication)
             com.hisaab.app.notify.AlertsWorker.schedule(this@HisaabApplication)
+            com.hisaab.app.sync.NightlySync.schedule(this@HisaabApplication)
             runCatching { updater.checkIfDue() }
             if (gmailSettings.settings.first().enabled) GmailScheduler.schedulePeriodic(this@HisaabApplication)
         }

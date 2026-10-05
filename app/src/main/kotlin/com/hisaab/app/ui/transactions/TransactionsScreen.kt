@@ -48,6 +48,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.EventRepeat
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,7 +72,10 @@ import java.time.YearMonth
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun TransactionsRoute(onOpen: (Long) -> Unit, onAdd: () -> Unit, contentPadding: PaddingValues, vm: TransactionsViewModel = hiltViewModel()) {
+fun TransactionsRoute(
+    onOpen: (Long) -> Unit, onAdd: () -> Unit, contentPadding: PaddingValues, onOpenBills: () -> Unit = {},
+    vm: TransactionsViewModel = hiltViewModel(),
+) {
     val filter by vm.filter.collectAsStateWithLifecycle()
     val rows by vm.transactions.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
@@ -97,7 +105,14 @@ fun TransactionsRoute(onOpen: (Long) -> Unit, onAdd: () -> Unit, contentPadding:
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                 )
             } else {
-                TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Transactions") })
+                TopAppBar(
+                    colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("History") },
+                    actions = {
+                        TextButton(onClick = onOpenBills) {
+                            Icon(Icons.Filled.EventRepeat, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Bills")
+                        }
+                    },
+                )
             }
         },
         floatingActionButton = {
@@ -166,35 +181,70 @@ private val LongSetSaver = androidx.compose.runtime.saveable.Saver<Set<Long>, Lo
     save = { it.toLongArray() }, restore = { it.toSet() },
 )
 
+/**
+ * One row, no scrolling: the month, a Filters button that opens everything else in a sheet (with a count of what
+ * is on), and Clear when anything is set.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun Filters(f: TransactionFilter, accounts: List<AccountEntity>, update: ((TransactionFilter) -> TransactionFilter) -> Unit) {
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    var sheet by remember { mutableStateOf(false) }
+    val active = listOf(f.source != SourceFilter.ALL, f.type != null, f.category != null, f.accountId != null).count { it }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         val thisMonth = YearMonth.now(Periods.zone)
         val months = (0L until MONTH_CHOICES).map { thisMonth.minusMonths(it) }.let { if (f.month != null && f.month !in it) it + f.month else it }
         Menu(
-            label = f.month?.let(Periods::month) ?: "Any time", selected = f.month != null,
+            label = f.month?.let(Periods::monthShort) ?: "Any time", selected = f.month != null,
             options = listOf<Pair<String, YearMonth?>>("Any time" to null) + months.map { Periods.month(it) to it },
             onPick = { m -> update { it.copy(month = m) } },
         )
-        SourceFilter.entries.forEach { s ->
-            FilterChip(selected = f.source == s, onClick = { update { it.copy(source = s) } }, label = { Text(s.label) })
+        FilterChip(
+            selected = active > 0, onClick = { sheet = true },
+            leadingIcon = { Icon(Icons.Filled.Tune, null, Modifier.size(18.dp)) },
+            label = { Text(if (active > 0) "Filters · $active" else "Filters") },
+        )
+        if (active > 0 || f.month != null) {
+            androidx.compose.material3.AssistChip(
+                onClick = { update { it.copy(source = SourceFilter.ALL, type = null, category = null, accountId = null, month = null) } },
+                label = { Text("Clear") }, leadingIcon = { Icon(Icons.Filled.Clear, null, Modifier.size(16.dp)) },
+            )
         }
-        Menu(
-            label = f.type?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Type", selected = f.type != null,
-            options = listOf<Pair<String, TransactionType?>>("Any type" to null) + TransactionType.entries.map { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } to it },
-            onPick = { t -> update { it.copy(type = t) } },
-        )
-        Menu(
-            label = f.category?.label ?: "Category", selected = f.category != null,
-            options = listOf<Pair<String, Category?>>("Any category" to null) + Category.entries.map { it.label to it },
-            onPick = { c -> update { it.copy(category = c) } },
-        )
-        Menu(
-            label = accounts.firstOrNull { it.id == f.accountId }?.let { "${it.bankName} ••${it.last4}" } ?: "Account", selected = f.accountId != null,
-            options = listOf<Pair<String, Long?>>("Any account" to null) + accounts.map { "${it.nickname ?: it.bankName} ••${it.last4}" to it.id },
-            onPick = { id -> update { it.copy(accountId = id) } },
-        )
     }
+    if (sheet) {
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { sheet = false }) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Filters", style = MaterialTheme.typography.titleLarge)
+                Group("Source") {
+                    SourceFilter.entries.forEach { s -> FilterChip(selected = f.source == s, onClick = { update { it.copy(source = s) } }, label = { Text(s.label) }) }
+                }
+                Group("Type") {
+                    TransactionType.entries.forEach { t ->
+                        FilterChip(selected = f.type == t, onClick = { update { it.copy(type = if (f.type == t) null else t) } },
+                            label = { Text(t.name.lowercase().replaceFirstChar { c -> c.uppercase() }) })
+                    }
+                }
+                Group("Category") {
+                    Menu(f.category?.label ?: "Any category", f.category != null,
+                        listOf<Pair<String, Category?>>("Any category" to null) + Category.entries.map { it.label to it }) { c -> update { it.copy(category = c) } }
+                }
+                Group("Account") {
+                    Menu(accounts.firstOrNull { it.id == f.accountId }?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: "Any account", f.accountId != null,
+                        listOf<Pair<String, Long?>>("Any account" to null) + accounts.map { "${it.nickname ?: it.bankName} ••${it.last4}" to it.id }) { id ->
+                        update { it.copy(accountId = id) }
+                    }
+                }
+                androidx.compose.material3.Button(onClick = { sheet = false }, modifier = Modifier.fillMaxWidth()) { Text("Show results") }
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun Group(title: String, content: @Composable () -> Unit) {
+    Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
 }
 
 private const val MONTH_CHOICES = 24L

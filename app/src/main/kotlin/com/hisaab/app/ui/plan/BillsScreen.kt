@@ -39,6 +39,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -97,14 +105,6 @@ fun BillsRoute(onBack: () -> Unit, vm: BillsViewModel = hiltViewModel()) {
         TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
             title = { Text("Bills & insurance") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = {
-                InfoButton(
-                    "Bills & insurance",
-                    "Hisaab finds payments that repeat every month (rent, EMIs, SIPs, subscriptions, premiums) from your transactions, and the insurance premiums you pay.",
-                    "Three days before a monthly payment, if the account it's paid from doesn't have enough, you get an alert. Insurance renewals are reminded a week ahead.",
-                    "It needs two or more months of history to spot a repeat.",
-                )
-            },
         )
     }, floatingActionButton = {
         androidx.compose.material3.ExtendedFloatingActionButton(
@@ -118,12 +118,9 @@ fun BillsRoute(onBack: () -> Unit, vm: BillsViewModel = hiltViewModel()) {
         ) {
             val soon = p.upcoming.filter { it.daysLeft in 0..30 }
             item { Summary(soon.sumOf { it.amountMinor }, soon.size, p.recurring.sumOf { it.amountMinor }) }
+            item { BillsCalendar(p.recurring, p.policies, p.upcoming) }
             if (p.loaded && p.recurring.isEmpty() && p.policies.isEmpty()) {
-                item { EmptyState(Icons.Filled.EventRepeat, "Nothing found yet", "Regular payments and insurance show up once they've been paid in two or more months.") }
-            }
-            if (soon.isNotEmpty()) {
-                item { Header("Coming up") }
-                items(soon, key = { "u-${it.name}-${it.due}" }) { u -> UpcomingRow(u) }
+                item { EmptyState(Icons.Filled.EventRepeat, "Nothing found yet", "Repeats appear after two months of payments.") }
             }
             val outgoing = p.recurring.filter { !it.income }
             val incoming = p.recurring.filter { it.income }
@@ -250,4 +247,105 @@ private fun ordinal(n: Int): String = n.toString() + when {
     n % 100 in 11..13 -> "th"
     n % 10 == 1 -> "st"; n % 10 == 2 -> "nd"; n % 10 == 3 -> "rd"
     else -> "th"
+}
+
+/** What a calendar day carries: a payment going out, income coming in, or an insurance premium. */
+private enum class Mark { PAYMENT, INCOME, INSURANCE }
+
+private data class DayEvent(val date: LocalDate, val name: String, val amountMinor: Long, val mark: Mark, val short: Boolean)
+
+private fun eventsIn(month: java.time.YearMonth, recurring: List<Recurring>, policies: List<com.hisaab.shared.insight.Policy>, upcoming: List<Upcoming>): List<DayEvent> {
+    val shortOn = upcoming.filter { it.short }.map { it.name to it.due }.toSet()
+    fun day(d: Int) = month.atDay(d.coerceIn(1, month.lengthOfMonth()))
+    val out = ArrayList<DayEvent>()
+    for (r in recurring) {
+        val date = if (r.yearly) r.nextDue.takeIf { it.monthValue == month.monthValue }?.let { day(it.dayOfMonth) } else day(r.dayOfMonth)
+        if (date != null) out += DayEvent(date, r.name, r.amountMinor, if (r.income) Mark.INCOME else Mark.PAYMENT, (r.name to date) in shortOn)
+    }
+    for (pol in policies) {
+        val date = if (pol.monthly) day(pol.nextDue.dayOfMonth) else pol.nextDue.takeIf { it.monthValue == month.monthValue }?.let { day(it.dayOfMonth) }
+        if (date != null) out += DayEvent(date, pol.insurer, pol.premiumMinor, Mark.INSURANCE, false)
+    }
+    return out.sortedBy { it.date }
+}
+
+/** A month at a time: each day marked by what falls on it; tap a day for its list. */
+@Composable
+private fun BillsCalendar(recurring: List<Recurring>, policies: List<com.hisaab.shared.insight.Policy>, upcoming: List<Upcoming>) {
+    val today = LocalDate.now(com.hisaab.app.ui.format.Periods.zone)
+    var month by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(java.time.YearMonth.from(today).toString()) }
+    val ym = java.time.YearMonth.parse(month)
+    var selected by remember(month) { mutableStateOf<LocalDate?>(null) }
+    val events = remember(ym, recurring, policies, upcoming) { eventsIn(ym, recurring, policies, upcoming) }
+    val byDay = events.groupBy { it.date }
+    val c = MaterialTheme.colorScheme
+    val colors = mapOf(Mark.PAYMENT to c.primary, Mark.INCOME to com.hisaab.app.ui.theme.MoneyColors.credit, Mark.INSURANCE to c.tertiary)
+    Card(shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { month = ym.minusMonths(1).toString() }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month") }
+                Text(com.hisaab.app.ui.format.Periods.month(ym), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                IconButton(onClick = { month = ym.plusMonths(1).toString() }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month") }
+            }
+            Row(Modifier.fillMaxWidth()) {
+                listOf("M", "T", "W", "T", "F", "S", "S").forEach {
+                    Text(it, Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant)
+                }
+            }
+            val lead = ym.atDay(1).dayOfWeek.value - 1
+            val cells = lead + ym.lengthOfMonth()
+            for (week in 0 until (cells + 6) / 7) {
+                Row(Modifier.fillMaxWidth()) {
+                    for (dow in 0 until 7) {
+                        val n = week * 7 + dow - lead + 1
+                        Box(Modifier.weight(1f).aspectRatio(1f).padding(2.dp), contentAlignment = Alignment.Center) {
+                            if (n in 1..ym.lengthOfMonth()) {
+                                val date = ym.atDay(n)
+                                val marks = byDay[date].orEmpty()
+                                val isSel = date == selected
+                                Column(
+                                    Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
+                                        .background(if (isSel) c.primaryContainer else Color.Transparent)
+                                        .then(if (date == today) Modifier.border(1.5.dp, c.primary, RoundedCornerShape(12.dp)) else Modifier)
+                                        .clickable(enabled = marks.isNotEmpty()) { selected = if (isSel) null else date },
+                                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+                                ) {
+                                    Text("$n", style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (marks.isNotEmpty()) FontWeight.SemiBold else null,
+                                        color = if (marks.any { it.short }) c.error else c.onSurface)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(top = 2.dp).height(6.dp)) {
+                                        marks.map { it.mark }.distinct().forEach { m -> Box(Modifier.size(6.dp).background(colors.getValue(m), CircleShape)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Row(Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                listOf(Mark.PAYMENT to "Payment", Mark.INCOME to "Income", Mark.INSURANCE to "Insurance").forEach { (m, label) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).background(colors.getValue(m), CircleShape))
+                        Text(label, style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
+            }
+            val shown = selected?.let { byDay[it].orEmpty() } ?: events
+            if (shown.isNotEmpty()) {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                shown.forEach { e ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).background(colors.getValue(e.mark), CircleShape))
+                        Text("${e.date.dayOfMonth}", Modifier.width(36.dp).padding(start = 10.dp), style = MaterialTheme.typography.labelLarge, color = c.onSurfaceVariant)
+                        Text(e.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                        Text((if (e.mark == Mark.INCOME) "+" else "") + Money.format(e.amountMinor, showPaise = false),
+                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
+                            color = if (e.short) c.error else if (e.mark == Mark.INCOME) com.hisaab.app.ui.theme.MoneyColors.credit else c.onSurface)
+                    }
+                }
+            }
+        }
+    }
 }

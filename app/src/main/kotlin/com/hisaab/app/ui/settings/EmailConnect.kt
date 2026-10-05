@@ -141,7 +141,7 @@ class EmailConnectViewModel @Inject constructor(
 }
 
 @Composable
-fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, vm: EmailConnectViewModel = hiltViewModel()) {
+fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, onConnected: ((String) -> Unit)? = null, vm: EmailConnectViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var email by remember { mutableStateOf("") }
@@ -218,7 +218,7 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, vm: Em
                 ConnectStep.ADDRESS -> TextButton(onClick = { vm.submitAddress(email) }) { Text("Continue") }
                 ConnectStep.SIGN_IN -> TextButton(onClick = { vm.signIn(password) }, enabled = !s.busy) { Text("Sign in & send code") }
                 ConnectStep.CODE -> TextButton(onClick = { vm.verify(code) }, enabled = !s.busy && code.length == 6) { Text("Verify") }
-                ConnectStep.DONE -> TextButton(onClick = close) { Text("Done") }
+                ConnectStep.DONE -> TextButton(onClick = { onConnected?.invoke(s.email); close() }) { Text("Done") }
             }
         },
         dismissButton = {

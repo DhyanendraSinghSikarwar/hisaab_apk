@@ -1,0 +1,161 @@
+package com.hisaab.app.ui.onboarding
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CurrencyRupee
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import com.hisaab.app.settings.AppSettingsStore
+import com.hisaab.app.ui.settings.EmailConnectDialog
+import com.hisaab.app.ui.theme.BackdropColors
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class WelcomeViewModel @Inject constructor(
+    private val settings: AppSettingsStore,
+    mail: com.hisaab.email.sync.GmailSettingsStore,
+) : ViewModel() {
+    /**
+     * Null while loading; true until the user has a name and has signed in with an email or phone. Someone who
+     * already connected an inbox before this screen existed counts as signed in.
+     */
+    val needed = kotlinx.coroutines.flow.combine(settings.settings, mail.settings) { a, m ->
+        a.profile.name == null || (a.profile.email == null && a.profile.phone == null && !m.connected)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val currentName = settings.settings.map { it.profile.name.orEmpty() }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    fun finish(name: String, email: String?, phone: String?) = viewModelScope.launch {
+        val p = settings.settings.first().profile
+        settings.saveProfile(name, email ?: p.email.orEmpty(), phone ?: p.phone.orEmpty(), p.occupation.orEmpty())
+    }
+}
+
+/**
+ * First run: sign in with email (verified with a code, and the inbox is connected for bank alerts) or a phone
+ * number. Either creates the profile. Everything stays on the phone.
+ */
+@Composable
+fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
+    val known by vm.currentName.collectAsStateWithLifecycle()
+    var name by rememberSaveable(known) { mutableStateOf(known) }
+    var mode by rememberSaveable { mutableStateOf("choose") }
+    var phone by rememberSaveable { mutableStateOf("") }
+    var connecting by rememberSaveable { mutableStateOf(false) }
+    val c = MaterialTheme.colorScheme
+    Surface(Modifier.fillMaxSize(), color = c.background) {
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BackdropColors.emerald.copy(alpha = 0.18f), Color.Transparent, BackdropColors.sapphire.copy(alpha = 0.12f))))) {
+            Column(
+                Modifier.fillMaxSize().systemBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(72.dp))
+                Box(
+                    Modifier.size(84.dp).background(Brush.linearGradient(listOf(BackdropColors.emerald, BackdropColors.sapphire)), RoundedCornerShape(26.dp)),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Filled.CurrencyRupee, null, tint = Color.White, modifier = Modifier.size(44.dp)) }
+                Spacer(Modifier.height(20.dp))
+                Text("Hisaab", style = MaterialTheme.typography.displaySmall)
+                Text("Every rupee, tracked privately.", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(40.dp))
+
+                OutlinedTextField(
+                    name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Your name") }, singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.Person, null) }, shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+                )
+                Spacer(Modifier.height(16.dp))
+                AnimatedContent(mode, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "signin") { m ->
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (m == "phone") {
+                            OutlinedTextField(
+                                phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("Mobile number") },
+                                prefix = { Text("+91 ") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Phone, null) }, shape = RoundedCornerShape(16.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
+                            )
+                            Button(
+                                onClick = { vm.finish(name, null, "+91 $phone") }, enabled = name.isNotBlank() && phone.length == 10,
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                            ) { Text("Continue") }
+                            TextButton(onClick = { mode = "choose" }, modifier = Modifier.fillMaxWidth()) { Text("Use email instead") }
+                        } else {
+                            Button(onClick = { connecting = true }, enabled = name.isNotBlank(), modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                                Icon(Icons.Filled.Email, null); Spacer(Modifier.size(10.dp)); Text("Continue with email")
+                            }
+                            OutlinedButton(onClick = { mode = "phone" }, enabled = name.isNotBlank(), modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                                Icon(Icons.Filled.Phone, null); Spacer(Modifier.size(10.dp)); Text("Continue with phone number")
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(32.dp))
+                Text(
+                    "Email sign-in also reads your bank alerts and statements.",
+                    style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant, textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(8.dp))
+                androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Lock, null, tint = c.primary, modifier = Modifier.size(14.dp))
+                    Text(" Your data never leaves this phone.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(32.dp))
+            }
+        }
+    }
+    if (connecting) {
+        EmailConnectDialog(onDismiss = { connecting = false }, onUseGoogle = null, onConnected = { email -> vm.finish(name, email, null) })
+    }
+}

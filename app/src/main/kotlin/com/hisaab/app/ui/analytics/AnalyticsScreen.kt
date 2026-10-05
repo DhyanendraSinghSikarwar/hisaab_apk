@@ -204,7 +204,7 @@ fun AnalyticsRoute(contentPadding: PaddingValues, vm: AnalyticsViewModel = hiltV
     val s by vm.state.collectAsStateWithLifecycle()
     val plan by vm.plan.collectAsStateWithLifecycle()
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
-        TopAppBar(title = { Text("Analytics") }, colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
+        TopAppBar(title = { Text("Analytics") }, colors = com.hisaab.app.ui.theme.clearTopBar())
     }) { inner ->
         Column(
             Modifier.padding(top = inner.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding())

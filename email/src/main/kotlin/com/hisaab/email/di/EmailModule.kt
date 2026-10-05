@@ -71,7 +71,7 @@ object EmailModule {
             override suspend fun logins() = accounts.logins()
             override suspend fun lookbackDays() = settings.read().lookbackDays
             override suspend fun senders() = settings.read().senders
-            override suspend fun readPdfStatements() = settings.read().readPdfStatements
+            override suspend fun readPdfStatements() = true
             override suspend fun enabled() = settings.read().enabled
             override suspend fun lastSyncAt(email: String) = settings.imapSyncedAt(email)
             override suspend fun saveSync(email: String, at: Long, result: String) = settings.saveImapSync(email, at, result)
