@@ -28,8 +28,13 @@ import androidx.compose.runtime.getValue
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -73,6 +78,16 @@ class StatementDetailViewModel @Inject constructor(
     val matched = statements.observeById(id).flatMapLatest { s -> s?.let { transactions.observeMatchedForStatement(it.key) } ?: flowOf(0) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
+    /** The holdings an investment statement (CAS) listed, as read from it. */
+    private val reloadHoldings = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val holdings = kotlinx.coroutines.flow.combine(statements.observeById(id), reloadHoldings) { s, _ -> s }
+        .flatMapLatest { s ->
+            kotlinx.coroutines.flow.flow {
+                emit(s?.let { runCatching { processor.holdingsOf(it) }.getOrDefault(emptyList()) }.orEmpty())
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val busy = kotlinx.coroutines.flow.MutableStateFlow(false)
     val message = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
@@ -82,6 +97,7 @@ class StatementDetailViewModel @Inject constructor(
         busy.value = true
         val r = runCatching { processor.reread(id) }.getOrNull()
         busy.value = false
+        reloadHoldings.value++
         message.value = when {
             r == null -> "Couldn't read it again."
             r.inserted + r.flagged == 0 -> "Read again: nothing new. The account is up to date."
@@ -101,14 +117,24 @@ fun StatementDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, 
     val matched by vm.matched.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
+    val holdings by vm.holdings.collectAsStateWithLifecycle()
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Statement") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { inner ->
         val st = s ?: return@Scaffold
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, bottom = 32.dp)) {
+        // A CAS or broker statement lists holdings, not money in and out.
+        val holdingsStatement = st.kind == "INVESTMENT" || (st.holdingCount > 0 && rows.isEmpty())
+        LazyColumn(
+            Modifier.fillMaxSize().padding(top = inner.calculateTopPadding()).clipToBounds(),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
+        ) {
             item { Header(st) }
-            item { Summary(st, rows.filter { it.type == TransactionType.CREDIT }.sumOf { it.amountMinor },
-                rows.filter { it.type == TransactionType.DEBIT || it.type == TransactionType.INVESTMENT }.sumOf { it.amountMinor }) }
+            if (holdingsStatement) {
+                item { HoldingsSummary(st, holdings) }
+            } else {
+                item { Summary(st, rows.filter { it.type == TransactionType.CREDIT }.sumOf { it.amountMinor },
+                    rows.filter { it.type == TransactionType.DEBIT || it.type == TransactionType.INVESTMENT }.sumOf { it.amountMinor }) }
+            }
             item {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (rows.isNotEmpty()) {
@@ -131,9 +157,19 @@ fun StatementDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, 
             if (st.holdingCount > 0) {
                 item {
                     TextButton(onClick = onOpenInvestments, modifier = Modifier.padding(horizontal = 8.dp)) {
-                        Text("${st.holdingCount} holdings updated. See them in Investments")
+                        Text("${st.holdingCount} holdings updated. See them in Portfolio")
                     }
                 }
+            }
+            if (holdings.isNotEmpty()) {
+                item {
+                    Text("Holdings read (${holdings.size})", style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
+                }
+                items(holdings, key = { "h-" + it.identifier }) { h -> HoldingLine(h) }
+            }
+            if (st.subject != null || !st.emailText.isNullOrBlank()) {
+                item { EmailSection(st) }
             }
             if (rows.isNotEmpty()) {
                 item {
@@ -218,5 +254,82 @@ private fun accountLine(s: StatementEntity): String? {
             "Updated $acct: available limit ${Money.format(s.availableMinor ?: ((s.creditLimitMinor ?: 0) - (s.totalDueMinor ?: 0)).coerceAtLeast(0), showPaise = false)}"
         s.closingMinor != null -> "Updated $acct: balance ${Money.format(s.closingMinor!!)}"
         else -> null
+    }
+}
+
+/** An investment statement's figures: what the holdings read from it are worth, what went into them, and how many. */
+@Composable
+private fun HoldingsSummary(s: StatementEntity, holdings: List<com.hisaab.parser.model.HoldingSnapshot>) {
+    val value = holdings.sumOf { it.valueMinor ?: 0L }
+    val withCost = holdings.filter { it.investedMinor != null }
+    val invested = withCost.sumOf { it.investedMinor ?: 0L }
+    val count = if (holdings.isNotEmpty()) holdings.size else s.holdingCount
+    Card(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Figure("Value of holdings", if (holdings.isEmpty()) "—" else Money.format(value, showPaise = false), big = true)
+            Row {
+                Figure("Invested", if (withCost.isEmpty()) "—" else Money.format(invested, showPaise = false), Modifier.weight(1f))
+                Figure("Holdings", count.toString(), Modifier.weight(1f))
+            }
+            if (withCost.isNotEmpty()) {
+                // Gain only over the holdings whose cost the statement gives.
+                val gain = withCost.sumOf { it.valueMinor ?: 0L } - invested
+                Figure(
+                    if (gain >= 0) "Gain" else "Loss", (if (gain >= 0) "+" else "−") + Money.format(kotlin.math.abs(gain), showPaise = false),
+                    color = if (gain >= 0) MoneyColors.credit else MoneyColors.debit,
+                )
+            }
+            Text(
+                "${s.transactionCount} transactions read · $count holdings",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HoldingLine(h: com.hisaab.parser.model.HoldingSnapshot) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(h.name, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(
+                listOfNotNull(h.kind.label, h.units?.let { "${units(it)} units" }, h.identifier.takeUnless { it.startsWith("MF:") }).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(h.valueMinor?.let { Money.format(it, showPaise = false) } ?: "—", style = MaterialTheme.typography.titleSmall)
+            h.investedMinor?.let {
+                Text("cost ${Money.format(it, showPaise = false)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+private fun units(u: Double): String = java.math.BigDecimal(u).setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+
+/** The email the statement came with: subject, and the text folded until tapped. */
+@Composable
+private fun EmailSection(s: StatementEntity) {
+    var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val text = s.emailText?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() }?.joinToString("\n")
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(Modifier.clickable { open = !open }.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Email", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, if (open) "Hide email" else "Show email")
+            }
+            s.subject?.let { Text(it, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp)) }
+            Text(s.sender, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            if (open && text != null) {
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+        }
     }
 }

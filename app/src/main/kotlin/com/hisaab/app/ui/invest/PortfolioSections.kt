@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hisaab.app.settings.WorthPoint
@@ -55,7 +56,10 @@ import com.hisaab.app.ui.components.Segmented
 import com.hisaab.app.ui.components.SplitBar
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.ledger.AssetClass
+import com.hisaab.app.ui.ledger.Book
 import com.hisaab.app.ui.ledger.NetWorth
+import com.hisaab.app.ui.ledger.PartKind
+import com.hisaab.app.ui.ledger.WorthPart
 import com.hisaab.app.ui.theme.Hx
 import com.hisaab.parser.model.AccountKind
 import com.hisaab.shared.db.AccountType
@@ -232,45 +236,172 @@ internal fun AllocationCard(m: PortfolioModel, filter: AssetClass?, onFilter: (A
 
 private val RANGES = listOf("1M" to 30L, "6M" to 182L, "1Y" to 365L, "3Y" to 1095L, "All" to null)
 
+/**
+ * The history inside a range. The last point before the range starts is carried to its first day, so every
+ * range has a start figure even when points are a month apart.
+ */
+internal fun rangePoints(history: List<WorthPoint>, days: Long?, today: LocalDate = LocalDate.now()): List<WorthPoint> {
+    val start = days?.let { today.minusDays(it) } ?: return history
+    val inside = history.filter { !it.day.isBefore(start) }
+    val before = history.lastOrNull { it.day.isBefore(start) }?.copy(day = start)
+    return listOfNotNull(before) + inside
+}
+
 @Composable
 internal fun NetWorthCard(nw: NetWorth, range: Int, onRange: (Int) -> Unit, modifier: Modifier = Modifier) {
     val days = RANGES.getOrNull(range)?.second
-    val points: List<WorthPoint> = remember(nw.history, days) {
-        val start = days?.let { LocalDate.now().minusDays(it) }
-        nw.history.filter { start == null || !it.day.isBefore(start) }
-    }
-    HCard(modifier, title = "Net worth") {
+    val points: List<WorthPoint> = remember(nw.history, days) { rangePoints(nw.history, days) }
+    val change = if (points.size >= 2) points.last().netMinor - points.first().netMinor else null
+    HCard(modifier, title = "Net worth" + if (nw.book != Book.ALL) " · ${nw.book.label}" else "") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(Money.format(nw.netMinor, showPaise = false), fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f, fill = false))
-            if (points.size >= 2) {
-                val change = points.last().netMinor - points.first().netMinor
+            if (change != null) {
                 Spacer(Modifier.width(8.dp))
-                Delta("${if (change >= 0) "▲" else "▼"} ${Money.compact(abs(change))}", good = change >= 0)
+                Delta("${if (change >= 0) "▲" else "▼"} ${Money.compact(abs(change))} · ${RANGES[range].first}", good = change >= 0)
             }
         }
         Spacer(Modifier.height(12.dp))
         Segmented(RANGES.map { it.first }, range, onRange)
         Spacer(Modifier.height(12.dp))
         when {
-            nw.history.size < 2 -> Note("Your net worth chart builds a point each day you open Hisaab.")
+            nw.history.size < 2 -> Note("Your net worth chart builds a point each day you open Hisaab, and earlier months are estimated from transactions.")
             points.size < 2 -> Note("Not enough history for this range yet. Try a longer one.")
             else -> {
-                Sparkline(points.map { it.netMinor / 100f }, height = 96.dp, color = if (points.last().netMinor >= points.first().netMinor) Hx.pos else Hx.neg)
-                Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                    Text(points.first().day.format(shortDateFmt), fontSize = 11.sp, color = Hx.text2, modifier = Modifier.weight(1f))
-                    Text(points.last().day.format(shortDateFmt), fontSize = 11.sp, color = Hx.text2)
+                val first = points.first()
+                val last = points.last()
+                val up = last.netMinor >= first.netMinor
+                Sparkline(points.map { it.netMinor / 100f }, height = 96.dp, color = if (up) Hx.pos else Hx.neg)
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${first.day.format(shortDateFmt)} → ${last.day.format(shortDateFmt)}", fontSize = 11.sp, color = Hx.text2, modifier = Modifier.weight(1f))
+                    Text(
+                        "${Money.compact(first.netMinor)} → ${Money.compact(last.netMinor)} · ${signed(last.netMinor - first.netMinor)}",
+                        fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (up) Hx.pos else Hx.neg, maxLines = 1,
+                    )
+                }
+                nw.estimatedBefore?.takeIf { first.day.isBefore(it) }?.let { until ->
+                    Text(
+                        "Estimated from transactions until ${until.format(shortDateFmt)}; recorded after.",
+                        fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 2.dp),
+                    )
                 }
             }
         }
-        val gross = (nw.assetsMinor + nw.liabilitiesMinor).coerceAtLeast(1)
         Spacer(Modifier.height(14.dp))
-        SplitBar(listOf(nw.assetsMinor.toFloat() / gross to Hx.pos, nw.liabilitiesMinor.toFloat() / gross to Hx.neg), height = 6.dp)
+        WorthBreakdown(nw)
         Spacer(Modifier.height(10.dp))
         KpiRow(
             Triple("Assets", Money.compact(nw.assetsMinor), Hx.pos),
             Triple("Liabilities", Money.compact(nw.liabilitiesMinor), if (nw.liabilitiesMinor > 0) Hx.neg else null),
             Triple("Net", Money.compact(nw.netMinor), null),
         )
+        CardLimits(nw)
+    }
+}
+
+// Segment colours: distinct per legend entry, lighter on the hero gradient.
+private val heroAssetColors = listOf(
+    Color(0xFF9DF2C9), Color(0xFFFFE08A), Color(0xFFA7D8FF), Color(0xFFFFC3E1), Color(0xFFC9B8FF), Color(0xFF8FE3E8),
+)
+private val heroLiabilityColors = listOf(Color(0xFFFFB3AB), Color(0xFFFF8A80), Color(0xFFFFD6CF), Color(0xFFFF6F61))
+private val assetColorIndex = listOf(0, 2, 4, 5, 6, 3, 1)
+private val liabilityAlphas = listOf(1f, 0.7f, 0.5f, 0.35f)
+
+/** Legend entries with their colours: assets (top six, then Others), then liabilities. */
+@Composable
+private fun worthSegments(nw: NetWorth, onHero: Boolean): List<Pair<WorthPart, Color>> {
+    val neg = Hx.neg
+    val assets = nw.assetLegend().mapIndexed { i, p ->
+        p to when {
+            p.kind == PartKind.OTHERS -> if (onHero) Color.White.copy(alpha = 0.55f) else Hx.palette[7]
+            onHero -> heroAssetColors[i % heroAssetColors.size]
+            else -> Hx.palette[assetColorIndex[i % assetColorIndex.size]]
+        }
+    }
+    val liabilities = nw.liabilityLegend().mapIndexed { i, p ->
+        p to if (onHero) heroLiabilityColors[i % heroLiabilityColors.size] else neg.copy(alpha = liabilityAlphas[i % liabilityAlphas.size])
+    }
+    return assets + liabilities
+}
+
+/**
+ * Assets and liabilities as one bar split by account and asset (each bank account, deposits, each holdings class,
+ * then loans and card dues), with a compact two-column legend. Used by Portfolio and the Home hero card.
+ */
+@Composable
+fun WorthBreakdown(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean = false) {
+    val segs = worthSegments(nw, onHero)
+    if (segs.isEmpty()) return
+    val gross = segs.sumOf { it.first.amountMinor }.coerceAtLeast(1)
+    val dim = if (onHero) Color.White.copy(alpha = 0.75f) else Hx.text2
+    val strong = if (onHero) Color.White else MaterialTheme.colorScheme.onSurface
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            segs.forEach { (p, c) ->
+                val f = p.amountMinor.toFloat() / gross
+                if (f > 0f) Box(Modifier.weight(f.coerceAtLeast(0.004f)).height(10.dp).background(c))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        segs.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEach { (p, c) ->
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        LegendDot(c)
+                        Spacer(Modifier.width(6.dp))
+                        Text(p.label, fontSize = 12.sp, color = dim, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            (if (p.liability) "−" else "") + Money.compact(p.amountMinor), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                            color = strong, maxLines = 1,
+                        )
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** Every credit card's available limit (and total limit when a statement gave it). Not part of net worth. */
+@Composable
+fun CardLimits(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean = false) {
+    if (nw.cards.isEmpty()) return
+    val dim = if (onHero) Color.White.copy(alpha = 0.75f) else Hx.text2
+    val strong = if (onHero) Color.White else MaterialTheme.colorScheme.onSurface
+    val warn = Hx.warn
+    val accent = Hx.accent
+    Column(modifier.fillMaxWidth().padding(top = 14.dp)) {
+        HorizontalDivider(color = if (onHero) Color.White.copy(alpha = 0.2f) else Hx.border.copy(alpha = 0.6f))
+        Text(
+            "Credit cards · not counted in net worth", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.4.sp,
+            color = dim, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+        )
+        nw.cards.forEach { c ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    c.name + (c.last4.takeIf { it.isNotBlank() }?.let { " ••$it" } ?: ""), fontSize = 13.sp, color = strong,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        c.availableMinor?.let { "${Money.format(it, showPaise = false)} available" } ?: "Limit unknown",
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = strong, maxLines = 1,
+                    )
+                    c.limitMinor?.let { lim -> Text("of ${Money.format(lim, showPaise = false)}", fontSize = 11.sp, color = dim, maxLines = 1) }
+                }
+            }
+            val avail = c.availableMinor
+            val lim = c.limitMinor
+            if (avail != null && lim != null && lim > 0) {
+                val used = ((lim - avail).toFloat() / lim).coerceIn(0f, 1f)
+                val tone = when { onHero -> Color(0xFFFFB3AB); used >= 0.8f -> warn; else -> accent }
+                SplitBar(listOf(used to tone), Modifier.padding(bottom = 4.dp), height = 4.dp)
+            }
+        }
     }
 }
 
@@ -312,6 +443,7 @@ internal fun LazyListScope.holdingsSection(
             CollapsibleCard(
                 "${cls.label} · ${lines.size}", Modifier.animateItem(),
                 trailing = Money.format(lines.sumOf { it.valueMinor ?: 0 }, showPaise = false),
+                initiallyExpanded = false,
             ) {
                 lines.forEachIndexed { i, line ->
                     if (i > 0) HorizontalDivider(color = Hx.border.copy(alpha = 0.6f))
@@ -363,7 +495,7 @@ internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Uni
             .mapNotNull { a -> a.maturityDay?.let { LocalDate.ofEpochDay(it) }?.takeIf { !it.isBefore(today) && !it.isAfter(end) }?.let { a to it } }
             .sortedBy { it.second }
     }
-    CollapsibleCard("Maturity calendar · 12 months", modifier, trailing = if (due.isEmpty()) null else "${due.size}") {
+    CollapsibleCard("Maturity calendar · 12 months", modifier, trailing = if (due.isEmpty()) null else "${due.size}", initiallyExpanded = false) {
         if (due.isEmpty()) {
             Note("No deposits mature in the next 12 months.")
             return@CollapsibleCard

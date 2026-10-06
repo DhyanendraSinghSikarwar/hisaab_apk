@@ -44,6 +44,21 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hisaab.app.ui.theme.Hx
+import com.hisaab.app.ui.theme.LocalReduceMotion
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 
 /** A flat card with a hairline border and an optional small-caps title with an action on the right. */
 @Composable
@@ -59,15 +74,17 @@ fun HCard(
 ) {
     val dark = com.hisaab.app.ui.theme.LocalDarkTheme.current
     val shape = RoundedCornerShape(18.dp)
+    val press = remember { MutableInteractionSource() }
     Surface(
         modifier = modifier.fillMaxWidth()
+            .let { if (onClick != null) it.pressScale(press) else it }
             // A soft, accent-tinted shadow by day; at night a faint top highlight on the border does the lifting.
             .shadow(if (dark) 0.dp else 10.dp, shape, ambientColor = Hx.accent.copy(alpha = 0.06f), spotColor = Hx.accent.copy(alpha = 0.10f))
-            .let { if (onClick != null) it.clip(shape).clickable(onClick = onClick) else it },
+            .let { if (onClick != null) it.clip(shape).clickable(press, LocalIndication.current, onClick = onClick) else it },
         shape = shape, color = container,
         border = BorderStroke(1.dp, if (dark) Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.10f), Hx.border)) else SolidColor(Hx.border)),
     ) {
-        Column(Modifier.padding(padding).animateContentSize()) {
+        Column(Modifier.padding(padding).smoothContentSize()) {
             if (title != null) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     CardTitle(title, Modifier.weight(1f))
@@ -92,18 +109,21 @@ fun HCard(
 fun HeroCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(22.dp)
     val brush = com.hisaab.app.ui.theme.HeroBrush
+    val hero = com.hisaab.app.ui.theme.heroColors()
+    val press = remember { MutableInteractionSource() }
     Box(
         modifier.fillMaxWidth()
-            .shadow(16.dp, shape, ambientColor = Color(0xFF2F5BEA).copy(alpha = 0.25f), spotColor = Color(0xFF5A48D6).copy(alpha = 0.35f))
+            .let { if (onClick != null) it.pressScale(press) else it }
+            .shadow(16.dp, shape, ambientColor = hero[0].copy(alpha = 0.25f), spotColor = hero[1].copy(alpha = 0.35f))
             .clip(shape).background(brush)
-            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .let { if (onClick != null) it.clickable(press, LocalIndication.current, onClick = onClick) else it }
             .drawBehind {
                 drawCircle(Color.White.copy(alpha = 0.07f), radius = size.height * 0.9f, center = Offset(size.width * 1.02f, -size.height * 0.15f))
                 drawCircle(Color.White.copy(alpha = 0.05f), radius = size.height * 0.55f, center = Offset(size.width * 0.88f, size.height * 1.1f))
             },
     ) {
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides Color.White) {
-            Column(Modifier.padding(18.dp).animateContentSize(), content = content)
+            Column(Modifier.padding(18.dp).smoothContentSize(), content = content)
         }
     }
 }
@@ -193,8 +213,10 @@ fun Tag(text: String, color: Color, modifier: Modifier = Modifier) {
 fun Pill(text: String, on: Boolean = false, modifier: Modifier = Modifier, leading: ImageVector? = null, onClick: () -> Unit) {
     val bg = if (on) Hx.accent else Hx.surface2
     val fg = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    val press = remember { MutableInteractionSource() }
     Row(
-        modifier.clip(CircleShape).background(bg).border(1.dp, if (on) Hx.accent else Hx.border, CircleShape).clickable(onClick = onClick)
+        modifier.pressScale(press, 0.95f).clip(CircleShape).background(bg).border(1.dp, if (on) Hx.accent else Hx.border, CircleShape)
+            .clickable(press, LocalIndication.current, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -206,8 +228,10 @@ fun Pill(text: String, on: Boolean = false, modifier: Modifier = Modifier, leadi
 /** A round icon button with a border, as in the top bar. */
 @Composable
 fun RoundIcon(icon: ImageVector, description: String, modifier: Modifier = Modifier, tint: Color = MaterialTheme.colorScheme.onSurface, onClick: () -> Unit) {
+    val press = remember { MutableInteractionSource() }
     Box(
-        modifier.size(36.dp).clip(CircleShape).background(Hx.surface2).border(1.dp, Hx.border, CircleShape).clickable(onClick = onClick),
+        modifier.size(36.dp).pressScale(press, 0.92f).clip(CircleShape).background(Hx.surface2).border(1.dp, Hx.border, CircleShape)
+            .clickable(press, LocalIndication.current, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, description, tint = tint, modifier = Modifier.size(18.dp)) }
 }
@@ -251,8 +275,11 @@ fun HRow(
     onClick: (() -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
+    val press = remember { MutableInteractionSource() }
     Row(
-        modifier.fillMaxWidth().let { if (onClick != null) it.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick) else it }.padding(vertical = 10.dp),
+        modifier.fillMaxWidth()
+            .let { if (onClick != null) it.pressScale(press, 0.98f).clip(RoundedCornerShape(10.dp)).clickable(press, LocalIndication.current, onClick = onClick) else it }
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (leading != null) { leading(); Spacer(Modifier.width(12.dp)) }
@@ -279,9 +306,11 @@ fun LegendDot(color: Color) { Box(Modifier.size(9.dp).clip(RoundedCornerShape(3.
 /** One legend entry: dot, name, and a value on the right. Tappable; [selected] tints it. */
 @Composable
 fun LegendItem(color: Color, name: String, value: String?, selected: Boolean = false, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    val press = remember { MutableInteractionSource() }
     Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(if (selected) Hx.accentSoft else Color.Transparent)
-            .let { if (onClick != null) it.clickable(onClick = onClick) else it }.padding(horizontal = 4.dp, vertical = 3.dp),
+        modifier.fillMaxWidth().let { if (onClick != null) it.pressScale(press) else it }
+            .clip(RoundedCornerShape(6.dp)).background(if (selected) Hx.accentSoft else Color.Transparent)
+            .let { if (onClick != null) it.clickable(press, LocalIndication.current, onClick = onClick) else it }.padding(horizontal = 4.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         LegendDot(color); Spacer(Modifier.width(6.dp))
@@ -292,3 +321,54 @@ fun LegendItem(color: Color, name: String, value: String?, selected: Boolean = f
 
 /** Space between stacked cards. */
 val CardGap = 12.dp
+
+// ---- Motion ---------------------------------------------------------------------------------------------
+// Subtle, spring-based and layer-only (graphicsLayer reads state in the draw phase, so no recomposition per
+// frame). All of it is skipped when the user has turned animations off ([LocalReduceMotion]).
+
+/**
+ * Sinks the element slightly (to [pressedScale]) while [interactionSource] is pressed, springing back on
+ * release. Pass the same source to `clickable(interactionSource, LocalIndication.current) { … }`, and put this
+ * before `clip`/`background` in the chain so the whole element scales.
+ */
+@Composable
+fun Modifier.pressScale(interactionSource: InteractionSource, pressedScale: Float = 0.97f): Modifier {
+    if (LocalReduceMotion.current) return this
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        if (pressed) pressedScale else 1f,
+        spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium),
+        label = "pressScale",
+    )
+    return graphicsLayer { scaleX = scale; scaleY = scale }
+}
+
+/** [animateContentSize] with a calm, non-bouncy spring; a plain size change when motion is off. */
+@Composable
+fun Modifier.smoothContentSize(): Modifier =
+    if (LocalReduceMotion.current) this
+    else animateContentSize(spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
+
+/**
+ * A gentle fade and rise the first time an item appears, staggered by [index] (capped, so long lists never
+ * wait). Plays once per item: state is saved, so scrolling back or returning to the screen doesn't replay it.
+ * Use on list cards: `HCard(Modifier.enterOnce(i)) { … }`.
+ */
+@Composable
+fun Modifier.enterOnce(index: Int = 0): Modifier {
+    if (LocalReduceMotion.current) return this
+    var played by rememberSaveable { mutableStateOf(false) }
+    val progress = remember { Animatable(if (played) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (!played) {
+            kotlinx.coroutines.delay(index.coerceIn(0, 8) * 45L)
+            progress.animateTo(1f, tween(durationMillis = 340, easing = FastOutSlowInEasing))
+            played = true
+        }
+    }
+    return graphicsLayer {
+        val p = progress.value
+        alpha = p
+        translationY = (1f - p) * 14.dp.toPx()
+    }
+}

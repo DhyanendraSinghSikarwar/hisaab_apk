@@ -6,6 +6,7 @@ import org.jsoup.Jsoup
 import java.nio.charset.Charset
 import java.util.Base64
 
+/** A statement attachment: a PDF, or a spreadsheet (.xls, .xlsx, .csv). */
 data class PdfAttachment(val filename: String, val attachmentId: String?, val inlineData: String?)
 
 data class EmailContent(
@@ -35,7 +36,8 @@ object MimeParser {
                 val type = part.mimeType?.lowercase().orEmpty()
                 val name = part.filename.orEmpty()
                 when {
-                    name.isNotEmpty() && (type == "application/pdf" || name.endsWith(".pdf", ignoreCase = true)) ->
+                    name.isNotEmpty() && (type == "application/pdf" || name.endsWith(".pdf", ignoreCase = true) ||
+                        SpreadsheetExtractor.isSpreadsheetName(name) || SpreadsheetExtractor.isSpreadsheetMime(type) && name.contains('.').not()) ->
                         pdfs += PdfAttachment(name, part.body?.attachmentId, part.body?.data)
                     name.isNotEmpty() -> Unit // other attachments are ignored
                     type == "text/plain" && plain == null -> plain = decodeText(part)

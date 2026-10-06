@@ -28,7 +28,7 @@ object TabLayouts {
         HOME to listOf(
             Section("networth", "Net worth"), Section("cashflow", "Cash flow"), Section("safe", "Safe to spend"),
             Section("upcoming", "Upcoming"), Section("insights", "Insights"), Section("categories", "Spend by category"),
-            Section("accounts", "Accounts"), Section("recent", "Recent transactions"), Section("budgets", "Budgets"),
+            Section("recent", "Recent transactions"), Section("budgets", "Budgets"),
         ),
         ANALYTICS to listOf(
             Section("categories", "Spend by category"), Section("monthly", "Monthly spend"),
@@ -47,9 +47,9 @@ object TabLayouts {
     val HOME_PRESETS: List<Pair<String, List<String>>> = listOf(
         "Minimal" to listOf("networth", "cashflow", "upcoming"),
         "Spender" to listOf("cashflow", "safe", "budgets", "categories", "upcoming", "recent"),
-        "Investor" to listOf("networth", "insights", "accounts", "upcoming"),
+        "Investor" to listOf("networth", "insights", "upcoming"),
         "Business" to listOf("cashflow", "upcoming", "insights", "recent"),
-        "Everything" to listOf("networth", "cashflow", "safe", "upcoming", "insights", "categories", "accounts", "recent", "budgets"),
+        "Everything" to listOf("networth", "cashflow", "safe", "upcoming", "insights", "categories", "recent", "budgets"),
     )
 }
 

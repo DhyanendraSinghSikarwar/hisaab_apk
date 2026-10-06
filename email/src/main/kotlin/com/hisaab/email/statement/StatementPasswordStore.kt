@@ -40,20 +40,29 @@ class StatementPasswordStore @Inject constructor(@ApplicationContext context: Co
 
     suspend fun remove(id: String) = store.edit { p -> p[ENTRIES] = p[ENTRIES].orEmpty().filterNot { decode(it)?.first == id }.toSet() }
 
-    /** The user's details that banks build passwords from (name, DOB, PAN, mobile), sealed like the passwords. */
+    /**
+     * The user's details that banks build passwords from (name, DOB, PAN, mobile, and an alternate name and
+     * mobile), sealed like the passwords.
+     */
     val identity: Flow<com.hisaab.parser.statement.Identity> = store.data.map { p -> p[IDENTITY]?.let(::decodeIdentity) ?: com.hisaab.parser.statement.Identity() }
 
     suspend fun setIdentity(id: com.hisaab.parser.statement.Identity) = store.edit {
-        val fields = listOf(id.name.orEmpty(), id.dob?.toString().orEmpty(), id.pan.orEmpty().uppercase(), id.phone.orEmpty())
-        if (fields.all { f -> f.isBlank() }) it.remove(IDENTITY) else it[IDENTITY] = secret.seal(fields.joinToString(SEP.toString()) { f -> f.trim() })
+        // Field order is the on-disk format: append new fields at the end only.
+        val fields = listOf(
+            id.name.orEmpty(), id.dob?.toString().orEmpty(), id.pan.orEmpty().uppercase(), id.phone.orEmpty(),
+            id.altName.orEmpty(), id.altPhone.orEmpty(),
+        ).map { f -> f.replace(SEP, ' ').trim() }
+        if (fields.all { f -> f.isBlank() }) it.remove(IDENTITY) else it[IDENTITY] = secret.seal(fields.joinToString(SEP.toString()))
     }
 
+    /** Reads both the original four-field value and the current six-field one; missing fields are null. */
     private fun decodeIdentity(sealed: String): com.hisaab.parser.statement.Identity? {
         val f = runCatching { secret.open(sealed) }.getOrNull()?.split(SEP) ?: return null
-        if (f.size != 4) return null
+        if (f.size < 4) return null
+        fun at(i: Int) = f.getOrNull(i)?.ifBlank { null }
         return com.hisaab.parser.statement.Identity(
-            f[0].ifBlank { null }, f[1].ifBlank { null }?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() },
-            f[2].ifBlank { null }, f[3].ifBlank { null },
+            name = at(0), dob = at(1)?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() },
+            pan = at(2), phone = at(3), altName = at(4), altPhone = at(5),
         )
     }
 

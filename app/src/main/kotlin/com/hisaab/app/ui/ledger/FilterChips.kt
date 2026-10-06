@@ -42,31 +42,25 @@ import javax.inject.Inject
 @HiltViewModel
 class FilterViewModel @Inject constructor(val store: ViewFilterStore) : ViewModel()
 
-/** The two global chips: "Personal ▾" and "Oct 2026 ▾". Each opens a sheet; the choice applies to every tab. */
+/**
+ * The global period chip ("Oct 2026 ▾"). It opens a sheet; the choice applies to every tab. The book (Personal,
+ * Business, All) is not a chip: it is chosen once in More and applies to the whole app.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BookPeriodChips(modifier: Modifier = Modifier, showBook: Boolean = true, vm: FilterViewModel = hiltViewModel()) {
+fun BookPeriodChips(modifier: Modifier = Modifier, vm: FilterViewModel = hiltViewModel()) {
     val f by vm.store.filter.collectAsStateWithLifecycle()
-    var sheet by remember { mutableStateOf<String?>(null) }
+    var sheet by remember { mutableStateOf(false) }
     var custom by remember { mutableStateOf(false) }
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (showBook) Pill(f.book.label + " ▾") { sheet = "book" }
-        Pill(f.label + " ▾") { sheet = "period" }
+        Pill(f.label + " ▾") { sheet = true }
     }
-    if (sheet != null) {
-        ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+    if (sheet) {
+        ModalBottomSheet(onDismissRequest = { sheet = false }, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 28.dp)) {
-                Text(if (sheet == "book") "Book" else "Period", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
+                Text("Period", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
                 val colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                if (sheet == "book") {
-                    Book.entries.forEach { b ->
-                        ListItem(
-                            headlineContent = { Text(b.label) }, colors = colors,
-                            trailingContent = { if (f.book == b) Icon(Icons.Filled.Check, null, tint = Hx.accent) },
-                            modifier = Modifier.fillMaxWidth().clickableRow { vm.store.setBook(b); sheet = null },
-                        )
-                    }
-                } else {
+                run {
                     val now = YearMonth.now(Periods.zone)
                     val options = listOf(
                         "This week" to { vm.store.setKind(PeriodKind.THIS_WEEK) },
@@ -82,13 +76,13 @@ fun BookPeriodChips(modifier: Modifier = Modifier, showBook: Boolean = true, vm:
                         ListItem(
                             headlineContent = { Text(label) }, colors = colors,
                             trailingContent = { if (on) Icon(Icons.Filled.Check, null, tint = Hx.accent) },
-                            modifier = Modifier.fillMaxWidth().clickableRow { act(); sheet = null },
+                            modifier = Modifier.fillMaxWidth().clickableRow { act(); sheet = false },
                         )
                     }
                     ListItem(
                         headlineContent = { Text("Custom…") }, colors = colors,
                         trailingContent = { if (f.kind == PeriodKind.CUSTOM) Icon(Icons.Filled.Check, null, tint = Hx.accent) },
-                        modifier = Modifier.fillMaxWidth().clickableRow { sheet = null; custom = true },
+                        modifier = Modifier.fillMaxWidth().clickableRow { sheet = false; custom = true },
                     )
                 }
                 Text("Applies to every tab.", style = MaterialTheme.typography.bodySmall, color = Hx.text2, modifier = Modifier.padding(top = 8.dp))

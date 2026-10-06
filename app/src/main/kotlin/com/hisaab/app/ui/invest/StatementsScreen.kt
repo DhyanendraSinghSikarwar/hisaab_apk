@@ -44,12 +44,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -141,7 +143,8 @@ class StatementsViewModel @Inject constructor(
         ).joinToString(" and ")
         StatementEntity.LOCKED -> "${s.fileName} needs a password. Tap Unlock."
         StatementEntity.EMPTY -> "Read ${s.fileName}, but found no transactions or holdings in it."
-        StatementEntity.UNREADABLE -> "Couldn't read ${s.fileName}. It may be a scanned image."
+        StatementEntity.UNREADABLE -> if (s.kind == StatementProcessor.KIND_PROTECTED) "${s.fileName} is a protected spreadsheet. Save it without a password and import it again."
+        else "Couldn't read ${s.fileName}. It may be a scanned image."
         else -> "Already imported."
     }
 }
@@ -174,30 +177,38 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { inner ->
-        LazyColumn(contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, start = 16.dp, end = 16.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item {
-                Button(onClick = { AppLockGate.skipNextLock(); picker.launch(arrayOf("application/pdf")) }, Modifier.fillMaxWidth(), enabled = !busy) {
-                    Icon(Icons.Filled.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("Import a statement PDF")
+        Column(Modifier.fillMaxSize().padding(top = inner.calculateTopPadding())) {
+            // Pinned and opaque: the import button stays put, and the list scrolls in its own clipped area below it,
+            // so no row ever shows through or slides beneath the top bar.
+            Column(
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(onClick = { AppLockGate.skipNextLock(); picker.launch(IMPORT_TYPES) }, Modifier.fillMaxWidth(), enabled = !busy) {
+                    Icon(Icons.Filled.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("Import a statement (PDF, Excel or CSV)")
                 }
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             }
-            if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-
-            if (statements.isEmpty()) {
-                item { Text("Statements", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
-                item { Text("No statements yet.", style = MaterialTheme.typography.bodyMedium) }
-            }
-            // Password-needed first, then one section per kind of statement.
-            val groups = statements.groupBy { if (it.status == StatementEntity.LOCKED) "LOCKED" else it.kind ?: "OTHER" }
-            for (key in listOf("LOCKED", "CREDIT_CARD", "BANK", "INVESTMENT", "OTHER")) {
-                val group = groups[key] ?: continue
-                item(key = "sec-$key") {
-                    Text(SECTION_TITLES.getValue(key), style = MaterialTheme.typography.titleMedium,
-                        color = if (key == "LOCKED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(top = 12.dp))
+            LazyColumn(Modifier.fillMaxSize().clipToBounds(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (statements.isEmpty()) {
+                    item { Text("Statements", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
+                    item { Text("No statements yet.", style = MaterialTheme.typography.bodyMedium) }
                 }
-                items(group, key = { it.id }) { s ->
-                    StatementRow(s, onOpen = { onOpenStatement(s.id) }, onUnlock = { unlocking = s }, onDelete = { vm.delete(s) })
+                // Password-needed first, then one section per kind of statement.
+                val groups = statements.groupBy {
+                    if (it.status == StatementEntity.LOCKED) "LOCKED" else it.kind?.takeIf { k -> k in SECTION_TITLES } ?: "OTHER"
+                }
+                for (key in listOf("LOCKED", "CREDIT_CARD", "BANK", "INVESTMENT", "OTHER")) {
+                    val group = groups[key] ?: continue
+                    item(key = "sec-$key") {
+                        Text(SECTION_TITLES.getValue(key), style = MaterialTheme.typography.titleMedium,
+                            color = if (key == "LOCKED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 12.dp))
+                    }
+                    items(group, key = { it.id }) { s ->
+                        StatementRow(s, onOpen = { onOpenStatement(s.id) }, onUnlock = { unlocking = s }, onDelete = { vm.delete(s) })
+                    }
                 }
             }
         }
@@ -212,6 +223,12 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
 private val SECTION_TITLES = mapOf(
     "LOCKED" to "Locked", "CREDIT_CARD" to "Credit card statements", "BANK" to "Bank statements",
     "INVESTMENT" to "Investment statements", "OTHER" to "Other statements",
+)
+
+/** What the import picker offers: PDFs, Excel workbooks (.xls, .xlsx) and CSV files. */
+private val IMPORT_TYPES = arrayOf(
+    "application/pdf", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/csv", "text/comma-separated-values", "application/csv", "text/plain",
 )
 
 @Composable
@@ -236,7 +253,8 @@ private fun StatementRow(s: StatementEntity, onOpen: () -> Unit, onUnlock: () ->
                         ).joinToString(" · ")
                         StatementEntity.LOCKED -> ""
                         StatementEntity.EMPTY -> "Nothing found in it"
-                        else -> "Couldn't be read (maybe a scanned image)"
+                        else -> if (s.kind == StatementProcessor.KIND_PROTECTED) "Protected spreadsheet: save it without a password, then import it"
+                            else "Couldn't be read (maybe a scanned image)"
                     },
                     style = MaterialTheme.typography.labelMedium, color = tint,
                 )
@@ -256,7 +274,7 @@ private fun EmailHint(s: StatementEntity, modifier: Modifier = Modifier, lines: 
     var open by remember { mutableStateOf(false) }
     androidx.compose.material3.Surface(modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-        Column(Modifier.clickable { open = !open }.padding(12.dp).animateContentSize()) {
+        Column(Modifier.clickable { open = !open }.padding(12.dp)) {
             s.subject?.let { Text(it, style = MaterialTheme.typography.titleSmall, maxLines = 2) }
             text?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

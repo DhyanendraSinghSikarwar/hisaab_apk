@@ -17,6 +17,7 @@ import com.hisaab.app.security.AppLockGate
 import androidx.compose.foundation.layout.fillMaxSize
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.settings.ThemeMode
+import com.hisaab.app.settings.ThemePalette
 import com.hisaab.app.ui.lock.LockScreen
 import com.hisaab.app.ui.nav.HisaabNavHost
 import com.hisaab.app.ui.theme.HisaabTheme
@@ -32,6 +33,7 @@ class MainActivity : FragmentActivity() {
     private var lockEnabled by mutableStateOf<Boolean?>(null)
     private var unlocked by mutableStateOf(false)
     private var theme by mutableStateOf(ThemeMode.SYSTEM)
+    private var palette by mutableStateOf(ThemePalette.CLASSIC)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
@@ -46,13 +48,14 @@ class MainActivity : FragmentActivity() {
                 if (lockEnabled == false && s.appLock) unlocked = true
                 lockEnabled = s.appLock
                 theme = s.theme
+                palette = s.palette
                 com.hisaab.app.ui.format.AmountPrivacy.hidden = s.hideAmounts
                 if (s.appLock && !unlocked) promptUnlock()
             }
         }
 
         setContent {
-            HisaabTheme(theme) {
+            HisaabTheme(theme, palette) {
                 // The app stays composed under the lock, so unlocking returns to the same screen.
                 if (lockEnabled != null) {
                     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {

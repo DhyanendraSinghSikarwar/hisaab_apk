@@ -63,10 +63,12 @@ import com.hisaab.app.settings.AppSettings
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.ui.components.CardGap
 import com.hisaab.app.ui.components.HCard
+import com.hisaab.app.ui.components.Segmented
 import com.hisaab.app.ui.components.SmsPermissionState
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
-import com.hisaab.app.ui.ledger.LedgerMath
+import com.hisaab.app.ui.ledger.Book
+import com.hisaab.app.ui.ledger.ViewFilterStore
 import com.hisaab.app.ui.plan.PlanSnapshot
 import com.hisaab.app.ui.plan.PlanSource
 import com.hisaab.app.ui.profile.ProfileAvatar
@@ -76,7 +78,6 @@ import com.hisaab.email.imap.MailAccountStore
 import com.hisaab.email.sync.GmailSettings
 import com.hisaab.email.sync.GmailSettingsStore
 import com.hisaab.shared.db.AccountDao
-import com.hisaab.shared.db.AccountUsage
 import com.hisaab.shared.db.BudgetDao
 import com.hisaab.shared.db.MerchantRuleDao
 import com.hisaab.shared.db.StatementDao
@@ -101,8 +102,6 @@ data class MoreState(
     val budgetsNear: Int = 0,
     val plan: PlanSnapshot = PlanSnapshot(),
     val tax: TaxState = TaxState(),
-    val hasBusiness: Boolean = false,
-    val businessRevenue: Long = 0,
     val accounts: Int = 0,
     val rules: Int = 0,
     val statements: Int = 0,
@@ -112,7 +111,7 @@ data class MoreState(
     val imapEmails: List<String> = emptyList(),
 )
 
-private data class MoneyBits(val budgetsActive: Int, val budgetsNear: Int, val hasBusiness: Boolean, val revenue: Long, val accounts: Int)
+private data class MoneyBits(val budgetsActive: Int, val budgetsNear: Int, val accounts: Int)
 private data class Housekeeping(val rules: Int, val statements: Int, val locked: Int)
 
 @HiltViewModel
@@ -127,6 +126,7 @@ class MoreViewModel @Inject constructor(
     app: AppSettingsStore,
     gmail: GmailSettingsStore,
     mailAccounts: MailAccountStore,
+    private val filters: ViewFilterStore,
 ) : ViewModel() {
     private val month = Periods.range(YearMonth.now(Periods.zone))
 
@@ -135,13 +135,11 @@ class MoreViewModel @Inject constructor(
         transactions.observeCategoryTotals(month.first, month.last),
         app.settings.map { it.budgetAlertPercent },
         accounts.observeWithActivity(month.first),
-        transactions.observeBetween(month.first, month.last),
-    ) { b, spent, alertAt, accs, txs ->
+        filters.filter.map { it.book },
+    ) { b, spent, alertAt, accs, book ->
         val byCat = spent.associate { it.category to it.total }
         val near = b.count { (byCat[it.category] ?: 0L) * 100 >= it.monthlyLimitMinor * alertAt }
-        val bizIds = accs.filter { it.usage == AccountUsage.BUSINESS }.map { it.id }.toSet()
-        val revenue = LedgerMath.income(txs.filter { it.accountId != null && it.accountId in bizIds && !it.needsReview })
-        MoneyBits(b.size, near, bizIds.isNotEmpty(), revenue, accs.count { !it.hidden })
+        MoneyBits(b.size, near, accs.count { !it.hidden && (book == Book.ALL || it.usage.name == book.name) })
     }
 
     private val house = combine(rules.observeAll(), statements.observeAll()) { r, st ->
@@ -153,11 +151,16 @@ class MoreViewModel @Inject constructor(
     val state: StateFlow<MoreState> = combine(money, plan.snapshot, tax.state, house, combine(app.settings, mail) { a, m -> a to m }) { m, p, t, h, am ->
         MoreState(
             budgetsActive = m.budgetsActive, budgetsNear = m.budgetsNear, plan = p, tax = t,
-            hasBusiness = m.hasBusiness, businessRevenue = m.revenue, accounts = m.accounts,
+            accounts = m.accounts,
             rules = h.rules, statements = h.statements, lockedStatements = h.locked,
             app = am.first, mail = am.second.first, imapEmails = am.second.second,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MoreState())
+
+    /** The book the whole app shows (Personal, Business or All), kept across launches. */
+    val book: StateFlow<Book> = filters.filter.map { it.book }.stateIn(viewModelScope, SharingStarted.Eagerly, filters.filter.value.book)
+
+    fun setBook(b: Book) = filters.setBook(b)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -172,6 +175,7 @@ private fun plural(n: Int, one: String, many: String = one + "s") = "$n ${if (n 
 @Composable
 fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
+    val book by vm.book.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var smsOk by remember { mutableStateOf(SmsPermissionState.check(context)) }
     var notifAccess by remember { mutableStateOf(PaymentNotificationListener.hasAccess(context)) }
@@ -215,11 +219,6 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
                     else "${t.fyLabel} · estimated ${Money.format(t.newRegime.total, showPaise = false)}"
                 } else "Estimate your tax for ${s.tax.fyLabel}",
                 Icons.Filled.AccountBalance, p[6],
-            ),
-            Entry(
-                "business", "Business book",
-                if (s.hasBusiness) "Revenue ${Money.format(s.businessRevenue, showPaise = false)} this month" else "Mark accounts as Business",
-                Icons.Filled.BusinessCenter, p[5],
             ),
         ),
         "Automation" to listOf(
@@ -292,12 +291,13 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            item("book") { BookCard(book, vm::setBook) }
             var index = 0
             sections.forEach { (header, entries) ->
                 item("h:$header") {
                     Text(
                         header.uppercase(), color = Hx.text2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.7.sp,
-                        modifier = Modifier.padding(start = 4.dp, top = if (header == sections.first().first) 0.dp else CardGap),
+                        modifier = Modifier.padding(start = 4.dp, top = CardGap),
                     )
                 }
                 entries.forEach { e ->
@@ -306,6 +306,28 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
                 }
             }
         }
+    }
+}
+
+/** The book every screen shows: Personal, Business or All. Business shows only accounts and cards marked Business. */
+@Composable
+private fun BookCard(book: Book, onSelect: (Book) -> Unit) {
+    val options = listOf(Book.PERSONAL, Book.BUSINESS, Book.ALL)
+    HCard(padding = 14.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(Hx.palette[5].copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.BusinessCenter, null, tint = Hx.palette[5], modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Book", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text("Applies to the whole app", fontSize = 12.sp, color = Hx.text2, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+            }
+        }
+        Segmented(
+            options = listOf("Personal", "Business", "All"), selected = options.indexOf(book).coerceAtLeast(0),
+            onSelect = { onSelect(options[it]) }, modifier = Modifier.padding(top = 12.dp),
+        )
     }
 }
 

@@ -101,7 +101,9 @@ fun TransactionAvatar(tx: TransactionEntity, size: Dp = 40.dp) {
     val bankKey = remember(tx.bankName) { AppLogos.bank(tx.bankName) }
     val hasMerchant = merchantKey != null && remember(merchantKey) { AppLogos.load(context, merchantKey) } != null
     Box(Modifier.size(size + 4.dp)) {
-        if (hasMerchant) LogoImage(merchantKey!!, size, shape = CircleShape)
+        // Every icon shares one shape: a rounded square with a hairline edge.
+        val tile = RoundedCornerShape(size * 0.28f)
+        if (hasMerchant) LogoImage(merchantKey!!, size, Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, tile), tile)
         else CategoryBadge(tx.category, size = size.value.toInt())
         if (bankKey != null && bankKey != merchantKey) {
             Box(

@@ -187,39 +187,89 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
 
     // Holdings.
 
-    private fun holdings(lines: List<String>, asOf: Long): List<HoldingSnapshot> {
+    private fun holdings(lines: List<String>, receivedAt: Long): List<HoldingSnapshot> {
+        val asOf = asOfDate(lines, receivedAt)
         val out = LinkedHashMap<String, HoldingSnapshot>()
+        // Rows whose figures were cross-checked (units x price = value); a later checked row beats an earlier unchecked one.
+        val checked = HashSet<String>()
+        val fromClosing = HashSet<String>()
         var schemeName: String? = null
         var schemeIsin: String? = null
         for ((i, line) in lines.withIndex()) {
             // CAMS/KFintech CAS: "<scheme> - ISIN: INF...(Advisor: DIRECT)" then "Closing Unit Balance: x ... Market Value on ...: INR y".
             ISIN_LABEL.find(line)?.let { m ->
                 schemeIsin = m.groupValues[1]
-                schemeName = line.substring(0, m.range.first).replace(SCHEME_CODE, "").trim().trim('-', ' ').ifEmpty { null }
+                schemeName = line.substring(0, m.range.first).replace(SCHEME_CODE, "").trim().trim('-', ' ', ':').ifEmpty { null }
                     ?: lines.getOrNull(i - 1)?.trim()
             }
-            CLOSING.find(line)?.let { m ->
-                val isin = schemeIsin ?: return@let
-                val units = m.groupValues[1].replace(",", "").toDoubleOrNull()
-                val value = Money.parse(m.groupValues[2])?.minor
-                val cost = COST.find(line)?.let { Money.parse(it.groupValues[1])?.minor }
-                out[isin] = HoldingSnapshot(kindOf(isin, schemeName), schemeName ?: isin, isin, units, value, cost, asOf)
-                return@let
+            if (CLOSING_LABEL.containsMatchIn(line)) {
+                val isin = schemeIsin ?: continue
+                // The figures can wrap onto the next lines when the PDF is read.
+                val joined = (0..2).mapNotNull { lines.getOrNull(i + it) }.joinToString(" ")
+                val units = CLOSING_UNITS.find(joined)?.groupValues?.get(1)?.replace(",", "")?.toDoubleOrNull() ?: continue
+                val nav = NAV_ON.find(joined)?.groupValues?.get(1)?.replace(",", "")?.toDoubleOrNull()
+                val value = MARKET_VALUE.find(joined)?.let { Money.parse(it.groupValues[1])?.minor }
+                    ?: nav?.let { Math.round(units * it * 100) }
+                val cost = COST.find(joined)?.let { Money.parse(it.groupValues[1])?.minor }
+                val name = schemeName ?: isin
+                val prev = out[isin]
+                // One scheme in two folios: the folios add up.
+                out[isin] = if (prev != null && isin in fromClosing) {
+                    prev.copy(units = (prev.units ?: 0.0) + units, valueMinor = (prev.valueMinor ?: 0) + (value ?: 0),
+                        investedMinor = if (prev.investedMinor == null && cost == null) null else (prev.investedMinor ?: 0) + (cost ?: 0))
+                } else {
+                    HoldingSnapshot(kindOf(isin, name), name, isin, units, value, cost, asOf)
+                }
+                fromClosing += isin
+                checked += isin
+                schemeIsin = null
+                continue
             }
-            // NSDL/CDSL CAS and broker statements: "INE009A01021 INFOSYS LIMITED 10 1,234.50 12,345.00".
-            if (CLOSING.containsMatchIn(line) || ISIN_LABEL.containsMatchIn(line)) continue
+            if (ISIN_LABEL.containsMatchIn(line)) continue
+            // NSDL/CDSL CAS and broker statements: "INE009A01021 INFOSYS LIMITED 10 1,500.00 15,000.00", or the
+            // CDSL mutual-fund table "<scheme> INF... <folio> <units> <NAV> <invested> <value> <gain>".
             val isin = ISIN.find(line) ?: continue
-            val after = line.substring(isin.range.last + 1)
-            val numbers = NUMBER.findAll(after).toList()
-            if (numbers.size < 2) continue
-            val name = after.substring(0, numbers.first().range.first).trim().trim('-', '|', ' ')
-                .ifEmpty { lines.getOrNull(i - 1)?.takeIf { ISIN.find(it) == null }?.trim().orEmpty() }
+            if (LEADING_DATE.containsMatchIn(line)) continue // a transaction row, not a holding
+            val before = line.substring(0, isin.range.first).trim()
+            var after = line.substring(isin.range.last + 1)
+            var row: HoldingLines.Row? = HoldingLines.read(before, after)
+            // The figures wrapped onto the next line or two.
+            var extra = 1
+            while (row?.consistent != true && extra <= 2) {
+                val next = lines.getOrNull(i + extra) ?: break
+                if (ISIN.containsMatchIn(next) || LEADING_DATE.containsMatchIn(next)) break
+                after += " " + next
+                val longer = HoldingLines.read(before, after)
+                if (longer != null && (row == null || longer.consistent)) row = longer
+                extra++
+            }
+            val r = row ?: continue
+            var name = r.name
+            // A scheme name split over two lines ("Parag Parikh Flexi Cap Fund - Direct" / "Plan Growth INF879O01027 ...").
+            val prevLine = lines.getOrNull(i - 1)?.trim().orEmpty()
+            if ((isin.value.startsWith("INF") || before.isNotEmpty()) && (name.length < 3 || name.split(' ').size <= 2) &&
+                prevLine.isNotEmpty() && !ISIN.containsMatchIn(prevLine) &&
+                !TABLE_WORDS.containsMatchIn(prevLine) && NUMBER.findAll(prevLine).count() <= 1 && prevLine.any { it.isLetter() }
+            ) {
+                name = HoldingLines.cleanName("$prevLine $name")
+            }
             if (name.length < 2) continue
-            val units = numbers.first().value.replace(",", "").toDoubleOrNull()
-            val value = Money.parse(numbers.last().value)?.minor
-            out.putIfAbsent(isin.value, HoldingSnapshot(kindOf(isin.value, name), name, isin.value, units, value, null, asOf))
+            val key = isin.value
+            if (key in fromClosing) continue
+            if (key in out && (key in checked || !r.consistent)) continue
+            out[key] = HoldingSnapshot(kindOf(key, name), name, key, r.units, r.valueMinor, r.investedMinor, asOf)
+            if (r.consistent) checked += key
         }
         return out.values.filter { (it.valueMinor ?: 0) > 0 }
+    }
+
+    /** "Holdings as on 31-May-2026" / "Statement for the period ... to 31-05-2026": when the values were true. */
+    private fun asOfDate(lines: List<String>, receivedAt: Long): Long {
+        val received = java.time.Instant.ofEpochMilli(receivedAt).atZone(config.zone).toLocalDate()
+        val date = lines.take(SUMMARY_LINES).firstNotNullOfOrNull { l -> AS_ON.find(l)?.groupValues?.get(1)?.let(::parseDate) }
+            ?: return receivedAt
+        if (date.isAfter(received.plusDays(1)) || date.isBefore(received.minusMonths(6))) return receivedAt
+        return date.atTime(NOON).atZone(config.zone).toInstant().toEpochMilli()
     }
 
     private fun kindOf(isin: String, name: String?): HoldingKind = when {
@@ -266,8 +316,13 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         val ISIN = Regex("""\b([A-Z]{2}[A-Z0-9]{9}\d)\b""") // ISINs are upper case: case-sensitive on purpose
         val ISIN_LABEL = Regex("""ISIN\s*:\s*([A-Z]{2}[A-Z0-9]{9}\d)""")
         val SCHEME_CODE = Regex("""^[A-Z0-9]{2,12}-""")
-        val CLOSING = rx("""closing\s+unit\s+balance\s*:?\s*([\d,]+\.?\d*).*?(?:market\s+value|valuation)\s+on\s+[^:]+:\s*INR\s*([\d,]+\.?\d*)""")
-        val COST = rx("""total\s+cost\s+value\s*:?\s*(?:INR\s*)?([\d,]+\.?\d*)""")
+        val CLOSING_LABEL = rx("""closing\s+unit\s+balance""")
+        val CLOSING_UNITS = rx("""closing\s+unit\s+balance\s*:?\s*([\d,]+\.?\d*)""")
+        val NAV_ON = rx("""\bNAV\s+on\s+[^:]{4,20}:\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
+        val MARKET_VALUE = rx("""(?:market\s+value|valuation)\s+on\s+[^:]{4,20}:\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
+        val COST = rx("""(?:total\s+)?cost\s+value\s*:?\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
+        val AS_ON = rx("""\b(?:holdings?|statement|valuation|portfolio|balances?)\b.{0,40}?\bas\s+(?:on|of|at)\s*:?\s*(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{1,2}[\s-][A-Za-z]{3}[a-z]*[\s,-]+\d{4})""")
+        val TABLE_WORDS = rx("""\b(?:ISIN|scheme\s+name|folio|security|closing\s+bal|NAV|valuation|market\s+(?:price|value)|units?)\b""")
         val ETF_NAME = rx("""\bETF\b|\bBEES\b""")
         val BOND_NAME = rx("""\b(?:bond|debenture|NCD|SGB)\b""")
         val GOLD_NAME = rx("""\bgold\b""")

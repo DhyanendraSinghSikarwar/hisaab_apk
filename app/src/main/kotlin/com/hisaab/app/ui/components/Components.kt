@@ -41,7 +41,11 @@ import com.hisaab.shared.db.TransactionEntity
 @Composable
 fun CategoryBadge(category: Category, size: Int = 40) {
     Box(
-        modifier = Modifier.size(size.dp).background(category.color.copy(alpha = 0.16f), CircleShape),
+        // Same rounded-square tile as the logos, washed with the category's colour.
+        modifier = Modifier.size(size.dp).background(
+            androidx.compose.ui.graphics.Brush.linearGradient(listOf(category.color.copy(alpha = 0.26f), category.color.copy(alpha = 0.10f))),
+            androidx.compose.foundation.shape.RoundedCornerShape((size * 0.28f).dp),
+        ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(category.icon, contentDescription = category.label, tint = category.color, modifier = Modifier.size((size * 0.55).dp))

@@ -64,15 +64,22 @@ class ParserRegistry(
             "citibank.com", "dbs.com", "paytmbank.com", "nps-proteantech.in", "proteantech.in",
             "cdslindia.co.in", "cdsl.co.in", "npstrust.org.in", "npscra.nsdl.co.in", "kfintech-cra.com", "camsnps.com",
             "epfo.gov.in", "umang.gov.in",
+            // Mutual fund apps and platforms: SIP instalment and order confirmations.
+            "paytmmoney.com", "etmoney.com", "mfcentral.com", "bsestarmf.in", "mfuindia.com", "scripbox.com", "fisdom.com",
         )
 
         /**
          * Statement mails picked by subject, whoever sends them: a CAS forwarded by INDmoney or another app
-         * ("CDSL Consolidated Account Statement (CAS) across Mutual Funds and Depositories"), NPS and EPF statements.
+         * ("CDSL Consolidated Account Statement (CAS) across Mutual Funds and Depositories"), NPS and EPF statements,
+         * and mutual fund purchase confirmations ("SIP instalment processed", "Units allotted").
          */
-        val STATEMENT_SUBJECTS = listOf("Consolidated Account Statement", "NPS Transaction Statement", "PRAN", "EPF Passbook", "Member Passbook")
+        val STATEMENT_SUBJECTS = listOf(
+            "Consolidated Account Statement", "NPS Transaction Statement", "PRAN", "EPF Passbook", "Member Passbook",
+            "SIP installment", "SIP instalment", "units allotted", "allotment of units",
+        )
         private val STATEMENT_SUBJECT = com.hisaab.parser.text.rx(
-            """consolidated\s+account\s+statement|\bCAS\b|\bNPS\b.{0,40}statement|\bPRAN\b|\bEPF\b.{0,30}(?:passbook|statement)|member\s+passbook""",
+            """consolidated\s+account\s+statement|\bCAS\b|\bNPS\b.{0,40}statement|\bPRAN\b|\bEPF\b.{0,30}(?:passbook|statement)|member\s+passbook""" +
+                """|\bSIP\b.{0,60}\b(?:instal+ment|processed|successful|allot+ed)|\bunits?\s+(?:have\s+been\s+)?allot+ed|allotment\s+of\s+units""",
         )
 
         fun isStatementSubject(subject: String?): Boolean = subject != null && STATEMENT_SUBJECT.containsMatchIn(subject)

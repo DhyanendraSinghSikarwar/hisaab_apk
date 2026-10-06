@@ -79,11 +79,18 @@ class WelcomeViewModel @Inject constructor(
 
     val currentName = settings.settings.map { it.profile.name.orEmpty() }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
-    fun finish(name: String, email: String?, phone: String?, dob: java.time.LocalDate? = null, pan: String = "") = viewModelScope.launch {
+    fun finish(
+        name: String, email: String?, phone: String?, dob: java.time.LocalDate? = null, pan: String = "",
+        altName: String = "", altPhone: String? = null,
+    ) = viewModelScope.launch {
         val p = settings.settings.first().profile
         val mobile = phone ?: p.phone.orEmpty()
         // The statement details first: saving the name ends sign-up and closes this screen.
-        passwords.setIdentity(com.hisaab.parser.statement.Identity(name.trim(), dob, pan.trim().ifEmpty { null }, mobile.ifBlank { null }))
+        // Alternates are kept only in the sealed identity, never in plain settings.
+        passwords.setIdentity(com.hisaab.parser.statement.Identity(
+            name.trim(), dob, pan.trim().ifEmpty { null }, mobile.ifBlank { null },
+            altName = altName.trim().ifEmpty { null }, altPhone = altPhone?.ifBlank { null },
+        ))
         settings.saveProfile(name, email ?: p.email.orEmpty(), mobile, p.occupation.orEmpty())
     }
 }
@@ -102,6 +109,8 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
     var email by rememberSaveable { mutableStateOf<String?>(null) }
     var dob by rememberSaveable { mutableStateOf<java.time.LocalDate?>(null) }
     var pan by rememberSaveable { mutableStateOf("") }
+    var altName by rememberSaveable { mutableStateOf("") }
+    var altPhone by rememberSaveable { mutableStateOf("") }
     val c = MaterialTheme.colorScheme
     Surface(Modifier.fillMaxSize(), color = c.background) {
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BackdropColors.emerald.copy(alpha = 0.18f), Color.Transparent, BackdropColors.sapphire.copy(alpha = 0.12f))))) {
@@ -120,7 +129,7 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
                 Spacer(Modifier.height(40.dp))
 
                 OutlinedTextField(
-                    name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Your name") }, singleLine = true,
+                    name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Full name (as per bank)") }, singleLine = true,
                     leadingIcon = { Icon(Icons.Filled.Person, null) }, shape = RoundedCornerShape(16.dp),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                 )
@@ -131,14 +140,18 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
                             Text("Unlock your statements", style = MaterialTheme.typography.titleMedium)
                             if (email != null) {
                                 OutlinedTextField(
-                                    phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("Mobile number") },
+                                    phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("Mobile (as per bank)") },
                                     prefix = { Text("+91 ") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Phone, null) }, shape = RoundedCornerShape(16.dp),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
                                 )
                             }
+                            com.hisaab.app.ui.profile.AlternateFields(altName, { altName = it }, altPhone, { altPhone = it }, phonePrefix = "+91 ")
                             com.hisaab.app.ui.profile.StatementDetailsFields(dob, { dob = it }, pan, { pan = it })
                             Button(
-                                onClick = { vm.finish(name, email, phone.takeIf { it.length == 10 }?.let { "+91 $it" }, dob, pan) },
+                                onClick = {
+                                    vm.finish(name, email, phone.takeIf { it.length == 10 }?.let { "+91 $it" }, dob, pan,
+                                        altName, altPhone.takeIf { it.length == 10 }?.let { "+91 $it" })
+                                },
                                 enabled = com.hisaab.app.ui.profile.validPan(pan), modifier = Modifier.fillMaxWidth().height(52.dp),
                             ) { Text("Finish") }
                             TextButton(onClick = { vm.finish(name, email, phone.takeIf { it.length == 10 }?.let { "+91 $it" }) }, modifier = Modifier.fillMaxWidth()) {
@@ -146,7 +159,7 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
                             }
                         } else if (m == "phone") {
                             OutlinedTextField(
-                                phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("Mobile number") },
+                                phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("Mobile (as per bank)") },
                                 prefix = { Text("+91 ") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Phone, null) }, shape = RoundedCornerShape(16.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
                             )

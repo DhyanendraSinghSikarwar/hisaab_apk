@@ -143,6 +143,8 @@ class GmailSyncEngine(
         registry.parse(content.text, content.from, content.receivedAt, Source.EMAIL)?.let {
             out += IncomingMessage(it, messageId, content.text, subject = content.subject)
         }
+        // Not a bank alert: maybe a mutual fund purchase confirmation (SIP instalment, units allotted).
+        if (out.isEmpty() && pdf != null) out += pdf.readEmail(messageId, content.from, content.subject, content.text, content.receivedAt)
         if (readPdf && pdf != null) {
             for ((index, attachment) in content.pdfAttachments.withIndex()) {
                 val data = attachment.inlineData ?: attachment.attachmentId?.let { api.attachment(messageId, it).data } ?: continue

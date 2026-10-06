@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -94,37 +97,43 @@ fun ReviewRoute(onBack: () -> Unit, onOpen: (Long) -> Unit, onCompare: (Long, Lo
             actions = { com.hisaab.app.ui.components.InfoButton("Possible duplicates", *com.hisaab.app.ui.components.Info.DUPLICATES) },
         )
     }) { inner ->
-        if (pairs.isEmpty()) EmptyState(Icons.Filled.DoneAll, "All clear", "Nothing needs a decision.", Modifier.padding(inner))
-        LazyColumn(contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item {
-                Text(
-                    "Each pair looks like one payment reported twice. Tap a transaction to see it, or Compare to see both side by side.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            items(pairs, key = { it.flagged.id }) { p ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(vertical = 8.dp)) {
-                        Text(p.flagged.reviewReason ?: "These look like the same transaction", style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                        TransactionRow(p.flagged, onClick = { onOpen(p.flagged.id) }, showDate = true)
-                        p.flaggedSources.forEach { s -> com.hisaab.app.ui.components.MessageView(s, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), collapsedLines = 4) }
-                        HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
-                        p.candidate?.let { TransactionRow(it, onClick = { onOpen(it.id) }, showDate = true) }
-                        p.candidateSources.forEach { s -> com.hisaab.app.ui.components.MessageView(s, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), collapsedLines = 4) }
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            p.candidate?.let { c ->
-                                TextButton(onClick = { onCompare(p.flagged.id, c.id) }) {
-                                    Icon(Icons.AutoMirrored.Filled.CompareArrows, null)
-                                    Spacer(Modifier.padding(2.dp))
-                                    Text("Compare")
+        if (pairs.isEmpty()) {
+            EmptyState(Icons.Filled.DoneAll, "All clear", "Nothing needs a decision.", Modifier.padding(inner))
+            return@Scaffold
+        }
+        Column(Modifier.fillMaxSize().padding(top = inner.calculateTopPadding())) {
+            // Pinned and opaque: the explanation stays under the top bar, and the pairs scroll in their own clipped area,
+            // so no card ever slides beneath the header.
+            Text(
+                "Each pair looks like one payment reported twice. Tap a transaction to see it, or Compare to see both side by side.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+            )
+            LazyColumn(Modifier.fillMaxSize().clipToBounds(), contentPadding = PaddingValues(top = 4.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(pairs, key = { it.flagged.id }) { p ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(vertical = 8.dp)) {
+                            Text(p.flagged.reviewReason ?: "These look like the same transaction", style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                            TransactionRow(p.flagged, onClick = { onOpen(p.flagged.id) }, showDate = true)
+                            p.flaggedSources.forEach { s -> com.hisaab.app.ui.components.MessageView(s, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), collapsedLines = 4) }
+                            HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                            p.candidate?.let { TransactionRow(it, onClick = { onOpen(it.id) }, showDate = true) }
+                            p.candidateSources.forEach { s -> com.hisaab.app.ui.components.MessageView(s, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), collapsedLines = 4) }
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                p.candidate?.let { c ->
+                                    TextButton(onClick = { onCompare(p.flagged.id, c.id) }) {
+                                        Icon(Icons.AutoMirrored.Filled.CompareArrows, null)
+                                        Spacer(Modifier.padding(2.dp))
+                                        Text("Compare")
+                                    }
                                 }
+                                Spacer(Modifier.weight(1f))
+                                OutlinedButton(onClick = { vm.keep(p.flagged.id) }) { Text("Keep both") }
+                                Spacer(Modifier.padding(4.dp))
+                                Button(onClick = { vm.merge(p.flagged.id) }) { Text("Merge") }
                             }
-                            Spacer(Modifier.weight(1f))
-                            OutlinedButton(onClick = { vm.keep(p.flagged.id) }) { Text("Keep both") }
-                            Spacer(Modifier.padding(4.dp))
-                            Button(onClick = { vm.merge(p.flagged.id) }) { Text("Merge") }
                         }
                     }
                 }

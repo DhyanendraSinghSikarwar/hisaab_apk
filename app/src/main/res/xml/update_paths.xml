@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Only the folder holding a downloaded update is shared, and only with Android's package installer. -->
+<!--
+    Files the app hands to other apps through its one FileProvider (authority ${applicationId}.updates):
+    a downloaded update, shared only with Android's package installer, and files the user chooses to share
+    (such as the tax estimate image or PDF), written to cache/shared/ just before the share sheet opens.
+-->
 <paths>
     <cache-path name="updates" path="updates/" />
+    <cache-path name="shared" path="shared/" />
 </paths>

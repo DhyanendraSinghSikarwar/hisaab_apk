@@ -86,6 +86,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -119,7 +121,11 @@ data class AccountEdit(
 data class NewAccount(val kind: AccountKind, val bank: String, val last4: String, val type: AccountType?, val network: CardNetwork?, val balance: String)
 
 @HiltViewModel
-class AccountsViewModel @Inject constructor(private val dao: AccountDao, private val forex: com.hisaab.shared.db.ForexDao) : ViewModel() {
+class AccountsViewModel @Inject constructor(
+    private val dao: AccountDao,
+    private val forex: com.hisaab.shared.db.ForexDao,
+    private val filters: com.hisaab.app.ui.ledger.ViewFilterStore,
+) : ViewModel() {
     init { viewModelScope.launch { dao.closeMatured(java.time.LocalDate.now(Periods.zone).toEpochDay()) } }
 
     /** Adds a card or account by hand. False when that bank and number already exist. */
@@ -129,6 +135,9 @@ class AccountsViewModel @Inject constructor(private val dao: AccountDao, private
             com.hisaab.shared.db.AccountEntity(
                 bankName = n.bank.trim(), last4 = n.last4, kind = n.kind, createdAt = now,
                 accountType = n.type, cardNetwork = n.network,
+                // Added while the Business book is shown: it belongs to the business.
+                usage = if (filters.filter.value.book == com.hisaab.app.ui.ledger.Book.BUSINESS) com.hisaab.shared.db.AccountUsage.BUSINESS
+                else com.hisaab.shared.db.AccountUsage.PERSONAL,
             ),
         )
         if (id > 0) Money.parseInput(n.balance)?.let { dao.setManualBalance(id, it, now) }
@@ -137,12 +146,16 @@ class AccountsViewModel @Inject constructor(private val dao: AccountDao, private
 
     private val dismissed = MutableStateFlow(emptySet<Long>())
 
-    val state = combine(dao.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())), dismissed) { all, dismissedCards ->
+    /** The lists follow the global book (set in More): Business shows only Business accounts and cards; All shows everything. */
+    val state = combine(
+        dao.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())), dismissed, filters.filter.map { it.book }.distinctUntilChanged(),
+    ) { everything, dismissedCards, book ->
+        val all = everything.filter { book == com.hisaab.app.ui.ledger.Book.ALL || it.usage.name == book.name }
         val visible = all.filter { !it.hidden }
         val accounts = visible.filter { it.kind == AccountKind.ACCOUNT && it.accountType?.liquid != false }
         val cards = visible.filter { it.kind == AccountKind.CARD }
         val deposits = visible.filter { it.kind == AccountKind.ACCOUNT && it.accountType?.liquid == false }
-        AccountsState(accounts, cards, deposits, suggestions(cards, accounts).filter { it.card.id !in dismissedCards }, all.associateBy { it.id },
+        AccountsState(accounts, cards, deposits, suggestions(cards, accounts).filter { it.card.id !in dismissedCards }, everything.associateBy { it.id },
             hidden = all.filter { it.hidden })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AccountsState())
 

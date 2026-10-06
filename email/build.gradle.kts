@@ -46,6 +46,10 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.jsoup)
     implementation(libs.pdfbox.android)
+    // Reads .xls (BIFF) bank statements. Its optional log4j logger is not needed: JExcelApi falls back to its own.
+    implementation("net.sourceforge.jexcelapi:jxl:2.6.12") {
+        exclude(group = "log4j", module = "log4j")
+    }
 
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)

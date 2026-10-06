@@ -1,6 +1,5 @@
 package com.hisaab.app.ui.more
 
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,30 +35,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import com.hisaab.app.ui.components.CardTitle
 import com.hisaab.app.ui.components.Tag
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.theme.Hx
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import org.json.JSONObject
 import java.math.BigDecimal
-import javax.inject.Inject
-import javax.inject.Singleton
 
 // ---------------------------------------------------------------------------------------------
-// Values the user typed in to replace what Hisaab worked out. All amounts are paise; null means
-// "use the calculated value".
+// What-if figures: amounts typed into the calculator to replace what Hisaab worked out, held only in
+// TaxViewModel for the current visit and never saved. All amounts are paise; null means "use the
+// calculated value".
 // ---------------------------------------------------------------------------------------------
 
-data class TaxOverrides(
+data class TaxWhatIf(
     /** Annual gross salary. */
     val salary: Long? = null,
     val otherIncome: Long? = null,
@@ -75,48 +63,10 @@ data class TaxOverrides(
     val employerNps: Long? = null,
 ) {
     val any: Boolean get() = listOf(salary, otherIncome, c80, d80, nps, homeLoan, hraOther, employerNps).any { it != null }
-
-    fun toJson(): String = JSONObject().apply {
-        FIELDS.forEach { (k, get) -> get(this@TaxOverrides)?.let { put(k, it) } }
-    }.toString()
-
-    companion object {
-        private val FIELDS: List<Pair<String, (TaxOverrides) -> Long?>> = listOf(
-            "salary" to { it.salary }, "other" to { it.otherIncome }, "c80" to { it.c80 }, "d80" to { it.d80 },
-            "nps" to { it.nps }, "homeLoan" to { it.homeLoan }, "hra" to { it.hraOther }, "employerNps" to { it.employerNps },
-        )
-
-        fun fromJson(json: String?): TaxOverrides {
-            val o = runCatching { JSONObject(json ?: return TaxOverrides()) }.getOrNull() ?: return TaxOverrides()
-            fun l(k: String): Long? = if (o.has(k)) runCatching { o.getLong(k) }.getOrNull() else null
-            return TaxOverrides(l("salary"), l("other"), l("c80"), l("d80"), l("nps"), l("homeLoan"), l("hra"), l("employerNps"))
-        }
-    }
-}
-
-private val Context.taxOverridesStore: DataStore<Preferences> by preferencesDataStore(name = "tax_overrides")
-
-/** The tax centre's overrides, on the phone only, one JSON entry per financial year ("2026-27"). */
-@Singleton
-class TaxOverridesStore @Inject constructor(@ApplicationContext context: Context) {
-    private val store = context.taxOverridesStore
-
-    fun observe(fy: String): Flow<TaxOverrides> =
-        store.data.map { TaxOverrides.fromJson(it[key(fy)]) }.distinctUntilChanged()
-
-    suspend fun save(fy: String, overrides: TaxOverrides) {
-        store.edit { p -> if (overrides.any) p[key(fy)] = overrides.toJson() else p.remove(key(fy)) }
-    }
-
-    suspend fun reset(fy: String) {
-        store.edit { it.remove(key(fy)) }
-    }
-
-    private fun key(fy: String) = stringPreferencesKey("fy_$fy")
 }
 
 // ---------------------------------------------------------------------------------------------
-// The edit sheet.
+// The what-if calculator sheet.
 // ---------------------------------------------------------------------------------------------
 
 /** One editable figure: what Hisaab calculated, and a note on how it is used. */
@@ -134,10 +84,10 @@ private fun toInput(minor: Long): String = BigDecimal.valueOf(minor, 2).stripTra
 internal fun TaxEditSheet(
     s: TaxState,
     onDismiss: () -> Unit,
-    onSave: (TaxOverrides) -> Unit,
+    onCalculate: (TaxWhatIf) -> Unit,
     onReset: () -> Unit,
 ) {
-    val o = s.overrides
+    val o = s.whatIf
     val fields = remember {
         listOf(
             Field("Annual gross salary", s.projectedSalary, "Before TDS and PF, for the whole year", o.salary),
@@ -151,21 +101,22 @@ internal fun TaxEditSheet(
         )
     }
     val invalid = fields.any { it.invalid }
-    val draft = if (invalid) null else TaxOverrides(
+    val draft = if (invalid) null else TaxWhatIf(
         salary = fields[0].value, otherIncome = fields[1].value, c80 = fields[2].value, d80 = fields[3].value,
         nps = fields[4].value, homeLoan = fields[5].value, hraOther = fields[6].value, employerNps = fields[7].value,
     )
     // Recompute both regimes live from what is typed so far.
-    val preview = draft?.let { s.withOverrides(it) }
+    val preview = draft?.let { s.withWhatIf(it) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Edit tax values", style = MaterialTheme.typography.titleLarge)
+            Text("What-if calculator", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Leave a field blank to use what Hisaab calculated. Your values stay on this phone for ${s.fyLabel} until you reset them.",
+                "Try your own figures for ${s.fyLabel}. Leave a field blank to use what Hisaab calculated. " +
+                    "Nothing here is saved: the calculated estimate comes back when you leave the Tax centre.",
                 fontSize = 13.sp, color = Hx.text2,
             )
             CardTitle("Income", Modifier.padding(top = 6.dp))
@@ -188,11 +139,11 @@ internal fun TaxEditSheet(
                 TextButton(
                     onClick = { onReset(); onDismiss() },
                     enabled = o.any || fields.any { it.text.isNotBlank() },
-                ) { Text("Reset to calculated") }
+                ) { Text("Back to calculated") }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Spacer(Modifier.width(4.dp))
-                Button(onClick = { draft?.let(onSave); onDismiss() }, enabled = draft != null) { Text("Save") }
+                Button(onClick = { draft?.let(onCalculate); onDismiss() }, enabled = draft != null) { Text("Calculate") }
             }
         }
     }
@@ -220,7 +171,7 @@ private fun FieldInput(f: Field) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (f.invalid) "Enter an amount like 150000 or 1234.50" else "Calculated: $calc", modifier = Modifier.weight(1f, fill = false))
-                    if (!f.invalid && f.value != null) { Spacer(Modifier.width(6.dp)); Tag("Edited", Hx.accent) }
+                    if (!f.invalid && f.value != null) { Spacer(Modifier.width(6.dp)); Tag("What-if", Hx.accent) }
                 }
                 if (f.note != null && !f.invalid) Text(f.note, color = Hx.text2)
             }

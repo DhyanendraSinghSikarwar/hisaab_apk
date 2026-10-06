@@ -1,5 +1,6 @@
 package com.hisaab.app.ui.theme
 
+import android.provider.Settings
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -32,54 +33,47 @@ import androidx.compose.material.icons.filled.Work
 import androidx.compose.material.icons.filled.Category as CategoryIcon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hisaab.app.settings.ThemeMode
+import com.hisaab.app.settings.ThemePalette
 import com.hisaab.parser.model.Category
 
-// Calm neutrals with one blue accent: warm off-white by day, near-black by night. Money in is green,
-// money out red, warnings amber. Every surface is flat; cards are set apart by a hairline border.
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF2F5BEA), onPrimary = Color.White, primaryContainer = Color(0xFFDCE4FD), onPrimaryContainer = Color(0xFF0A1F66),
-    secondary = Color(0xFF4A5468), onSecondary = Color.White, secondaryContainer = Color(0xFFE4E8F2), onSecondaryContainer = Color(0xFF16181D),
-    tertiary = Color(0xFF13895A), onTertiary = Color.White, tertiaryContainer = Color(0xFFD3F1E3), onTertiaryContainer = Color(0xFF00391F),
-    error = Color(0xFFD2453B), onError = Color.White, errorContainer = Color(0xFFFBE0DD), onErrorContainer = Color(0xFF5C0E08),
-    background = Color(0xFFF7F7F5), onBackground = Color(0xFF16181D), surface = Color(0xFFF7F7F5), onSurface = Color(0xFF16181D),
-    surfaceVariant = Color(0xFFF0F0EC), onSurfaceVariant = Color(0xFF5D626C), outline = Color(0xFF9A9EA6), outlineVariant = Color(0xFFE6E6E1),
-    surfaceContainerLowest = Color(0xFFFFFFFF), surfaceContainerLow = Color(0xFFFFFFFF), surfaceContainer = Color(0xFFFFFFFF),
-    surfaceContainerHigh = Color(0xFFF0F0EC), surfaceContainerHighest = Color(0xFFE9E9E4), surfaceBright = Color(0xFFFFFFFF), surfaceDim = Color(0xFFE9E9E4),
-    inverseSurface = Color(0xFF16181D), inverseOnSurface = Color(0xFFF7F7F5), inversePrimary = Color(0xFF7C9BFF), surfaceTint = Color.Transparent,
-)
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFF7C9BFF), onPrimary = Color(0xFF0A1A4D), primaryContainer = Color(0xFF233A80), onPrimaryContainer = Color(0xFFDCE4FD),
-    secondary = Color(0xFFB4BBC9), onSecondary = Color(0xFF1D222C), secondaryContainer = Color(0xFF2A2F3A), onSecondaryContainer = Color(0xFFECEDEF),
-    tertiary = Color(0xFF3CCB8B), onTertiary = Color(0xFF00391F), tertiaryContainer = Color(0xFF0F4A31), onTertiaryContainer = Color(0xFFC9F3DF),
-    error = Color(0xFFFF7B70), onError = Color(0xFF4A0904), errorContainer = Color(0xFF5C1A15), onErrorContainer = Color(0xFFFFDAD5),
-    background = Color(0xFF0E0F12), onBackground = Color(0xFFECEDEF), surface = Color(0xFF0E0F12), onSurface = Color(0xFFECEDEF),
-    surfaceVariant = Color(0xFF20232A), onSurfaceVariant = Color(0xFFA1A6B0), outline = Color(0xFF6B707A), outlineVariant = Color(0xFF2A2D35),
-    surfaceContainerLowest = Color(0xFF0B0C0F), surfaceContainerLow = Color(0xFF17191E), surfaceContainer = Color(0xFF17191E),
-    surfaceContainerHigh = Color(0xFF20232A), surfaceContainerHighest = Color(0xFF272A32), surfaceBright = Color(0xFF2A2D35), surfaceDim = Color(0xFF0E0F12),
-    inverseSurface = Color(0xFFECEDEF), inverseOnSurface = Color(0xFF16181D), inversePrimary = Color(0xFF2F5BEA), surfaceTint = Color.Transparent,
-)
-
+/**
+ * The app theme: [mode] picks light or dark, [palette] the colours (see Palettes.kt). Also provides
+ * [LocalDarkTheme], [LocalPalette] and [LocalReduceMotion].
+ */
 @Composable
-fun HisaabTheme(mode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit) {
+fun HisaabTheme(mode: ThemeMode = ThemeMode.SYSTEM, palette: ThemePalette = ThemePalette.CLASSIC, content: @Composable () -> Unit) {
     val dark = when (mode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
     // Always Hisaab's own colours: wallpaper-based Material You would make it look like every other app.
-    val colors = if (dark) DarkColors else LightColors
+    val spec = palette.spec
+    val colors = if (dark) spec.dark else spec.light
+    val resolver = LocalContext.current.contentResolver
+    // Read once per composition of the theme; "Remove animations" is rarely toggled mid-session.
+    val reduceMotion = remember(resolver) {
+        runCatching { Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }.getOrDefault(false)
+    }
+    // Overscroll: lists keep Compose's default platform effect (the Android 12+ stretch). Nothing in the app
+    // overrides LocalOverscrollFactory, so it is deliberately left as the platform provides it.
     MaterialTheme(colorScheme = colors, typography = HisaabTypography, shapes = HisaabShapes) {
-        androidx.compose.runtime.CompositionLocalProvider(LocalDarkTheme provides dark, content = content)
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalDarkTheme provides dark,
+            LocalPalette provides spec,
+            LocalReduceMotion provides reduceMotion,
+            content = content,
+        )
     }
 }
 

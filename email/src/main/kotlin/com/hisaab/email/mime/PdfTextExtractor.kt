@@ -9,10 +9,12 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** The outcome of opening a PDF: its text, a password is needed (or was wrong), or it could not be read at all. */
+/** The outcome of opening a statement file: its text, a password is needed (or was wrong), a password-protected spreadsheet, or it could not be read at all. */
 sealed interface PdfOpen {
     data class Text(val text: String) : PdfOpen
     data object Locked : PdfOpen
+    /** An .xls/.xlsx saved with a password: these cannot be opened on the phone. */
+    data object Protected : PdfOpen
     data object Unreadable : PdfOpen
 }
 

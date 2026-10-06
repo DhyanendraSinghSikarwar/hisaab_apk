@@ -21,11 +21,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Calculate
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -64,15 +66,19 @@ import com.hisaab.shared.db.TransactionDao
 import com.hisaab.shared.db.TransactionEntity
 import com.hisaab.shared.insight.InsuranceKind
 import com.hisaab.shared.insight.Planning
+import android.content.Context
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
 import javax.inject.Inject
@@ -97,13 +103,16 @@ data class RegimeTax(
     val total: Long get() = slabTax - rebate + cess
 }
 
+/** One slab of a regime as it applies to a taxable income. [to] is null for the open-ended top slab. */
+data class SlabLine(val from: Long, val to: Long?, val rate: Int, val taxedPart: Long, val tax: Long)
+
 /** Indian income tax for a resident individual under 60, without surcharge. */
 object TaxMath {
     const val LAKH = 100_000L * 100
 
     /** Upper bound of each slab and its rate in percent; the last slab is open-ended. */
-    private val NEW = listOf(4 * LAKH to 0, 8 * LAKH to 5, 12 * LAKH to 10, 16 * LAKH to 15, 20 * LAKH to 20, 24 * LAKH to 25, Long.MAX_VALUE to 30)
-    private val OLD = listOf(250_000L * 100 to 0, 5 * LAKH to 5, 10 * LAKH to 20, Long.MAX_VALUE to 30)
+    val NEW = listOf(4 * LAKH to 0, 8 * LAKH to 5, 12 * LAKH to 10, 16 * LAKH to 15, 20 * LAKH to 20, 24 * LAKH to 25, Long.MAX_VALUE to 30)
+    val OLD = listOf(250_000L * 100 to 0, 5 * LAKH to 5, 10 * LAKH to 20, Long.MAX_VALUE to 30)
 
     const val NEW_STANDARD = 75_000L * 100
     const val OLD_STANDARD = 50_000L * 100
@@ -122,6 +131,17 @@ object TaxMath {
             lower = upper
         }
         return roundRupee(tax)
+    }
+
+    /** Each slab [taxable] reaches: its bounds, the part of income taxed in it, and the tax on that part (before rebate and cess). */
+    fun slabLines(taxable: Long, slabs: List<Pair<Long, Int>>): List<SlabLine> = buildList {
+        var lower = 0L
+        for ((upper, rate) in slabs) {
+            if (taxable <= lower) break
+            val part = min(taxable, upper) - lower
+            add(SlabLine(lower, upper.takeIf { it != Long.MAX_VALUE }, rate, part, roundRupee(part * rate / 100.0)))
+            lower = upper
+        }
     }
 
     /** 80CCD(1B), your own NPS contribution over and above 80C. */
@@ -161,7 +181,8 @@ object TaxMath {
 
 // ---------------------------------------------------------------------------------------------
 // The estimate, worked out only from what Hisaab tracked: bank credits, investment debits, insurance
-// premiums and EPF passbook updates. Nothing is typed in.
+// premiums and EPF passbook updates. Figures typed into the what-if calculator live only in TaxViewModel
+// for the current visit; nothing typed is ever saved.
 // ---------------------------------------------------------------------------------------------
 
 /** One source of a deduction, for the "where this comes from" list. */
@@ -175,39 +196,39 @@ data class TaxState(
     val otherIncome: Long = 0,
     /** Salary projected to twelve months, as calculated. */
     val projectedSalary: Long = 0,
-    /** Salary and other income used for the estimate: calculated, or the user's values. */
+    /** Salary and other income used for the estimate: calculated, or the what-if values. */
     val income: Long = 0,
     val items80C: List<TaxItem> = emptyList(),
     val items80D: List<TaxItem> = emptyList(),
     /** Investments this year that do not qualify for 80C (equity funds, stocks…), shown for context. */
     val otherInvested: Long = 0,
-    /** Values the user typed in for this financial year; empty by default. */
-    val overrides: TaxOverrides = TaxOverrides(),
+    /** What-if figures typed in for this visit; empty means the calculated estimate. Never saved. */
+    val whatIf: TaxWhatIf = TaxWhatIf(),
     val newRegime: RegimeTax = TaxMath.newRegime(0),
     val oldRegime: RegimeTax = TaxMath.oldRegime(0, 0, 0),
     val loaded: Boolean = false,
 ) {
     val fyLabel: String get() = "FY $fyStartYear-${(fyStartYear + 1) % 100}"
-    /** The store key for this year's overrides, "2026-27". */
-    val fyKey: String get() = "$fyStartYear-${"%02d".format((fyStartYear + 1) % 100)}"
+    /** "FY 2026-27" with a four-digit start and two-digit end, for the shared report. */
+    val fyLong: String get() = "FY $fyStartYear-${"%02d".format((fyStartYear + 1) % 100)}"
     val c80Calc: Long get() = items80C.sumOf { it.amountMinor }
     val d80Calc: Long get() = items80D.sumOf { it.amountMinor }
-    val c80: Long get() = overrides.c80 ?: c80Calc
-    val d80: Long get() = overrides.d80 ?: d80Calc
-    val salaryUsed: Long get() = overrides.salary ?: projectedSalary
-    val otherIncomeUsed: Long get() = overrides.otherIncome ?: otherIncome
-    val nps: Long get() = overrides.nps ?: 0
-    val homeLoan: Long get() = overrides.homeLoan ?: 0
-    val hraOther: Long get() = overrides.hraOther ?: 0
-    val employerNps: Long get() = overrides.employerNps ?: 0
+    val c80: Long get() = whatIf.c80 ?: c80Calc
+    val d80: Long get() = whatIf.d80 ?: d80Calc
+    val salaryUsed: Long get() = whatIf.salary ?: projectedSalary
+    val otherIncomeUsed: Long get() = whatIf.otherIncome ?: otherIncome
+    val nps: Long get() = whatIf.nps ?: 0
+    val homeLoan: Long get() = whatIf.homeLoan ?: 0
+    val hraOther: Long get() = whatIf.hraOther ?: 0
+    val employerNps: Long get() = whatIf.employerNps ?: 0
     val newIsBetter: Boolean get() = newRegime.total <= oldRegime.total
     val saving: Long get() = kotlin.math.abs(newRegime.total - oldRegime.total)
     val left80C: Long get() = max(0L, TaxMath.LIMIT_80C - c80)
     val hasIncome: Boolean get() = income > 0
 
-    /** This state with [o] applied: income and both regimes recomputed. With no overrides, exactly the calculated estimate. */
-    fun withOverrides(o: TaxOverrides): TaxState {
-        val s = copy(overrides = o)
+    /** This state with the what-if figures [o] applied: income and both regimes recomputed. Empty [o] gives the calculated estimate. */
+    fun withWhatIf(o: TaxWhatIf): TaxState {
+        val s = copy(whatIf = o)
         val income = s.salaryUsed + s.otherIncomeUsed
         return s.copy(
             income = income,
@@ -217,22 +238,26 @@ data class TaxState(
     }
 }
 
-/** The current financial year's estimate, shared by the Tax centre and the More list. */
+/** The current financial year's calculated estimate, shared by the Tax centre and the More list. Never holds what-if figures. */
 @Singleton
 class TaxSource @Inject constructor(
     transactions: TransactionDao,
     holdings: HoldingDao,
-    private val overrides: TaxOverridesStore,
+    @ApplicationContext context: Context,
     @ApplicationScope scope: CoroutineScope,
 ) {
+    init {
+        // Earlier versions saved typed tax figures; they are no longer used, so the old file is removed.
+        scope.launch(Dispatchers.IO) { runCatching { File(context.filesDir, "datastore/tax_overrides.preferences_pb").delete() } }
+    }
+
     private val fyStart: LocalDate = ViewFilter.fyStart(LocalDate.now(Periods.zone))
     private val fyFrom = millis(fyStart)
     private val fyTo = millis(fyStart.plusYears(1)) - 1
-    private val fyKey = TaxState(fyStartYear = fyStart.year).fyKey
 
     val state: StateFlow<TaxState> = combine(
-        transactions.observeBetween(fyFrom, fyTo), holdings.observeAll(), overrides.observe(fyKey),
-    ) { all, held, typed ->
+        transactions.observeBetween(fyFrom, fyTo), holdings.observeAll(),
+    ) { all, held ->
         val txs = all.filter { !it.needsReview }
         val salary = txs.filter { LedgerMath.isIncome(it) && it.category == Category.SALARY }
         val salarySoFar = salary.sumOf(LedgerMath::rupees)
@@ -264,7 +289,7 @@ class TaxSource @Inject constructor(
             items80C = items80C, items80D = items80D,
             otherInvested = invest.filter { it.id !in qualifyingIds }.sumOf(LedgerMath::rupees),
             newRegime = TaxMath.newRegime(income), oldRegime = TaxMath.oldRegime(income, c80, d80), loaded = true,
-        ).let { if (typed.any) it.withOverrides(typed) else it }
+        )
     }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(10_000), TaxState())
 
     /**
@@ -281,10 +306,6 @@ class TaxSource @Inject constructor(
         val share = (now - before).toDouble() * overlap / (at - prevAt)
         return (share * 12.0 / 15.67).toLong()
     }
-
-    suspend fun saveOverrides(o: TaxOverrides) = overrides.save(fyKey, o)
-
-    suspend fun resetOverrides() = overrides.reset(fyKey)
 
     private fun millis(d: LocalDate) = d.atStartOfDay(Periods.zone).toInstant().toEpochMilli()
 
@@ -309,12 +330,16 @@ class TaxSource @Inject constructor(
 }
 
 @HiltViewModel
-class TaxViewModel @Inject constructor(private val source: TaxSource) : ViewModel() {
-    val state: StateFlow<TaxState> = source.state
+class TaxViewModel @Inject constructor(source: TaxSource) : ViewModel() {
+    /** What-if figures for this visit only: they go when the screen is left and are never written anywhere. */
+    private val whatIf = MutableStateFlow(TaxWhatIf())
 
-    fun save(o: TaxOverrides) { viewModelScope.launch { source.saveOverrides(o) } }
+    val state: StateFlow<TaxState> = combine(source.state, whatIf) { s, o -> if (o.any) s.withWhatIf(o) else s }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), source.state.value)
 
-    fun reset() { viewModelScope.launch { source.resetOverrides() } }
+    fun calculate(o: TaxWhatIf) { whatIf.value = o }
+
+    fun backToCalculated() { whatIf.value = TaxWhatIf() }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -325,14 +350,20 @@ class TaxViewModel @Inject constructor(private val source: TaxSource) : ViewMode
 fun TaxRoute(onBack: () -> Unit, vm: TaxViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     var editing by rememberSaveable { mutableStateOf(false) }
+    var sharing by rememberSaveable { mutableStateOf(false) }
     MoreScaffold(
         "Tax centre", onBack,
-        actions = { if (s.loaded) IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Edit, "Edit tax values") } },
+        actions = {
+            if (s.loaded) {
+                IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Calculate, "What-if calculator") }
+                IconButton(onClick = { sharing = true }, enabled = s.hasIncome) { Icon(Icons.Outlined.Share, "Share estimate") }
+            }
+        },
     ) { inner ->
         if (!s.loaded) return@MoreScaffold
         LazyColumn(contentPadding = listPadding(inner), verticalArrangement = Arrangement.spacedBy(CardGap)) {
-            if (s.overrides.any) item("edited") { EditedBanner(onEdit = { editing = true }, onReset = vm::reset) }
-            item("summary") { Summary(s) }
+            if (s.whatIf.any) item("whatif") { WhatIfBanner(onEdit = { editing = true }, onReset = vm::backToCalculated) }
+            item("summary") { Summary(s, onShare = { sharing = true }) }
             item("income") { IncomeCard(s) }
             item("deductions") { DeductionsCard(s) }
             item("breakdown") { Breakdown(s) }
@@ -340,36 +371,41 @@ fun TaxRoute(onBack: () -> Unit, vm: TaxViewModel = hiltViewModel()) {
                 Text(
                     "Worked out from what Hisaab tracked this year, for a resident individual under 60. Salary credits are what " +
                         "reached your bank, after TDS and PF, so your taxable salary is likely higher. It leaves out surcharge, " +
-                        "capital gains, HRA and deductions Hisaab cannot see; tap the pencil to enter your own figures. Check with a tax professional before you file.",
+                        "capital gains, HRA and deductions Hisaab cannot see; use the what-if calculator to try your own figures " +
+                        "(they are not saved). Check with a tax professional before you file.",
                     style = MaterialTheme.typography.bodySmall, color = Hx.text2, modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
         }
     }
-    if (editing && s.loaded) TaxEditSheet(s, onDismiss = { editing = false }, onSave = vm::save, onReset = vm::reset)
+    if (editing && s.loaded) TaxEditSheet(s, onDismiss = { editing = false }, onCalculate = vm::calculate, onReset = vm::backToCalculated)
+    if (sharing && s.loaded) TaxShareFlow(s, onDone = { sharing = false })
 }
 
-/** Shown while any of the user's values replace the calculated ones. */
+/** Shown while what-if figures replace the calculated ones. They last only for this visit. */
 @Composable
-private fun EditedBanner(onEdit: () -> Unit, onReset: () -> Unit) {
+private fun WhatIfBanner(onEdit: () -> Unit, onReset: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Hx.accentSoft).clickable(onClick = onEdit)
-            .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+            .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Edit, null, tint = Hx.accent, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("Using your values", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.accent, modifier = Modifier.weight(1f))
-        TextButton(onClick = onReset) { Text("Reset") }
+        Icon(Icons.Outlined.Calculate, null, tint = Hx.accent, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text("What-if", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.accent)
+            Text("Tax for the figures you entered. Not saved.", fontSize = 12.sp, color = Hx.text2)
+        }
+        TextButton(onClick = onReset) { Text("Back to calculated") }
     }
 }
 
 @Composable
-private fun Summary(s: TaxState) {
+private fun Summary(s: TaxState, onShare: () -> Unit) {
     HCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(s.fyLabel, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            if (s.overrides.any) { Tag("Edited", Hx.accent); Spacer(Modifier.width(6.dp)) }
+            if (s.whatIf.any) { Tag("What-if", Hx.accent); Spacer(Modifier.width(6.dp)) }
             Tag("Estimate", Hx.warn)
         }
         Spacer(Modifier.height(14.dp))
@@ -392,6 +428,14 @@ private fun Summary(s: TaxState) {
             BarLine("New", s.newRegime.total.toFloat() / top, Hx.accent)
             Spacer(Modifier.height(4.dp))
             BarLine("Old", s.oldRegime.total.toFloat() / top, Hx.palette[1])
+        }
+        if (s.hasIncome) {
+            Spacer(Modifier.height(14.dp))
+            OutlinedButton(onClick = onShare, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.Share, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Share this estimate")
+            }
         }
     }
 }
@@ -423,8 +467,8 @@ private fun IncomeCard(s: TaxState) {
     HCard(title = "Income") {
         ItemRow("Salary received", s.salarySoFar, if (s.salaryMonths > 0) "${s.salaryMonths} month${if (s.salaryMonths == 1) "" else "s"} so far" else "None found yet")
         if (s.salaryMonths in 1..11) ItemRow("Projected for the year", s.salarySoFar * 12 / s.salaryMonths, "At the same monthly pay")
-        s.overrides.salary?.let { ItemRow("Annual gross salary", it, "Calculated: ${Money.format(s.projectedSalary, showPaise = false)}", edited = true) }
-        val other = s.overrides.otherIncome
+        s.whatIf.salary?.let { ItemRow("Annual gross salary", it, "Calculated: ${Money.format(s.projectedSalary, showPaise = false)}", edited = true) }
+        val other = s.whatIf.otherIncome
         if (other != null) ItemRow("Other income", other, "Calculated: ${Money.format(s.otherIncome, showPaise = false)}", edited = true)
         else if (s.otherIncome > 0) ItemRow("Other income", s.otherIncome, null)
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Hx.border)
@@ -437,7 +481,7 @@ private fun DeductionsCard(s: TaxState) {
     HCard(title = "Deductions · old regime") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("80C", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            if (s.overrides.c80 != null) { Spacer(Modifier.width(6.dp)); Tag("Edited", Hx.accent) }
+            if (s.whatIf.c80 != null) { Spacer(Modifier.width(6.dp)); Tag("What-if", Hx.accent) }
             Spacer(Modifier.weight(1f))
             Text("${Money.format(min(s.c80, TaxMath.LIMIT_80C), showPaise = false)} of ₹1,50,000", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
@@ -449,8 +493,8 @@ private fun DeductionsCard(s: TaxState) {
             fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (s.left80C > 0) Hx.warn else Hx.pos,
             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
         )
-        if (s.overrides.c80 != null) {
-            Text("Your value. Calculated from tracked payments: ${Money.format(s.c80Calc, showPaise = false)}", fontSize = 12.sp, color = Hx.text2)
+        if (s.whatIf.c80 != null) {
+            Text("What-if value. Calculated from tracked payments: ${Money.format(s.c80Calc, showPaise = false)}", fontSize = 12.sp, color = Hx.text2)
         }
         if (s.items80C.isEmpty()) {
             Text("No PPF, ELSS, life cover or EPF payments found this year.", fontSize = 12.sp, color = Hx.text2)
@@ -466,13 +510,13 @@ private fun DeductionsCard(s: TaxState) {
         HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Hx.border)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("80D", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            if (s.overrides.d80 != null) { Spacer(Modifier.width(6.dp)); Tag("Edited", Hx.accent) }
+            if (s.whatIf.d80 != null) { Spacer(Modifier.width(6.dp)); Tag("What-if", Hx.accent) }
             Spacer(Modifier.weight(1f))
             Text("${Money.format(min(s.d80, TaxMath.LIMIT_80D), showPaise = false)} of ₹25,000", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
-        if (s.overrides.d80 != null) {
+        if (s.whatIf.d80 != null) {
             Text(
-                "Your value. Calculated from tracked premiums: ${Money.format(s.d80Calc, showPaise = false)}",
+                "What-if value. Calculated from tracked premiums: ${Money.format(s.d80Calc, showPaise = false)}",
                 fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(top = 4.dp),
             )
         }
@@ -481,7 +525,7 @@ private fun DeductionsCard(s: TaxState) {
         } else {
             s.items80D.forEach { ItemRow(it.label, it.amountMinor, null) }
         }
-        val o = s.overrides
+        val o = s.whatIf
         if (listOf(o.nps, o.homeLoan, o.hraOther, o.employerNps).any { it != null }) {
             HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Hx.border)
             o.nps?.let { ItemRow("NPS 80CCD(1B)", min(it, TaxMath.LIMIT_NPS), capNote(it, TaxMath.LIMIT_NPS, "₹50,000"), edited = true) }
@@ -501,7 +545,7 @@ private fun ItemRow(label: String, amount: Long, sub: String?, bold: Boolean = f
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(label, fontSize = 13.sp, fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f, fill = false))
-                if (edited) { Spacer(Modifier.width(6.dp)); Tag("Edited", Hx.accent) }
+                if (edited) { Spacer(Modifier.width(6.dp)); Tag("What-if", Hx.accent) }
             }
             if (sub != null) Text(sub, fontSize = 11.sp, color = Hx.text2)
         }
@@ -521,7 +565,7 @@ private fun Breakdown(s: TaxState) {
         val o = s.oldRegime
         Line("Gross income", n.gross, o.gross)
         Line("Standard deduction", -n.standardDeduction, -o.standardDeduction)
-        Line(if (s.overrides.any || n.deductions > 0) "Deductions" else "80C and 80D", -n.deductions, -o.deductions)
+        Line(if (s.whatIf.any || n.deductions > 0) "Deductions" else "80C and 80D", -n.deductions, -o.deductions)
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Hx.border)
         Line("Taxable income", n.taxable, o.taxable, bold = true)
         Line("Tax on slabs", n.slabTax, o.slabTax)

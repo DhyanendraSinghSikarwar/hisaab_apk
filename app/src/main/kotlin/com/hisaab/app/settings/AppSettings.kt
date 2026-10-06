@@ -17,6 +17,11 @@ import javax.inject.Singleton
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/** The colour palette the whole app is drawn in. Colours live in ui/theme; this is only the choice. */
+enum class ThemePalette(val label: String) {
+    CLASSIC("Classic"), EMERALD("Emerald"), GRAPHITE("Graphite"), INDIGO("Indigo Night"), SAFFRON("Saffron"), OCEAN("Ocean"),
+}
+
 /** Who uses this copy of Hisaab. Stays on the phone; nothing here is sent anywhere. */
 data class Profile(
     val name: String? = null,
@@ -55,6 +60,7 @@ data class AppSettings(
     /** Look for a newer version on GitHub, at most once a day. */
     val checkUpdates: Boolean = true,
     val lastUpdateCheck: Long? = null,
+    val palette: ThemePalette = ThemePalette.CLASSIC,
 )
 
 private val Context.appStore: DataStore<Preferences> by preferencesDataStore(name = "app_settings")
@@ -82,6 +88,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
             profile = Profile(p[DISPLAY_NAME], p[PROFILE_EMAIL], p[PROFILE_PHONE], p[PROFILE_OCCUPATION], p[PROFILE_PHOTO]),
             profilePromptDismissed = p[PROFILE_PROMPT_DISMISSED] ?: false,
             lastUpdateCheck = p[LAST_UPDATE_CHECK],
+            palette = p[THEME_PALETTE]?.let { runCatching { ThemePalette.valueOf(it) }.getOrNull() } ?: ThemePalette.CLASSIC,
         )
     }
 
@@ -97,6 +104,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
     suspend fun resetSmsCursor() = store.edit { it.remove(SMS_CURSOR) }
     suspend fun setAppLock(value: Boolean) = store.edit { it[APP_LOCK] = value }
     suspend fun setTheme(mode: ThemeMode) = store.edit { it[THEME] = mode.name }
+    suspend fun setPalette(palette: ThemePalette) = store.edit { it[THEME_PALETTE] = palette.name }
     suspend fun setSmsEnabled(value: Boolean) = store.edit { it[SMS_ENABLED] = value }
     suspend fun setSmsPromptDismissed(value: Boolean) = store.edit { it[SMS_PROMPT_DISMISSED] = value }
     suspend fun setAppNotificationsEnabled(value: Boolean) = store.edit { it[APP_NOTIFICATIONS] = value }
@@ -123,6 +131,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
     private companion object {
         val APP_LOCK = booleanPreferencesKey("app_lock")
         val THEME = stringPreferencesKey("theme")
+        val THEME_PALETTE = stringPreferencesKey("theme_palette")
         val SMS_ENABLED = booleanPreferencesKey("sms_enabled")
         val SMS_CURSOR = longPreferencesKey("sms_cursor")
         val LAST_SMS_SCAN = longPreferencesKey("last_sms_scan")

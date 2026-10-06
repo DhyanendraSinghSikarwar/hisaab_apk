@@ -139,10 +139,14 @@ class JavaMailClient @Inject constructor() : MailClient {
                 for (i in 0 until mp.count) walk(mp.getBodyPart(i), out, withPdfs)
             }
             part.isMimeType("message/rfc822") -> (part.content as? Part)?.let { walk(it, out, withPdfs) }
-            part.isMimeType("application/pdf") || name.endsWith(".pdf", ignoreCase = true) -> {
+            part.isMimeType("application/pdf") || name.endsWith(".pdf", ignoreCase = true) ||
+                (name.isNotEmpty() || Part.ATTACHMENT.equals(part.disposition, ignoreCase = true)) &&
+                (com.hisaab.email.mime.SpreadsheetExtractor.isSpreadsheetName(name) ||
+                    com.hisaab.email.mime.SpreadsheetExtractor.isSpreadsheetMime(part.contentType.orEmpty().substringBefore(';').trim())) -> {
+                // Statements: PDFs, and spreadsheets (.xls, .xlsx, .csv).
                 if (withPdfs && out.pdfs.size < MAX_PDFS) {
                     out.pdfs += part.inputStream.use { it.readBytes() }
-                    out.pdfNames += name.ifEmpty { "statement.pdf" }
+                    out.pdfNames += name.ifEmpty { if (part.isMimeType("application/pdf")) "statement.pdf" else "statement.xls" }
                 }
             }
             name.isNotEmpty() || Part.ATTACHMENT.equals(part.disposition, ignoreCase = true) -> Unit
@@ -191,6 +195,6 @@ class JavaMailClient @Inject constructor() : MailClient {
     private companion object {
         const val TIMEOUT = "20000"
         const val MIN_PLAIN_LENGTH = 30
-        const val MAX_PDFS = 3
+        const val MAX_PDFS = 5
     }
 }

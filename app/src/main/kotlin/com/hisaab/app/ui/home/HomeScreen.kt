@@ -14,7 +14,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,12 +33,9 @@ import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EventRepeat
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Receipt
@@ -64,18 +60,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hisaab.app.settings.TabLayout
 import com.hisaab.app.settings.TabLayouts
 import com.hisaab.app.ui.components.HCard
-import com.hisaab.app.ui.components.Pill
 import com.hisaab.app.ui.components.rememberSmsPermission
 import com.hisaab.app.ui.ledger.BookPeriodChips
 import com.hisaab.app.ui.theme.Hx
@@ -84,8 +76,8 @@ import com.hisaab.shared.insight.Insight
 import java.time.YearMonth
 
 /**
- * Home. Every widget follows the global Book + Period filter (the chips under the header). The widgets, their
- * order and which are shown are the user's, set in edit mode and kept in [com.hisaab.app.settings.TabLayoutStore].
+ * Home. Every widget follows the global Book (set in More) and Period (the chip under the header) filter. The widgets, their
+ * order and which are shown are the user's, set in More > Customise and kept in [com.hisaab.app.settings.TabLayoutStore].
  */
 @Composable
 fun HomeRoute(
@@ -104,8 +96,6 @@ fun HomeRoute(
     contentPadding: PaddingValues,
     onOpenProfile: () -> Unit = {},
     onOpenCategoryKey: (String) -> Unit = {},
-    /** Opens one account's detail; without it, an account chip opens the Accounts list. */
-    onOpenAccount: ((Long) -> Unit)? = null,
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -129,7 +119,6 @@ fun HomeRoute(
         state = state, widgets = widgets, layout = layout,
         hasSmsPermission = sms.granted, smsBlocked = sms.blocked, onGrantSms = sms::request, onDismissSms = vm::dismissSmsPrompt,
         onOpenTransaction = onOpenTransaction, onSeeAllTransactions = { onSeeAllTransactions(month) }, onOpenAccounts = onOpenAccounts,
-        onOpenAccount = { a -> onOpenAccount?.invoke(a) ?: onOpenAccounts() },
         onOpenReview = onOpenReview, onOpenBudgets = onOpenBudgets, contentPadding = contentPadding,
         onToggleHide = vm::toggleHideAmounts, onAdd = onAdd, onAddRecurring = { addingRecurring = true },
         onOpenInvestments = onOpenInvestments, onOpenStatements = onOpenStatements, onOpenBills = onOpenBills, onOpenAnalytics = onOpenAnalytics,
@@ -137,7 +126,6 @@ fun HomeRoute(
         updateVersion = (update as? com.hisaab.app.update.UpdateState.Available)?.release?.version, onOpenSettings = onOpenSettings,
         syncing = syncing, onSync = vm::syncAll, photoPath = profile?.first?.photoPath, onOpenProfile = onOpenProfile,
         onDismissInsight = vm::dismissInsight,
-        onMove = vm::move, onSetVisible = vm::setVisible, onPreset = vm::applyPreset, onResetLayout = vm::resetLayout,
     )
 }
 
@@ -157,7 +145,6 @@ fun HomeScreen(
     layout: TabLayout = TabLayout(),
     smsBlocked: Boolean = false,
     onDismissSms: () -> Unit = {},
-    onOpenAccount: (Long) -> Unit = { onOpenAccounts() },
     onToggleHide: () -> Unit = {},
     onAdd: () -> Unit = {},
     onAddRecurring: () -> Unit = {},
@@ -174,13 +161,8 @@ fun HomeScreen(
     photoPath: String? = null,
     onOpenProfile: () -> Unit = {},
     onDismissInsight: (Insight) -> Unit = {},
-    onMove: (String, Int) -> Unit = { _, _ -> },
-    onSetVisible: (String, Boolean) -> Unit = { _, _ -> },
-    onPreset: (List<String>) -> Unit = {},
-    onResetLayout: () -> Unit = {},
 ) {
     var showNotices by rememberSaveable { mutableStateOf(false) }
-    var editing by rememberSaveable { mutableStateOf(false) }
     val notices = buildList {
         if (state.reviewCount > 0) add(HomeNotice("${state.reviewCount} possible duplicate${if (state.reviewCount > 1) "s" else ""}", "Review and merge",
             Icons.Filled.ContentCopy, onOpenReview))
@@ -194,8 +176,7 @@ fun HomeScreen(
     // Once the header has scrolled away, a compact one floats at the top.
     val collapsed by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     val name = state.displayName ?: "Welcome"
-    val order = layout.order(TabLayouts.HOME)
-    val shown = if (editing) order else order.filter { !layout.isHidden(TabLayouts.HOME, it) }
+    val shown = layout.visible(TabLayouts.HOME)
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -212,26 +193,14 @@ fun HomeScreen(
                 )
             }
             item(key = "filters") {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BookPeriodChips(Modifier.weight(1f))
-                    if (!editing) Pill("Edit", leading = Icons.Filled.Edit) { editing = true }
-                }
-            }
-            if (editing) item(key = "edit") {
-                Box(Modifier.animateItem()) { EditBanner(onDone = { editing = false }, onPreset = onPreset, onReset = onResetLayout) }
+                BookPeriodChips(Modifier.fillMaxWidth().padding(horizontal = 14.dp))
             }
             if (!hasSmsPermission && !state.smsPromptDismissed) item(key = "sms") { PermissionCard(smsBlocked, onGrantSms, onDismissSms) }
             if (state.scan.running) item(key = "scan") { ScanCard(state.scan) }
 
             items(shown, key = { "w-$it" }) { key ->
-                val i = order.indexOf(key)
-                val edit = if (editing) {
-                    val hidden = layout.isHidden(TabLayouts.HOME, key)
-                    WidgetEdit(
-                        hidden = hidden, canUp = i > 0, canDown = i < order.lastIndex,
-                        onUp = { onMove(key, -1) }, onDown = { onMove(key, 1) }, onToggle = { onSetVisible(key, hidden) },
-                    )
-                } else null
+                // Order and visibility are set in More > Customise; Home has no edit mode.
+                val edit: WidgetEdit? = null
                 Box(Modifier.animateItem().padding(horizontal = 14.dp)) {
                     when (key) {
                         "networth" -> NetWorthWidget(widgets, onOpenInvestments, edit)
@@ -240,7 +209,6 @@ fun HomeScreen(
                         "upcoming" -> UpcomingWidget(widgets, onOpenBills, edit)
                         "insights" -> InsightsWidget(widgets, onOpenCategory, onOpenBills, onSeeAllTransactions, onDismissInsight, edit)
                         "categories" -> CategoriesWidget(widgets, { onOpenCategoryKey(it.key) }, onOpenAnalytics, edit)
-                        "accounts" -> AccountsWidget(widgets, { onOpenAccount(it.id) }, onOpenAccounts, edit)
                         "recent" -> RecentWidget(widgets, onOpenTransaction, onSeeAllTransactions, edit)
                         "budgets" -> BudgetsWidget(widgets, onOpenBudgets, edit)
                     }
@@ -268,28 +236,6 @@ fun HomeScreen(
             onAdd = onAdd, onAddRecurring = onAddRecurring, syncing = syncing, onSync = onSync,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = contentPadding.calculateBottomPadding() + 16.dp),
         )
-    }
-}
-
-/** Edit mode: what it does, Done, and the presets (plus Reset) as pills. */
-@Composable
-private fun EditBanner(onDone: () -> Unit, onPreset: (List<String>) -> Unit, onReset: () -> Unit) {
-    Column(Modifier.padding(horizontal = 14.dp)) {
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Hx.accentSoft).padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Edit mode: hide, show or reorder widgets", color = Hx.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f))
-            TextButton(onClick = onDone) { Text("Done", fontWeight = FontWeight.SemiBold) }
-        }
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            TabLayouts.HOME_PRESETS.forEach { (label, keys) -> Pill(label) { onPreset(keys) } }
-            Pill("Reset", onClick = onReset)
-        }
     }
 }
 

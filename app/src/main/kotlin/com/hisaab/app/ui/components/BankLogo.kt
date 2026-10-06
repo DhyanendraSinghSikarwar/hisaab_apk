@@ -19,6 +19,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
@@ -34,7 +35,10 @@ import com.hisaab.shared.db.AccountType
 import com.hisaab.shared.db.CardNetwork
 
 /** A bank, card network or payment app: its colour, its logo when a free one exists, and a monogram otherwise. */
-data class Brand(val name: String, val color: Color, val path: String? = null, val monogram: String)
+data class Brand(val name: String, val color: Color, val path: String? = null, val monogram: String, val color2: Color? = null) {
+    /** The brand's own two colours as a diagonal gradient (second colour defaults to a deeper shade of the first). */
+    val brush: Brush get() = Brush.linearGradient(listOf(color, color2 ?: lerp(color, Color.Black, 0.35f)))
+}
 
 object Brands {
     private data class Rule(val match: Regex, val brand: Brand)
@@ -42,25 +46,25 @@ object Brands {
     private fun rule(pattern: String, brand: Brand) = Rule(Regex(pattern, RegexOption.IGNORE_CASE), brand)
 
     private val BANKS = listOf(
-        rule("""\bhdfc""", Brand("HDFC Bank", Color(0xFF004B8D), LogoPaths.HDFC, "HDFC")),
-        rule("""\bicici""", Brand("ICICI Bank", Color(0xFFAE282E), LogoPaths.ICICI, "ICICI")),
-        rule("""\baxis""", Brand("Axis Bank", Color(0xFF971A4D), LogoPaths.AXIS, "AXIS")),
-        rule("""\bhsbc""", Brand("HSBC", Color(0xFFDB0011), LogoPaths.HSBC, "HSBC")),
-        rule("""\bsbi\b|state bank""", Brand("SBI", Color(0xFF22409A), monogram = "SBI")),
-        rule("""\bkotak""", Brand("Kotak", Color(0xFFED1C24), monogram = "K")),
-        rule("""\byes\b""", Brand("Yes Bank", Color(0xFF0067B1), monogram = "YES")),
-        rule("""\bidfc""", Brand("IDFC FIRST", Color(0xFF9C1D26), monogram = "IDFC")),
-        rule("""\bindusind""", Brand("IndusInd", Color(0xFF98272A), monogram = "IIB")),
-        rule("""baroda|\bbob""", Brand("Bank of Baroda", Color(0xFFF15A29), monogram = "BOB")),
-        rule("""\bpnb\b|punjab national""", Brand("PNB", Color(0xFFA20A3A), monogram = "PNB")),
-        rule("""\bau\b|\bau small""", Brand("AU Bank", Color(0xFF6D2077), monogram = "AU")),
-        rule("""\bfederal|\bfedbnk""", Brand("Federal Bank", Color(0xFF1A4C9A), monogram = "FB")),
-        rule("""\bcanara""", Brand("Canara Bank", Color(0xFF0091D5), monogram = "CB")),
-        rule("""\bunion""", Brand("Union Bank", Color(0xFFE31E24), monogram = "UBI")),
-        rule("""\brbl""", Brand("RBL Bank", Color(0xFF21409A), monogram = "RBL")),
-        rule("""chartered|\bscb""", Brand("Standard Chartered", Color(0xFF0473EA), monogram = "SC")),
-        rule("""\bamex|american express""", Brand("American Express", Color(0xFF2E77BC), LogoPaths.AMEX, "AMEX")),
-        rule("""onecard|\bonecrd""", Brand("OneCard", Color(0xFF111111), monogram = "1")),
+        rule("""\bhdfc""", Brand("HDFC Bank", Color(0xFF004B8D), LogoPaths.HDFC, "HDFC", color2 = Color(0xFFED232A))),
+        rule("""\bicici""", Brand("ICICI Bank", Color(0xFFAE282E), LogoPaths.ICICI, "ICICI", color2 = Color(0xFFF37E20))),
+        rule("""\baxis""", Brand("Axis Bank", Color(0xFF971A4D), LogoPaths.AXIS, "AXIS", color2 = Color(0xFFC83B6D))),
+        rule("""\bhsbc""", Brand("HSBC", Color(0xFFDB0011), LogoPaths.HSBC, "HSBC", color2 = Color(0xFF8C000B))),
+        rule("""\bsbi\b|state bank""", Brand("SBI", Color(0xFF22409A), monogram = "SBI", color2 = Color(0xFF00B5EF))),
+        rule("""\bkotak""", Brand("Kotak", Color(0xFFED1C24), monogram = "K", color2 = Color(0xFF003874))),
+        rule("""\byes\b""", Brand("Yes Bank", Color(0xFF0067B1), monogram = "YES", color2 = Color(0xFFE31E24))),
+        rule("""\bidfc""", Brand("IDFC FIRST", Color(0xFF9C1D26), monogram = "IDFC", color2 = Color(0xFFD4363F))),
+        rule("""\bindusind""", Brand("IndusInd", Color(0xFF98272A), monogram = "IIB", color2 = Color(0xFFC9A227))),
+        rule("""baroda|\bbob""", Brand("Bank of Baroda", Color(0xFFF15A29), monogram = "BOB", color2 = Color(0xFFB8360F))),
+        rule("""\bpnb\b|punjab national""", Brand("PNB", Color(0xFFA20A3A), monogram = "PNB", color2 = Color(0xFFFBBC09))),
+        rule("""\bau\b|\bau small""", Brand("AU Bank", Color(0xFF6D2077), monogram = "AU", color2 = Color(0xFFF37021))),
+        rule("""\bfederal|\bfedbnk""", Brand("Federal Bank", Color(0xFF1A4C9A), monogram = "FB", color2 = Color(0xFFF7A800))),
+        rule("""\bcanara""", Brand("Canara Bank", Color(0xFF0091D5), monogram = "CB", color2 = Color(0xFFFFD200))),
+        rule("""\bunion""", Brand("Union Bank", Color(0xFFE31E24), monogram = "UBI", color2 = Color(0xFF1D4F91))),
+        rule("""\brbl""", Brand("RBL Bank", Color(0xFF21409A), monogram = "RBL", color2 = Color(0xFF4F6FD1))),
+        rule("""chartered|\bscb""", Brand("Standard Chartered", Color(0xFF0473EA), monogram = "SC", color2 = Color(0xFF38D200))),
+        rule("""\bamex|american express""", Brand("American Express", Color(0xFF2E77BC), LogoPaths.AMEX, "AMEX", color2 = Color(0xFF016FD0))),
+        rule("""onecard|\bonecrd""", Brand("OneCard", Color(0xFF111111), monogram = "1", color2 = Color(0xFF3A3A3A))),
     )
 
     fun forBank(bankName: String): Brand =
@@ -82,7 +86,8 @@ object Brands {
     private fun generic(name: String): Brand {
         val words = name.split(' ', '-', '_').filter { it.isNotBlank() && !it.equals("bank", ignoreCase = true) }
         val mono = (words.take(2).map { it.first() }.joinToString("").ifEmpty { name.take(2) }).uppercase()
-        return Brand(name, PALETTE[Math.floorMod(name.lowercase().hashCode(), PALETTE.size)], monogram = mono)
+        val i = Math.floorMod(name.lowercase().hashCode(), PALETTE.size)
+        return Brand(name, PALETTE[i], monogram = mono, color2 = PALETTE[(i + 1) % PALETTE.size])
     }
 
     private val PALETTE = listOf(Color(0xFF00796B), Color(0xFF5E35B1), Color(0xFF3949AB), Color(0xFF6D4C41), Color(0xFF00838F), Color(0xFFAD1457))
@@ -109,7 +114,7 @@ fun BrandMark(brand: Brand, modifier: Modifier = Modifier, size: Dp = 40.dp) {
     val dark = LocalDarkTheme.current
     val shape = RoundedCornerShape(size * 0.28f)
     val logo = remember(brand.name) { AppLogos.bank(brand.name) ?: AppLogos.merchant(brand.name) }
-    if (logo != null && LogoImage(logo, size, modifier, shape)) return
+    if (logo != null && LogoImage(logo, size, modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape), shape)) return
     if (brand.path != null) {
         val vector = remember(brand.path) {
             ImageVector.Builder(defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
@@ -121,7 +126,7 @@ fun BrandMark(brand: Brand, modifier: Modifier = Modifier, size: Dp = 40.dp) {
             Icon(vector, brand.name, tint = tint, modifier = Modifier.size(size * 0.58f))
         }
     } else {
-        Box(modifier.size(size).background(brand.color, shape), contentAlignment = Alignment.Center) {
+        Box(modifier.size(size).background(brand.brush, shape), contentAlignment = Alignment.Center) {
             val chars = brand.monogram.length
             Text(
                 brand.monogram, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1,

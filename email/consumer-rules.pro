@@ -14,3 +14,8 @@
 -dontwarn javax.security.sasl.**
 -dontwarn javax.naming.**
 -dontwarn java.beans.**
+# JExcelApi (.xls statements): log4j is excluded, and its logger class is chosen by name at runtime.
+-dontwarn org.apache.log4j.**
+-dontwarn java.awt.**
+-dontwarn jxl.**
+-keep class jxl.common.log.** { *; }

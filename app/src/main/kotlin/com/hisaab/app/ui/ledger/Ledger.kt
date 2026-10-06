@@ -1,5 +1,12 @@
 package com.hisaab.app.ui.ledger
 
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.parser.model.Category
 import com.hisaab.parser.model.TransactionType
@@ -21,7 +28,9 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -38,7 +47,7 @@ enum class PeriodKind(val label: String) {
     THIS_WEEK("This week"), MONTH("Month"), LAST_MONTH("Last month"), FY("This FY"), LAST_FY("Last FY"), LAST_12("Last 12 months"), CUSTOM("Custom")
 }
 
-/** The global filter shown as two chips at the top of Home, Transactions and Analysis. */
+/** The global filter: the Book (chosen in More, kept across launches) and the Period (the chip on Home, Transactions and Analysis). */
 data class ViewFilter(
     val book: Book = Book.ALL,
     val kind: PeriodKind = PeriodKind.MONTH,
@@ -91,17 +100,40 @@ data class ViewFilter(
     }
 }
 
-/** Holds the global filter for the whole app session. */
+private val Context.viewFilterStore: DataStore<Preferences> by preferencesDataStore(name = "view_filter")
+
+/** Holds the global filter for the whole app. The book is saved and restored; the period resets each launch. */
 @Singleton
-class ViewFilterStore @Inject constructor() {
+class ViewFilterStore @Inject constructor(@ApplicationContext context: Context) {
+    private val store = context.viewFilterStore
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _filter = MutableStateFlow(ViewFilter())
     val filter: StateFlow<ViewFilter> = _filter.asStateFlow()
 
-    fun setBook(b: Book) = _filter.update { it.copy(book = b) }
+    /** Set once the user picks a book, so a slow load never overwrites that choice. */
+    @Volatile private var chosen = false
+
+    init {
+        scope.launch {
+            val saved = runCatching { store.data.first()[BOOK] }.getOrNull()
+            val book = Book.entries.firstOrNull { it.name == saved } ?: return@launch
+            if (!chosen) _filter.update { it.copy(book = book) }
+        }
+    }
+
+    fun setBook(b: Book) {
+        chosen = true
+        _filter.update { it.copy(book = b) }
+        scope.launch { runCatching { store.edit { p -> p[BOOK] = b.name } } }
+    }
     fun setKind(k: PeriodKind) = _filter.update { it.copy(kind = k, month = if (k == PeriodKind.MONTH) YearMonth.now(Periods.zone) else it.month) }
     fun setMonth(m: YearMonth) = _filter.update { it.copy(kind = PeriodKind.MONTH, month = m) }
     fun shiftMonth(by: Long) = _filter.update { it.copy(kind = PeriodKind.MONTH, month = it.month.plusMonths(by)) }
     fun setCustom(from: LocalDate, to: LocalDate) = _filter.update { it.copy(kind = PeriodKind.CUSTOM, customFrom = from, customTo = to) }
+
+    private companion object {
+        val BOOK = stringPreferencesKey("book")
+    }
 }
 
 /** What every tab draws from: the period's transactions, the period before, the last 12 months, and accounts. */

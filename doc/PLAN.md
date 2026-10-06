@@ -51,3 +51,22 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] Analysis opens on Spending; Budgets section at the end
 - [x] More: each item edits only its own function (Security & backup, Data sources, Customise…); removed from Settings, one place each
 - Built + all tests pass (DB v13); not yet run on a device
+
+## 2.2.0 (requested 2026-10-06)
+- [x] Profile: "as per bank" names; alternate name + alternate mobile; all used to unlock statements (DOB, PAN, phones, names)
+- [x] Profile gear → payment-app notifications, history to read (Data sources)
+- [x] Home: remove Accounts widget
+- [x] Book (Personal/Business/All) only in More (replaces Business book); filters accounts, cards, portfolio, transactions app-wide
+- [x] Net worth: bar split by account; credit cards + limits listed below (not counted)
+- [x] CAS statement detail shows content, holdings and amounts (was ₹0 / ₹0)
+- [x] Read Excel (xls/xlsx) and CSV statement attachments
+- [x] Groww-style MF/SIP emails → holdings (units, invested, total value)
+- [x] Tax centre: edits are what-if only (not saved); share calculation as HD image or PDF
+- [x] More: no edit button top right
+- [x] Portfolio: net worth range works (history estimated from transactions); bag icon; groups collapsed by default
+- [x] Review (duplicates) and Statements: content must not slide under the tabs
+- [x] Professional animations (press, stretch overscroll, springs)
+- [x] 4–5 extra professional themes
+- [x] Icons: one rounded-square shape; brands without a logo use their own two-colour gradient
+- Home Edit pill removed (reading of "edit button top right"); widget layout stays in More › Customise
+- Built + all tests pass; not yet run on a device

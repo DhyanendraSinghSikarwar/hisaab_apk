@@ -70,7 +70,7 @@ import com.hisaab.app.ui.theme.appBackdrop
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Home", Icons.Filled.Home),
     TRANSACTIONS("transactions", "Transactions", Icons.Filled.SwapVert),
-    INVESTMENTS("investments", "Portfolio", Icons.Filled.DonutLarge),
+    INVESTMENTS("investments", "Portfolio", Icons.Filled.BusinessCenter),
     ANALYTICS("analytics", "Analysis", Icons.Filled.BarChart),
     MORE("more", "More", Icons.Filled.Menu),
 }
@@ -171,7 +171,6 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                     contentPadding = bottom,
                     onOpenProfile = { nav.navigate("profile") },
                     onOpenCategoryKey = { nav.navigate("category/$it") },
-                    onOpenAccount = { nav.navigate("account/$it") },
                 )
             }
             composable(
@@ -208,9 +207,6 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 })
             }
             composable("tax") { com.hisaab.app.ui.more.TaxRoute(onBack = nav::popBackStack) }
-            composable("business") {
-                com.hisaab.app.ui.more.BusinessRoute(onBack = nav::popBackStack, onOpenTransaction = { nav.navigate("transaction/$it") })
-            }
             composable("rules") { com.hisaab.app.ui.more.RulesRoute(onBack = nav::popBackStack) }
             composable("sources") { com.hisaab.app.ui.more.DataSourcesRoute(onBack = nav::popBackStack, onOpenStatements = { nav.navigate("statements") }) }
             composable("security") { com.hisaab.app.ui.more.SecurityRoute(onBack = nav::popBackStack) }
@@ -272,7 +268,11 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
             }
             composable("forex") { com.hisaab.app.ui.settings.ForexRatesRoute(onBack = nav::popBackStack) }
             composable("customize") { com.hisaab.app.ui.settings.CustomizeTabsRoute(onBack = nav::popBackStack) }
-            composable("profile") { com.hisaab.app.ui.profile.ProfileRoute(onBack = nav::popBackStack, onOpenSettings = { nav.navigate(SETTINGS_ROUTE) }) }
+            composable("profile") { com.hisaab.app.ui.profile.ProfileRoute(
+                    onBack = nav::popBackStack, onOpenSettings = { nav.navigate(SETTINGS_ROUTE) },
+                    onOpenDataSources = { nav.navigate("sources") },
+                )
+            }
         }
     }
 }

@@ -103,9 +103,14 @@ class ProfileViewModel @Inject constructor(
     init { viewModelScope.launch { since.value = transactions.firstTimestamp() } }
 
     fun save(name: String, email: String, phone: String, occupation: String, dob: java.time.LocalDate? = identity.value?.dob,
-             pan: String = identity.value?.pan.orEmpty(), then: () -> Unit = {}) = viewModelScope.launch {
+             pan: String = identity.value?.pan.orEmpty(), altName: String = identity.value?.altName.orEmpty(),
+             altPhone: String = identity.value?.altPhone.orEmpty(), then: () -> Unit = {}) = viewModelScope.launch {
         settings.saveProfile(name, email, phone, occupation)
-        passwords.setIdentity(com.hisaab.parser.statement.Identity(name.trim().ifEmpty { null }, dob, pan.trim().ifEmpty { null }, phone.trim().ifEmpty { null }))
+        // Alternates live only in the sealed identity, never in plain settings.
+        passwords.setIdentity(com.hisaab.parser.statement.Identity(
+            name.trim().ifEmpty { null }, dob, pan.trim().ifEmpty { null }, phone.trim().ifEmpty { null },
+            altName = altName.trim().ifEmpty { null }, altPhone = altPhone.trim().ifEmpty { null },
+        ))
         then()
         // New details may open statements that were waiting for a password.
         statements.retryLocked()
@@ -155,7 +160,12 @@ fun ProfileAvatar(name: String, photoPath: String?, size: Dp, modifier: Modifier
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileRoute(onBack: () -> Unit, onOpenSettings: () -> Unit = {}, vm: ProfileViewModel = hiltViewModel()) {
+fun ProfileRoute(
+    onBack: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onOpenSettings: () -> Unit = {},
+    onOpenDataSources: () -> Unit = {},
+    vm: ProfileViewModel = hiltViewModel(),
+) {
     val profile by vm.profile.collectAsStateWithLifecycle()
     val identity by vm.identity.collectAsStateWithLifecycle()
     val count by vm.count.collectAsStateWithLifecycle()
@@ -163,19 +173,22 @@ fun ProfileRoute(onBack: () -> Unit, onOpenSettings: () -> Unit = {}, vm: Profil
     val id = identity ?: return
     var dob by rememberSaveable(id.dob) { mutableStateOf(id.dob) }
     var pan by rememberSaveable(id.pan) { mutableStateOf(id.pan.orEmpty()) }
+    var altName by rememberSaveable(id.altName) { mutableStateOf(id.altName.orEmpty()) }
+    var altPhone by rememberSaveable(id.altPhone) { mutableStateOf(id.altPhone.orEmpty()) }
     var name by rememberSaveable(p.name) { mutableStateOf(p.name.orEmpty()) }
     var email by rememberSaveable(p.email) { mutableStateOf(p.email.orEmpty()) }
     var phone by rememberSaveable(p.phone) { mutableStateOf(p.phone.orEmpty()) }
     var occupation by rememberSaveable(p.occupation) { mutableStateOf(p.occupation.orEmpty()) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::setPhoto) }
     val changed = name.trim() != p.name.orEmpty() || email.trim() != p.email.orEmpty() || phone.trim() != p.phone.orEmpty() ||
-        occupation.trim() != p.occupation.orEmpty() || dob != id.dob || pan.trim() != id.pan.orEmpty()
+        occupation.trim() != p.occupation.orEmpty() || dob != id.dob || pan.trim() != id.pan.orEmpty() ||
+        altName.trim() != id.altName.orEmpty() || altPhone.trim() != id.altPhone.orEmpty()
 
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
             colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Profile") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = { IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, "Settings") } },
+            actions = { IconButton(onClick = onOpenDataSources) { Icon(Icons.Filled.Settings, "Data sources") } },
         )
     }) { inner ->
         Column(
@@ -204,15 +217,16 @@ fun ProfileRoute(onBack: () -> Unit, onOpenSettings: () -> Unit = {}, vm: Profil
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Field(name, { name = it }, "Full name (as on bank records)", Icons.Filled.Person, KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
+            Field(name, { name = it }, "Full name (as per bank)", Icons.Filled.Person, KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
+            Field(phone, { phone = it }, "Mobile (as per bank)", Icons.Filled.Phone, KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next))
             Field(email, { email = it }, "Email (optional)", Icons.Filled.Email, KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next))
-            Field(phone, { phone = it }, "Mobile", Icons.Filled.Phone, KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next))
             Field(occupation, { occupation = it }, "Occupation (optional)", Icons.Filled.Work,
-                KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done))
+                KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next))
             Text("For locked statements", style = MaterialTheme.typography.titleSmall, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+            AlternateFields(altName, { altName = it }, altPhone, { altPhone = it })
             StatementDetailsFields(dob, { dob = it }, pan, { pan = it })
 
-            Button(onClick = { vm.save(name, email, phone, occupation, dob, pan) }, enabled = changed && name.isNotBlank() && validPan(pan), modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { vm.save(name, email, phone, occupation, dob, pan, altName, altPhone) }, enabled = changed && name.isNotBlank() && validPan(pan), modifier = Modifier.fillMaxWidth()) {
                 Text("Save profile")
             }
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
@@ -261,9 +275,10 @@ fun ProfileSetupSheet(onDone: () -> Unit, vm: ProfileViewModel = hiltViewModel()
             TextButton(onClick = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                 Text(if (profile?.photoPath == null) "Add a photo" else "Change photo")
             }
-            Field(name, { name = it }, "Your name", Icons.Filled.Person, KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
+            Field(name, { name = it }, "Full name (as per bank)", Icons.Filled.Person, KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
             Field(email, { email = it }, "Email (optional)", Icons.Filled.Email, KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done))
-            Button(onClick = { vm.save(name, email, "", "", then = onDone) }, enabled = name.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+            // Keeps any mobile and occupation already saved; the full profile edits those.
+            Button(onClick = { vm.save(name, email, profile?.phone.orEmpty(), profile?.occupation.orEmpty(), then = onDone) }, enabled = name.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
                 Text("Continue")
             }
             TextButton(onClick = { vm.dismissPrompt(); onDone() }) { Text("Later") }

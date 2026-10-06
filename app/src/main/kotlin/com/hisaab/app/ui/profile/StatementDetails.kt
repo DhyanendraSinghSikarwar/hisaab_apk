@@ -14,6 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PersonOutline
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.time.Instant
 import java.time.LocalDate
@@ -42,6 +45,31 @@ import java.time.format.DateTimeFormatter
 private val PAN = Regex("[A-Z]{5}[0-9]{4}[A-Z]")
 
 fun validPan(pan: String) = pan.isBlank() || PAN.matches(pan.trim().uppercase())
+
+/**
+ * A second name and mobile a bank or card may have on record (another spelling, a maiden name, an old number).
+ * Stored only in the sealed statement identity. [phonePrefix] shows a fixed country code, as at sign-up.
+ */
+@Composable
+fun AlternateFields(
+    altName: String, onAltName: (String) -> Unit, altPhone: String, onAltPhone: (String) -> Unit,
+    phonePrefix: String? = null,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedTextField(
+            altName, onAltName, Modifier.fillMaxWidth(), label = { Text("Alternate name (optional)") },
+            leadingIcon = { Icon(Icons.Filled.PersonOutline, null) }, singleLine = true, shape = MaterialTheme.shapes.medium,
+            supportingText = { Text("Name on another bank or card, or a spelling variant") },
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+        )
+        OutlinedTextField(
+            altPhone, { v -> onAltPhone(if (phonePrefix != null) v.filter(Char::isDigit).take(10) else v) }, Modifier.fillMaxWidth(),
+            label = { Text("Alternate mobile (optional)") }, leadingIcon = { Icon(Icons.Filled.PhoneAndroid, null) },
+            prefix = if (phonePrefix != null) ({ Text(phonePrefix) }) else null, singleLine = true, shape = MaterialTheme.shapes.medium,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
+        )
+    }
+}
 
 /** Date of birth and PAN: what banks lock statements with. Used at sign-up and on the profile. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,7 +96,7 @@ fun StatementDetailsFields(dob: LocalDate?, onDob: (LocalDate?) -> Unit, pan: St
             Icon(Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
             Spacer(Modifier.size(8.dp))
             Text(
-                "Banks lock statements with your name, birth date, PAN and mobile. Add as much as you can and Hisaab opens them for you. Kept encrypted on this phone.",
+                "Banks lock statements with these. Hisaab tries them to open your PDFs. Encrypted on this phone.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

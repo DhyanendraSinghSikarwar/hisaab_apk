@@ -83,6 +83,8 @@ class ImapSyncEngine(
     private suspend fun parse(m: FetchedMail, readPdf: Boolean): List<IncomingMessage> {
         val out = ArrayList<IncomingMessage>(1)
         registry.parse(m.text, m.from, m.receivedAt, Source.EMAIL)?.let { out += IncomingMessage(it, m.id, m.text, subject = m.subject) }
+        // Not a bank alert: maybe a mutual fund purchase confirmation (SIP instalment, units allotted).
+        if (out.isEmpty() && pdf != null) out += pdf.readEmail(m.id, m.from, m.subject, m.text, m.receivedAt)
         if (readPdf) {
             for ((index, bytes) in m.pdfs.withIndex()) {
                 val name = m.pdfNames.getOrNull(index) ?: "statement.pdf"

@@ -180,18 +180,21 @@ fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit
                 Delta("$text · 30d", good = diff >= 0)
             }
         }
-        val points = nw.history.map { it.netMinor.toFloat() }
+        // The last year, recorded days plus months estimated from transactions.
+        val yearAgo = java.time.LocalDate.now().minusDays(365)
+        val points = nw.history.filter { !it.day.isBefore(yearAgo) }.map { it.netMinor.toFloat() }
         if (points.size >= 2) {
             Spacer(Modifier.height(8.dp))
             Sparkline(points, color = Color.White, height = 46.dp)
         }
-        val total = (nw.assetsMinor + nw.liabilitiesMinor).coerceAtLeast(1)
         Spacer(Modifier.height(12.dp))
-        SplitBar(listOf(nw.assetsMinor.toFloat() / total to Color(0xFF9DF2C9), nw.liabilitiesMinor.toFloat() / total to Color(0xFFFFB3AB)))
+        // One bar split by account and asset class, with a legend; then totals.
+        com.hisaab.app.ui.invest.WorthBreakdown(nw, onHero = true)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
             LabelValue("Assets", Money.format(nw.assetsMinor, showPaise = false), Color(0xFF9DF2C9), Modifier.weight(1f), onHero = true)
             LabelValue("Liabilities", Money.format(nw.liabilitiesMinor, showPaise = false), Color(0xFFFFB3AB), onHero = true)
         }
+        com.hisaab.app.ui.invest.CardLimits(nw, onHero = true)
     }
 }
 
@@ -395,49 +398,6 @@ fun CategoriesWidget(w: HomeWidgets, onOpenCategory: (CategoryLook) -> Unit, onT
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 slices.forEachIndexed { i, s ->
                     LegendItem(s.color, s.label, "${(s.value * 100 / total)}%", onClick = { open(i) })
-                }
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------
-// 7. Accounts
-
-/** Accounts as chips: bank and last digits, the balance (a credit card's available limit). */
-@Composable
-fun AccountsWidget(w: HomeWidgets, onOpenAccount: (AccountWithActivity) -> Unit, onOpenAccounts: () -> Unit, edit: WidgetEdit?) {
-    WidgetCard("Accounts", action = "All ›", onAction = onOpenAccounts, edit = edit, contentPadding = 0.dp) {
-        if (w.accounts.isEmpty()) { Hint("No accounts yet. They appear as bank messages arrive.", Modifier.padding(horizontal = 16.dp)); return@WidgetCard }
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(w.accounts, key = { it.id }) { a ->
-                val credit = a.kind == AccountKind.CARD && !a.isDebitCard
-                val bal = a.currentBalanceMinor
-                Row(
-                    Modifier.animateItem().clip(RoundedCornerShape(12.dp)).background(Hx.surface2).clickable { onOpenAccount(a) }
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AccountAvatar(a.bankName, a.kind, a.accountType, size = 30.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Column {
-                        Text("${a.nickname ?: a.bankName} ••${a.last4}", fontSize = 12.sp, color = Hx.text2, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 120.dp))
-                        Text(
-                            when {
-                                bal == null -> "—"
-                                credit -> "${Money.compact(bal)} left"
-                                else -> signedMoney(bal)
-                            },
-                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                            color = when {
-                                bal == null -> Hx.text2
-                                credit -> Hx.accent
-                                bal < 0 -> Hx.neg
-                                else -> Hx.pos
-                            },
-                        )
-                    }
                 }
             }
         }

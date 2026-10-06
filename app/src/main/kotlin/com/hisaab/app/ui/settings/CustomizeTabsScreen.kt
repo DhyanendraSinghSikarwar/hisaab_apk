@@ -32,6 +32,42 @@ import com.hisaab.app.settings.TabLayout
 import com.hisaab.app.settings.TabLayoutStore
 import com.hisaab.app.settings.TabLayouts
 import com.hisaab.app.settings.ThemeMode
+import com.hisaab.app.settings.ThemePalette
+import com.hisaab.app.settings.AppSettingsStore
+import com.hisaab.app.ui.components.pressScale
+import com.hisaab.app.ui.theme.LocalDarkTheme
+import com.hisaab.app.ui.theme.spec
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.hisaab.app.ui.components.HCard
 import com.hisaab.app.ui.components.Segmented
 import com.hisaab.app.ui.more.MoreScaffold
@@ -43,7 +79,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class CustomizeTabsViewModel @Inject constructor(private val store: TabLayoutStore) : ViewModel() {
+class CustomizeTabsViewModel @Inject constructor(private val store: TabLayoutStore, private val app: AppSettingsStore) : ViewModel() {
+    fun setPalette(palette: ThemePalette) = viewModelScope.launch { app.setPalette(palette) }
     val layout = store.settings.stateIn(viewModelScope, SharingStarted.Eagerly, TabLayout())
     fun move(tab: String, key: String, by: Int) = viewModelScope.launch { store.move(tab, key, by) }
     fun setVisible(tab: String, key: String, visible: Boolean) = viewModelScope.launch { store.setVisible(tab, key, visible) }
@@ -68,6 +105,8 @@ fun CustomizeTabsRoute(onBack: () -> Unit, vm: CustomizeTabsViewModel = hiltView
                     modes.indexOf(s.app?.theme ?: ThemeMode.SYSTEM),
                     onSelect = { settings.setTheme(modes[it]) },
                 )
+                Text("Palette", style = MaterialTheme.typography.labelLarge, color = Hx.text2, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
+                PalettePicker(s.app?.palette ?: ThemePalette.CLASSIC, onPick = { vm.setPalette(it) })
             }
 
             HCard(title = "Tab sections", action = "Reset", onAction = { vm.reset(tab) }) {
@@ -88,5 +127,55 @@ fun CustomizeTabsRoute(onBack: () -> Unit, vm: CustomizeTabsViewModel = hiltView
                 }
             }
         }
+    }
+}
+
+/** A row of palette swatches: each shows its surface, its hero gradient, and its name; the chosen one is ringed and ticked. */
+@Composable
+private fun PalettePicker(selected: ThemePalette, onPick: (ThemePalette) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        ThemePalette.entries.forEach { p -> PaletteSwatch(p, p == selected) { onPick(p) } }
+    }
+}
+
+@Composable
+private fun PaletteSwatch(palette: ThemePalette, selected: Boolean, onClick: () -> Unit) {
+    val spec = palette.spec
+    val dark = LocalDarkTheme.current
+    val scheme = if (dark) spec.dark else spec.light
+    val hero = if (dark) spec.heroDark else spec.heroLight
+    val springy = spring<Float>(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow)
+    val ring by animateColorAsState(if (selected) scheme.primary else Color.Transparent, label = "ring")
+    val ringWidth by animateDpAsState(if (selected) 2.dp else 0.dp, label = "ringWidth")
+    val lift by animateFloatAsState(if (selected) 1.06f else 1f, springy, label = "lift")
+    val label by animateColorAsState(if (selected) MaterialTheme.colorScheme.onSurface else Hx.text2, label = "label")
+    val press = remember { MutableInteractionSource() }
+    Column(
+        Modifier.width(64.dp).pressScale(press, 0.94f).clip(MaterialTheme.shapes.small)
+            .clickable(press, LocalIndication.current, role = Role.RadioButton, onClick = onClick)
+            .semantics { this.selected = selected }
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.size(54.dp).graphicsLayer { scaleX = lift; scaleY = lift }
+                .border(ringWidth, ring, CircleShape).padding(4.dp)
+                .clip(CircleShape).background(scheme.background).border(1.dp, scheme.outlineVariant, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(Brush.linearGradient(hero)), contentAlignment = Alignment.Center) {
+                androidx.compose.animation.AnimatedVisibility(visible = selected, enter = scaleIn(springy) + fadeIn(), exit = scaleOut() + fadeOut()) {
+                    Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+        Text(
+            palette.label, color = label, fontSize = 11.sp, maxLines = 1,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }

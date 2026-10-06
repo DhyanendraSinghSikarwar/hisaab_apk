@@ -8,7 +8,6 @@ import androidx.work.WorkManager
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.settings.TabLayout
 import com.hisaab.app.settings.TabLayoutStore
-import com.hisaab.app.settings.TabLayouts
 import com.hisaab.app.sms.OptimizedSmsReaderWorker
 import com.hisaab.app.sms.SmsScanScheduler
 import com.hisaab.app.ui.category.CategoryLook
@@ -25,7 +24,6 @@ import com.hisaab.app.ui.plan.PlanSource
 import com.hisaab.app.ui.plan.Upcoming
 import com.hisaab.parser.model.AccountKind
 import com.hisaab.parser.model.Category
-import com.hisaab.shared.db.AccountWithActivity
 import com.hisaab.shared.db.BudgetDao
 import com.hisaab.shared.db.BudgetEntity
 import com.hisaab.shared.db.CustomCategoryEntity
@@ -109,7 +107,6 @@ data class HomeWidgets(
     val bestRateOf: Int? = null,
     val safe: SafeToSpend? = null,
     val categories: List<CategoryAmount> = emptyList(),
-    val accounts: List<AccountWithActivity> = emptyList(),
     val recent: List<TransactionEntity> = emptyList(),
     val budgets: List<BudgetUse> = emptyList(),
     val hasBudgets: Boolean = false,
@@ -200,12 +197,6 @@ class HomeViewModel @Inject constructor(
     fun toggleHideAmounts() = viewModelScope.launch { settings.setHideAmounts(!com.hisaab.app.ui.format.AmountPrivacy.hidden) }
     fun dismissInsight(i: Insight) = dismissed.update { it + i.title }
 
-    /** Edit mode: move a widget one place up (-1) or down (+1). */
-    fun move(key: String, by: Int) = viewModelScope.launch { layoutStore.move(TabLayouts.HOME, key, by) }
-    fun setVisible(key: String, visible: Boolean) = viewModelScope.launch { layoutStore.setVisible(TabLayouts.HOME, key, visible) }
-    fun applyPreset(shown: List<String>) = viewModelScope.launch { layoutStore.apply(TabLayouts.HOME, shown) }
-    fun resetLayout() = viewModelScope.launch { layoutStore.reset(TabLayouts.HOME) }
-
     /** True once: Home then asks for the notification permission (Android 13+). */
     suspend fun shouldAskNotifications(): Boolean {
         val asked = settings.settings.first().notificationsAsked
@@ -274,7 +265,7 @@ class HomeViewModel @Inject constructor(
 
         return HomeWidgets(
             filter = f, month = month, cash = cash, bestRateOf = bestRateOf, safe = safe, categories = categories,
-            accounts = slice.accounts, recent = txs.sortedByDescending { it.timestamp }.take(RECENT),
+            recent = txs.sortedByDescending { it.timestamp }.take(RECENT),
             budgets = budgetUses.take(3), hasBudgets = budgetUses.isNotEmpty(),
             netWorth = nw, netWorthBefore = before?.netMinor, upcoming = upcoming,
             insights = plan.insights.filter { it.title !in x.dismissed }, loaded = slice.loaded,
