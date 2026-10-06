@@ -18,6 +18,7 @@ class HisaabApplication : Application(), Configuration.Provider {
     @Inject lateinit var gmailSettings: GmailSettingsStore
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
     @Inject lateinit var updater: com.hisaab.app.update.Updater
+    @Inject lateinit var accounts: com.hisaab.shared.db.AccountDao
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
@@ -29,6 +30,8 @@ class HisaabApplication : Application(), Configuration.Provider {
             SmsScanScheduler.scanIfPermitted(this@HisaabApplication)
             com.hisaab.app.notify.AlertsWorker.schedule(this@HisaabApplication)
             com.hisaab.app.sync.NightlySync.schedule(this@HisaabApplication)
+            // Deposits paid out on maturity leave the lists; renewed ones stay.
+            runCatching { accounts.closeMatured(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toEpochDay()) }
             runCatching { updater.checkIfDue() }
             if (gmailSettings.settings.first().enabled) GmailScheduler.schedulePeriodic(this@HisaabApplication)
         }

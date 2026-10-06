@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Edit
@@ -108,10 +109,32 @@ data class AccountEdit(
     val nickname: String, val color: Int?, val type: AccountType?, val network: CardNetwork?, val linkedAccountId: Long?,
     val balance: String, val clearBalance: Boolean,
     val usage: com.hisaab.shared.db.AccountUsage = com.hisaab.shared.db.AccountUsage.PERSONAL,
+    val maturityDay: Long? = null,
+    val maturityAction: com.hisaab.shared.db.MaturityAction? = null,
+    /** Forex markup in percent, as typed ("3.5"). */
+    val markup: String = "",
 )
 
+/** A card or account the user adds by hand. */
+data class NewAccount(val kind: AccountKind, val bank: String, val last4: String, val type: AccountType?, val network: CardNetwork?, val balance: String)
+
 @HiltViewModel
-class AccountsViewModel @Inject constructor(private val dao: AccountDao) : ViewModel() {
+class AccountsViewModel @Inject constructor(private val dao: AccountDao, private val forex: com.hisaab.shared.db.ForexDao) : ViewModel() {
+    init { viewModelScope.launch { dao.closeMatured(java.time.LocalDate.now(Periods.zone).toEpochDay()) } }
+
+    /** Adds a card or account by hand. False when that bank and number already exist. */
+    fun add(n: NewAccount, done: (Boolean) -> Unit) = viewModelScope.launch {
+        val now = System.currentTimeMillis()
+        val id = dao.insert(
+            com.hisaab.shared.db.AccountEntity(
+                bankName = n.bank.trim(), last4 = n.last4, kind = n.kind, createdAt = now,
+                accountType = n.type, cardNetwork = n.network,
+            ),
+        )
+        if (id > 0) Money.parseInput(n.balance)?.let { dao.setManualBalance(id, it, now) }
+        done(id > 0)
+    }
+
     private val dismissed = MutableStateFlow(emptySet<Long>())
 
     val state = combine(dao.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())), dismissed) { all, dismissedCards ->
@@ -153,6 +176,13 @@ class AccountsViewModel @Inject constructor(private val dao: AccountDao) : ViewM
         if (e.usage != a.usage) dao.setUsage(a.id, e.usage)
         dao.setType(a.id, e.type, if (a.kind == AccountKind.CARD) e.network else null)
         dao.link(a.id, if (e.type == AccountType.DEBIT_CARD) e.linkedAccountId else null)
+        val deposit = e.type == AccountType.FD || e.type == AccountType.RD
+        dao.setMaturity(a.id, e.maturityDay.takeIf { deposit }, e.maturityAction.takeIf { deposit })
+        if (deposit) dao.closeMatured(java.time.LocalDate.now(Periods.zone).toEpochDay())
+        if (a.kind == AccountKind.CARD) {
+            val bps = e.markup.trim().toDoubleOrNull()?.takeIf { it in 0.0..20.0 }?.let { Math.round(it * 100).toInt() }
+            if (bps != a.forexMarkupBps) { dao.setForexMarkup(a.id, bps); forex.recompute() }
+        }
         when {
             e.clearBalance -> dao.setManualBalance(a.id, null, null)
             else -> Money.parseInput(e.balance)?.let { dao.setManualBalance(a.id, it, System.currentTimeMillis()) }
@@ -166,7 +196,10 @@ fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, initialTab:
     val s by vm.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(initialTab.coerceIn(0, 2)) }
     var editing by remember { mutableStateOf<AccountWithActivity?>(null) }
-    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
+    var adding by remember { mutableStateOf(false) }
+    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, floatingActionButton = {
+        androidx.compose.material3.FloatingActionButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, "Add") }
+    }, topBar = {
         Column {
             TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Accounts") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
             PrimaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
@@ -184,7 +217,7 @@ fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, initialTab:
         val list = when (tab) { 0 -> s.accounts; 1 -> s.cards; else -> s.deposits }
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = inner.calculateTopPadding() + 12.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(top = inner.calculateTopPadding() + 12.dp, start = 16.dp, end = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (tab == 0 && s.accounts.isNotEmpty()) item { BalanceSummary(s.accounts) }
@@ -230,6 +263,12 @@ fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, initialTab:
                 }
             }
         }
+    }
+    if (adding) {
+        AddAccountSheet(
+            kind = if (tab == 1) AccountKind.CARD else AccountKind.ACCOUNT, deposit = tab == 2,
+            onDismiss = { adding = false }, onAdd = { n, done -> vm.add(n, done) },
+        )
     }
     editing?.let { a ->
         EditSheet(a, accounts = s.accounts + s.deposits, onDismiss = { editing = null }, onSave = { e -> vm.save(a, e); editing = null },
@@ -328,6 +367,7 @@ private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, on
                 }
                 val sub = when {
                     linked != null -> "Linked to ${title(linked)} ••${linked.last4}"
+                    a.maturityDay != null -> maturityLine(a.maturityDay!!, a.maturityAction)
                     else -> "Spent this month ${Money.format(a.monthSpent, showPaise = false)} · ${a.transactionCount} transactions"
                 }
                 Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
@@ -370,7 +410,11 @@ private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity
     var balance by remember { mutableStateOf("") }
     var clearBalance by remember { mutableStateOf(false) }
     var usage by remember { mutableStateOf(a.usage) }
-    val invalid = balance.isNotBlank() && Money.parseInput(balance) == null
+    var maturityDay by remember { mutableStateOf(a.maturityDay) }
+    var maturityAction by remember { mutableStateOf(a.maturityAction) }
+    var markup by remember { mutableStateOf(a.forexMarkupBps?.let { "%.2f".format(it / 100.0).trimEnd('0').trimEnd('.') }.orEmpty()) }
+    val badMarkup = markup.isNotBlank() && markup.trim().toDoubleOrNull()?.let { it in 0.0..20.0 } != true
+    val invalid = (balance.isNotBlank() && Money.parseInput(balance) == null) || badMarkup
     val showBalance = !(isCard && type == AccountType.DEBIT_CARD)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -404,6 +448,19 @@ private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity
             }
             if (!isCard && type?.liquid == false) {
                 Text("Not counted in your Home balance.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (type == AccountType.FD || type == AccountType.RD) {
+                Label("On maturity")
+                MaturityFields(maturityDay, { maturityDay = it }, maturityAction, { maturityAction = it })
+            }
+            if (isCard) {
+                OutlinedTextField(
+                    markup, { markup = it.filter { c -> c.isDigit() || c == '.' }.take(5) }, Modifier.fillMaxWidth(),
+                    label = { Text("Forex markup") }, suffix = { Text("%") }, singleLine = true, isError = badMarkup,
+                    placeholder = { Text("3.5") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    supportingText = { Text("Added to spends in other currencies. Include GST: 3.5% + 18% = 4.13%.") },
+                )
             }
 
             if (isCard) {
@@ -469,7 +526,7 @@ private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity
                 TextButton(onClick = onHide) { Text("Remove from view", color = MaterialTheme.colorScheme.error) }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onDismiss) { Text("Cancel") }
-                Button(onClick = { onSave(AccountEdit(name, color, type, network, linkedId, balance, clearBalance, usage)) }, enabled = !invalid) { Text("Save") }
+                Button(onClick = { onSave(AccountEdit(name, color, type, network, linkedId, balance, clearBalance, usage, maturityDay, maturityAction, markup)) }, enabled = !invalid) { Text("Save") }
             }
             Text("Removing from view hides it from your lists and balance. Its transactions stay, and you can show it again at the bottom of Accounts.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -478,7 +535,7 @@ private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity
 }
 
 @Composable
-private fun Label(text: String) {
+internal fun Label(text: String) {
     Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 

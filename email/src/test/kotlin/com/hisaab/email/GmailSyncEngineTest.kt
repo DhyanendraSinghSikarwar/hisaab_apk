@@ -83,7 +83,9 @@ class GmailSyncEngineTest {
 
     @Test
     fun `query lists senders and lookback`() {
-        assertEquals("from:(alerts@hdfcbank.net OR icicibank.com) newer_than:90d", GmailQuery.build(listOf("alerts@hdfcbank.net", "icicibank.com", " "), 90))
+        val q = GmailQuery.build(listOf("alerts@hdfcbank.net", "icicibank.com", " "), 90)
+        assertTrue(q, q.startsWith("{from:(alerts@hdfcbank.net OR icicibank.com) subject:\"Consolidated Account Statement\""))
+        assertTrue(q, q.endsWith("} newer_than:90d"))
     }
 
     @Test
@@ -127,7 +129,7 @@ class GmailSyncEngineTest {
         assertEquals(SyncMode.FULL, report.mode)
         assertEquals(150, report.fetched)
         assertEquals(150, sink.stored.size)
-        assertEquals("from:(hdfcbank.net OR icicibank.com) newer_than:90d", query)
+        assertEquals(GmailQuery.build(listOf("hdfcbank.net", "icicibank.com"), 90), query)
         assertTrue("peak concurrency $peak", peak in 2..8)
         assertEquals("5000", state.saved)
     }

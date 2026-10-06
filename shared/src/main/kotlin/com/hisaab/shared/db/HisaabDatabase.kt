@@ -20,6 +20,7 @@ import androidx.sqlite.execSQL
         RecurringEntity::class,
         CustomCategoryEntity::class,
         CustomSubcategoryEntity::class,
+        ForexRateEntity::class,
     ],
     version = HisaabDatabase.VERSION,
     exportSchema = true,
@@ -36,10 +37,11 @@ abstract class HisaabDatabase : RoomDatabase() {
     abstract fun merchantRules(): MerchantRuleDao
     abstract fun recurring(): RecurringDao
     abstract fun categories(): CategoryDao
+    abstract fun forex(): ForexDao
 
     companion object {
         const val NAME = "hisaab.db"
-        const val VERSION = 11
+        const val VERSION = 12
     }
 }
 
@@ -162,5 +164,21 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+    /** 11 -> 12: rupee value of every transaction (forex), FD/RD maturity, card forex markup. */
+    val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE transactions ADD COLUMN inrMinor INTEGER DEFAULT NULL")
+            connection.execSQL("UPDATE transactions SET inrMinor = amountMinor WHERE currency = 'INR'")
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN maturityDay INTEGER DEFAULT NULL")
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN maturityAction TEXT DEFAULT NULL")
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN forexMarkupBps INTEGER DEFAULT NULL")
+            connection.execSQL(
+                "CREATE TABLE IF NOT EXISTS `forex_rates` (`currency` TEXT NOT NULL, `day` INTEGER NOT NULL, " +
+                    "`inrPerUnit` REAL NOT NULL, PRIMARY KEY(`currency`, `day`))",
+            )
+            ForexSql.install(connection)
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
 }

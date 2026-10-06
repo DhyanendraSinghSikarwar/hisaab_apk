@@ -66,32 +66,32 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT :limit")
     fun observeRecent(limit: Int): Flow<List<TransactionEntity>>
 
-    @Query("SELECT COALESCE(SUM(amountMinor), 0) FROM transactions WHERE type IN (:types) AND currency = 'INR' AND timestamp BETWEEN :from AND :to")
+    @Query("SELECT COALESCE(SUM(inrMinor), 0) FROM transactions WHERE type IN (:types) AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to")
     fun observeTotal(types: List<String>, from: Long, to: Long): Flow<Long>
 
-    @Query("SELECT COALESCE(SUM(amountMinor), 0) FROM transactions WHERE type IN (:types) AND currency = 'INR' AND timestamp BETWEEN :from AND :to")
+    @Query("SELECT COALESCE(SUM(inrMinor), 0) FROM transactions WHERE type IN (:types) AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to")
     suspend fun total(types: List<String>, from: Long, to: Long): Long
 
     @Query(
-        """SELECT category, SUM(amountMinor) AS total FROM transactions
-           WHERE type IN ('DEBIT', 'INVESTMENT') AND currency = 'INR' AND timestamp BETWEEN :from AND :to
+        """SELECT category, SUM(inrMinor) AS total FROM transactions
+           WHERE type IN ('DEBIT', 'INVESTMENT') AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
            GROUP BY category ORDER BY total DESC""",
     )
     fun observeCategoryTotals(from: Long, to: Long): Flow<List<CategoryTotal>>
 
     /** Spend per local day. [offsetMillis] is the zone's UTC offset, so days break at local midnight. */
     @Query(
-        """SELECT (timestamp + :offsetMillis) / 86400000 AS day, SUM(amountMinor) AS total FROM transactions
-           WHERE type IN ('DEBIT', 'INVESTMENT') AND currency = 'INR' AND timestamp BETWEEN :from AND :to
+        """SELECT (timestamp + :offsetMillis) / 86400000 AS day, SUM(inrMinor) AS total FROM transactions
+           WHERE type IN ('DEBIT', 'INVESTMENT') AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
            GROUP BY day ORDER BY day""",
     )
     fun observeDailySpend(from: Long, to: Long, offsetMillis: Long): Flow<List<DayTotal>>
 
     @Query(
         """SELECT strftime('%Y-%m', (timestamp + :offsetMillis) / 1000, 'unixepoch') AS month,
-                  SUM(CASE WHEN type IN ('DEBIT', 'INVESTMENT') THEN amountMinor ELSE 0 END) AS spent,
-                  SUM(CASE WHEN type = 'CREDIT' THEN amountMinor ELSE 0 END) AS income
-           FROM transactions WHERE currency = 'INR' AND timestamp BETWEEN :from AND :to
+                  SUM(CASE WHEN type IN ('DEBIT', 'INVESTMENT') THEN inrMinor ELSE 0 END) AS spent,
+                  SUM(CASE WHEN type = 'CREDIT' THEN inrMinor ELSE 0 END) AS income
+           FROM transactions WHERE inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
            GROUP BY month ORDER BY month""",
     )
     fun observeMonthly(from: Long, to: Long, offsetMillis: Long): Flow<List<MonthTotal>>
@@ -100,8 +100,8 @@ interface TransactionDao {
     // personal); [kind] is ALL, ACCOUNT or CARD.
 
     @Query(
-        """SELECT category, SUM(amountMinor) AS total FROM transactions
-           WHERE type IN ('DEBIT', 'INVESTMENT') AND currency = 'INR' AND timestamp BETWEEN :from AND :to
+        """SELECT category, SUM(inrMinor) AS total FROM transactions
+           WHERE type IN ('DEBIT', 'INVESTMENT') AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
              AND (:scope = 'ALL'
                   OR (:scope = 'PERSONAL' AND (accountId IS NULL OR accountId IN (SELECT id FROM accounts WHERE usage = 'PERSONAL')))
                   OR (:scope = 'BUSINESS' AND accountId IN (SELECT id FROM accounts WHERE usage = 'BUSINESS')))
@@ -112,9 +112,9 @@ interface TransactionDao {
 
     @Query(
         """SELECT strftime('%Y-%m', (timestamp + :offsetMillis) / 1000, 'unixepoch') AS month,
-                  SUM(CASE WHEN type IN ('DEBIT', 'INVESTMENT') THEN amountMinor ELSE 0 END) AS spent,
-                  SUM(CASE WHEN type = 'CREDIT' THEN amountMinor ELSE 0 END) AS income
-           FROM transactions WHERE currency = 'INR' AND timestamp BETWEEN :from AND :to
+                  SUM(CASE WHEN type IN ('DEBIT', 'INVESTMENT') THEN inrMinor ELSE 0 END) AS spent,
+                  SUM(CASE WHEN type = 'CREDIT' THEN inrMinor ELSE 0 END) AS income
+           FROM transactions WHERE inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
              AND (:scope = 'ALL'
                   OR (:scope = 'PERSONAL' AND (accountId IS NULL OR accountId IN (SELECT id FROM accounts WHERE usage = 'PERSONAL')))
                   OR (:scope = 'BUSINESS' AND accountId IN (SELECT id FROM accounts WHERE usage = 'BUSINESS')))
@@ -124,8 +124,8 @@ interface TransactionDao {
     fun monthlyFor(from: Long, to: Long, offsetMillis: Long, scope: String, kind: String): Flow<List<MonthTotal>>
 
     @Query(
-        """SELECT (timestamp + :offsetMillis) / 86400000 AS day, SUM(amountMinor) AS total FROM transactions
-           WHERE type IN ('DEBIT', 'INVESTMENT') AND currency = 'INR' AND timestamp BETWEEN :from AND :to
+        """SELECT (timestamp + :offsetMillis) / 86400000 AS day, SUM(inrMinor) AS total FROM transactions
+           WHERE type IN ('DEBIT', 'INVESTMENT') AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
              AND (:scope = 'ALL'
                   OR (:scope = 'PERSONAL' AND (accountId IS NULL OR accountId IN (SELECT id FROM accounts WHERE usage = 'PERSONAL')))
                   OR (:scope = 'BUSINESS' AND accountId IN (SELECT id FROM accounts WHERE usage = 'BUSINESS')))
@@ -135,8 +135,8 @@ interface TransactionDao {
     fun dailyFor(from: Long, to: Long, offsetMillis: Long, scope: String, kind: String): Flow<List<DayTotal>>
 
     @Query(
-        """SELECT COALESCE(merchant, bankName) AS name, SUM(amountMinor) AS total, COUNT(*) AS count FROM transactions
-           WHERE type IN ('DEBIT', 'INVESTMENT') AND currency = 'INR' AND timestamp BETWEEN :from AND :to
+        """SELECT COALESCE(merchant, bankName) AS name, SUM(inrMinor) AS total, COUNT(*) AS count FROM transactions
+           WHERE type IN ('DEBIT', 'INVESTMENT') AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
              AND (:scope = 'ALL'
                   OR (:scope = 'PERSONAL' AND (accountId IS NULL OR accountId IN (SELECT id FROM accounts WHERE usage = 'PERSONAL')))
                   OR (:scope = 'BUSINESS' AND accountId IN (SELECT id FROM accounts WHERE usage = 'BUSINESS')))
@@ -151,10 +151,10 @@ interface TransactionDao {
     /** Spending and income per month for one account (and the debit cards that draw from it). */
     @Query(
         """SELECT strftime('%Y-%m', (timestamp + :offsetMillis) / 1000, 'unixepoch') AS month,
-                  SUM(CASE WHEN type IN ('DEBIT', 'INVESTMENT') THEN amountMinor ELSE 0 END) AS spent,
-                  SUM(CASE WHEN type = 'CREDIT' THEN amountMinor ELSE 0 END) AS income
+                  SUM(CASE WHEN type IN ('DEBIT', 'INVESTMENT') THEN inrMinor ELSE 0 END) AS spent,
+                  SUM(CASE WHEN type = 'CREDIT' THEN inrMinor ELSE 0 END) AS income
            FROM transactions
-           WHERE currency = 'INR' AND timestamp BETWEEN :from AND :to
+           WHERE inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
              AND (accountId = :accountId OR accountId IN (SELECT id FROM accounts WHERE linkedAccountId = :accountId))
            GROUP BY month ORDER BY month""",
     )
@@ -165,8 +165,8 @@ interface TransactionDao {
 
     /** Where the money went, by merchant, biggest first. */
     @Query(
-        """SELECT COALESCE(merchant, bankName) AS name, SUM(amountMinor) AS total, COUNT(*) AS count FROM transactions
-           WHERE type IN ('DEBIT', 'INVESTMENT') AND currency = 'INR' AND timestamp BETWEEN :from AND :to
+        """SELECT COALESCE(merchant, bankName) AS name, SUM(inrMinor) AS total, COUNT(*) AS count FROM transactions
+           WHERE type IN ('DEBIT', 'INVESTMENT') AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
            GROUP BY name ORDER BY total DESC LIMIT :limit""",
     )
     fun observeTopMerchants(from: Long, to: Long, limit: Int): Flow<List<MerchantTotal>>
@@ -336,6 +336,20 @@ interface AccountDao {
     @Query("UPDATE accounts SET hidden = :hidden WHERE id = :id")
     suspend fun setHidden(id: Long, hidden: Boolean)
 
+    /** Card numbers, for guessing statement passwords like DDMMYYYY + last 4 of the card. */
+    @Query("SELECT DISTINCT last4 FROM accounts WHERE kind = 'CARD' AND length(last4) = 4")
+    suspend fun cardLast4s(): List<String>
+
+    @Query("UPDATE accounts SET maturityDay = :day, maturityAction = :action WHERE id = :id")
+    suspend fun setMaturity(id: Long, day: Long?, action: MaturityAction?)
+
+    @Query("UPDATE accounts SET forexMarkupBps = :bps WHERE id = :id")
+    suspend fun setForexMarkup(id: Long, bps: Int?)
+
+    /** Deposits paid out on or before [today] (epoch day) leave the lists; renewed ones stay. */
+    @Query("UPDATE accounts SET hidden = 1 WHERE hidden = 0 AND maturityAction = 'CREDIT' AND maturityDay <= :today")
+    suspend fun closeMatured(today: Long): Int
+
     /** A card's limit from its statement: the available limit is the limit minus what is due. */
     @Query(
         """UPDATE accounts SET availableLimitMinor = :available, balanceUpdatedAt = :at
@@ -360,18 +374,19 @@ interface AccountDao {
     @Query(
         """SELECT a.id, a.bankName, a.last4, a.kind, a.nickname, a.colorArgb, a.latestBalanceMinor, a.availableLimitMinor,
                   a.balanceUpdatedAt, a.manualBalanceMinor, a.manualBalanceAt, a.accountType, a.cardNetwork, a.linkedAccountId, a.hidden, a.usage,
-                  COALESCE((SELECT SUM(t.amountMinor) FROM transactions t
+                  a.maturityDay, a.maturityAction, a.forexMarkupBps,
+                  COALESCE((SELECT SUM(t.inrMinor) FROM transactions t
                             WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id))
                             AND t.type IN ('DEBIT', 'INVESTMENT') AND t.timestamp >= :from AND t.timestamp < :to), 0) AS monthSpent,
                   (SELECT COUNT(*) FROM transactions t WHERE t.accountId = a.id) AS transactionCount,
-                  COALESCE((SELECT SUM(CASE WHEN t.type = 'CREDIT' THEN t.amountMinor
-                                            WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.amountMinor
-                                            WHEN t.type = 'TRANSFER' AND a.kind = 'CARD' THEN t.amountMinor
+                  COALESCE((SELECT SUM(CASE WHEN t.type = 'CREDIT' THEN t.inrMinor
+                                            WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.inrMinor
+                                            WHEN t.type = 'TRANSFER' AND a.kind = 'CARD' THEN t.inrMinor
                                             ELSE 0 END)
                             FROM transactions t
                             WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id))
                             AND a.manualBalanceAt IS NOT NULL
-                            AND t.timestamp > a.manualBalanceAt AND t.needsReview = 0 AND t.currency = 'INR'), 0) AS changeSinceManual
+                            AND t.timestamp > a.manualBalanceAt AND t.needsReview = 0 AND t.inrMinor IS NOT NULL), 0) AS changeSinceManual
            FROM accounts a ORDER BY a.bankName, a.last4""",
     )
     fun observeWithActivity(from: Long, to: Long = Long.MAX_VALUE): Flow<List<AccountWithActivity>>

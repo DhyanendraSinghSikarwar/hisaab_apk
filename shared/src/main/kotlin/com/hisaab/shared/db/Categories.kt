@@ -68,8 +68,8 @@ interface CategoryDao {
 
     /** Spent per category of the user's own, so Home can show each one apart from Other. */
     @Query(
-        """SELECT customCategoryId, SUM(amountMinor) AS total FROM transactions
-           WHERE customCategoryId IS NOT NULL AND type IN ('DEBIT', 'INVESTMENT') AND currency = 'INR' AND timestamp BETWEEN :from AND :to
+        """SELECT customCategoryId, SUM(inrMinor) AS total FROM transactions
+           WHERE customCategoryId IS NOT NULL AND type IN ('DEBIT', 'INVESTMENT') AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
            GROUP BY customCategoryId ORDER BY total DESC""",
     )
     fun observeCustomTotals(from: Long, to: Long): Flow<List<CustomCategoryTotal>>
@@ -77,7 +77,7 @@ interface CategoryDao {
     /** The spending in one category for a period, for the sub-category drill-down. */
     @Query(
         """SELECT * FROM transactions
-           WHERE type IN ('DEBIT', 'INVESTMENT') AND currency = 'INR' AND timestamp BETWEEN :from AND :to
+           WHERE type IN ('DEBIT', 'INVESTMENT') AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
              AND ((:customId IS NULL AND category = :category AND customCategoryId IS NULL) OR customCategoryId = :customId)
            ORDER BY timestamp DESC""",
     )

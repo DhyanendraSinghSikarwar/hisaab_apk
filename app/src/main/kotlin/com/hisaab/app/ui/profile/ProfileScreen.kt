@@ -92,16 +92,23 @@ class ProfileViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val settings: AppSettingsStore,
     private val transactions: TransactionDao,
+    private val passwords: com.hisaab.email.statement.StatementPasswordStore,
+    private val statements: com.hisaab.email.statement.StatementProcessor,
 ) : ViewModel() {
     val profile = settings.settings.map { it.profile }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val identity = passwords.identity.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val count = transactions.observeTransactionCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val since = mutableStateOf<Long?>(null)
 
     init { viewModelScope.launch { since.value = transactions.firstTimestamp() } }
 
-    fun save(name: String, email: String, phone: String, occupation: String, then: () -> Unit = {}) = viewModelScope.launch {
+    fun save(name: String, email: String, phone: String, occupation: String, dob: java.time.LocalDate? = identity.value?.dob,
+             pan: String = identity.value?.pan.orEmpty(), then: () -> Unit = {}) = viewModelScope.launch {
         settings.saveProfile(name, email, phone, occupation)
+        passwords.setIdentity(com.hisaab.parser.statement.Identity(name.trim().ifEmpty { null }, dob, pan.trim().ifEmpty { null }, phone.trim().ifEmpty { null }))
         then()
+        // New details may open statements that were waiting for a password.
+        statements.retryLocked()
     }
 
     /** Copies the picked photo into app-private storage, scaled down, so it survives the gallery item being deleted. */
@@ -150,15 +157,19 @@ fun ProfileAvatar(name: String, photoPath: String?, size: Dp, modifier: Modifier
 @Composable
 fun ProfileRoute(onBack: () -> Unit, onOpenSettings: () -> Unit = {}, vm: ProfileViewModel = hiltViewModel()) {
     val profile by vm.profile.collectAsStateWithLifecycle()
+    val identity by vm.identity.collectAsStateWithLifecycle()
     val count by vm.count.collectAsStateWithLifecycle()
     val p = profile ?: return
+    val id = identity ?: return
+    var dob by rememberSaveable(id.dob) { mutableStateOf(id.dob) }
+    var pan by rememberSaveable(id.pan) { mutableStateOf(id.pan.orEmpty()) }
     var name by rememberSaveable(p.name) { mutableStateOf(p.name.orEmpty()) }
     var email by rememberSaveable(p.email) { mutableStateOf(p.email.orEmpty()) }
     var phone by rememberSaveable(p.phone) { mutableStateOf(p.phone.orEmpty()) }
     var occupation by rememberSaveable(p.occupation) { mutableStateOf(p.occupation.orEmpty()) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::setPhoto) }
     val changed = name.trim() != p.name.orEmpty() || email.trim() != p.email.orEmpty() || phone.trim() != p.phone.orEmpty() ||
-        occupation.trim() != p.occupation.orEmpty()
+        occupation.trim() != p.occupation.orEmpty() || dob != id.dob || pan.trim() != id.pan.orEmpty()
 
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
@@ -193,13 +204,15 @@ fun ProfileRoute(onBack: () -> Unit, onOpenSettings: () -> Unit = {}, vm: Profil
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Field(name, { name = it }, "Name", Icons.Filled.Person, KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
+            Field(name, { name = it }, "Full name (as on bank records)", Icons.Filled.Person, KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
             Field(email, { email = it }, "Email (optional)", Icons.Filled.Email, KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next))
-            Field(phone, { phone = it }, "Phone (optional)", Icons.Filled.Phone, KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next))
+            Field(phone, { phone = it }, "Mobile", Icons.Filled.Phone, KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next))
             Field(occupation, { occupation = it }, "Occupation (optional)", Icons.Filled.Work,
                 KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done))
+            Text("For locked statements", style = MaterialTheme.typography.titleSmall, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+            StatementDetailsFields(dob, { dob = it }, pan, { pan = it })
 
-            Button(onClick = { vm.save(name, email, phone, occupation) }, enabled = changed && name.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { vm.save(name, email, phone, occupation, dob, pan) }, enabled = changed && name.isNotBlank() && validPan(pan), modifier = Modifier.fillMaxWidth()) {
                 Text("Save profile")
             }
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHigh) {

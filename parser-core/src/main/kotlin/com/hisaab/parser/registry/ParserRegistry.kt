@@ -62,7 +62,20 @@ class ParserRegistry(
             "getonecard.app", "slicepay.in", "sliceit.com", "jupiter.money", "fi.money", "scapia.cards", "uni.cards", "bobfinancial.com",
             "bajajfinserv.in", "kfintech.net", "camsonline.co.in", "indusind.bank.in", "canarabank.com", "unionbankofindia.co.in",
             "citibank.com", "dbs.com", "paytmbank.com", "nps-proteantech.in", "proteantech.in",
+            "cdslindia.co.in", "cdsl.co.in", "npstrust.org.in", "npscra.nsdl.co.in", "kfintech-cra.com", "camsnps.com",
+            "epfo.gov.in", "umang.gov.in",
         )
+
+        /**
+         * Statement mails picked by subject, whoever sends them: a CAS forwarded by INDmoney or another app
+         * ("CDSL Consolidated Account Statement (CAS) across Mutual Funds and Depositories"), NPS and EPF statements.
+         */
+        val STATEMENT_SUBJECTS = listOf("Consolidated Account Statement", "NPS Transaction Statement", "PRAN", "EPF Passbook", "Member Passbook")
+        private val STATEMENT_SUBJECT = com.hisaab.parser.text.rx(
+            """consolidated\s+account\s+statement|\bCAS\b|\bNPS\b.{0,40}statement|\bPRAN\b|\bEPF\b.{0,30}(?:passbook|statement)|member\s+passbook""",
+        )
+
+        fun isStatementSubject(subject: String?): Boolean = subject != null && STATEMENT_SUBJECT.containsMatchIn(subject)
 
         fun default(config: ParserConfig = ParserConfig()): ParserRegistry = ParserRegistry(
             parsers = listOf(

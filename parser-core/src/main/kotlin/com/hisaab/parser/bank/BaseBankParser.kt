@@ -63,7 +63,7 @@ abstract class BaseBankParser(protected val config: ParserConfig) : BankParser {
         val money = hit?.amount?.let { Money.parse(it, hit.currency ?: "INR") } ?: AmountExtractor.extract(text) ?: return null
         var type = TypeClassifier.classify(text, hit?.type, lower) ?: return null
 
-        val genericAccount = AccountExtractor.extract(text)
+        val genericAccount = AccountExtractor.extract(text, type)
         val last4 = hit?.account?.takeLast(4) ?: genericAccount?.last4
         val kind = hit?.accountKind ?: genericAccount?.kind ?: AccountKind.ACCOUNT
         val reference = ReferenceExtractor.normalize(hit?.reference ?: ReferenceExtractor.extract(text, lower))

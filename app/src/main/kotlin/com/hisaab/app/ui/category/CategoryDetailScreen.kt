@@ -102,7 +102,7 @@ class CategoryDetailViewModel @Inject constructor(handle: SavedStateHandle, priv
             val look = builtIn?.let { CategoryLook.of(it) } ?: customs.firstOrNull { it.id == customId }?.let { CategoryLook.of(it) }
             val known = subsFor(key, builtIn, subs).associateBy { it.name }
             val groups = txs.groupBy { t -> if (builtIn != null) Subcategories.of(builtIn, t.subcategory, t.merchant, t.upiId) else t.subcategory ?: Subcategories.OTHER }
-                .map { (name, list) -> SubSpend(name, known[name]?.icon ?: "label", list.sumOf { it.amountMinor }, list) }
+                .map { (name, list) -> SubSpend(name, known[name]?.icon ?: "label", list.sumOf { it.inrMinor ?: it.amountMinor }, list) }
                 .sortedByDescending { it.total }
             CategoryDetailState(look, builtIn, m, groups, groups.sumOf { it.total }, subs.filter { it.parent == key })
         }

@@ -67,6 +67,7 @@ import javax.inject.Inject
 class WelcomeViewModel @Inject constructor(
     private val settings: AppSettingsStore,
     mail: com.hisaab.email.sync.GmailSettingsStore,
+    private val passwords: com.hisaab.email.statement.StatementPasswordStore,
 ) : ViewModel() {
     /**
      * Null while loading; true until the user has a name and has signed in with an email or phone. Someone who
@@ -78,9 +79,12 @@ class WelcomeViewModel @Inject constructor(
 
     val currentName = settings.settings.map { it.profile.name.orEmpty() }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
-    fun finish(name: String, email: String?, phone: String?) = viewModelScope.launch {
+    fun finish(name: String, email: String?, phone: String?, dob: java.time.LocalDate? = null, pan: String = "") = viewModelScope.launch {
         val p = settings.settings.first().profile
-        settings.saveProfile(name, email ?: p.email.orEmpty(), phone ?: p.phone.orEmpty(), p.occupation.orEmpty())
+        val mobile = phone ?: p.phone.orEmpty()
+        // The statement details first: saving the name ends sign-up and closes this screen.
+        passwords.setIdentity(com.hisaab.parser.statement.Identity(name.trim(), dob, pan.trim().ifEmpty { null }, mobile.ifBlank { null }))
+        settings.saveProfile(name, email ?: p.email.orEmpty(), mobile, p.occupation.orEmpty())
     }
 }
 
@@ -95,6 +99,9 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
     var mode by rememberSaveable { mutableStateOf("choose") }
     var phone by rememberSaveable { mutableStateOf("") }
     var connecting by rememberSaveable { mutableStateOf(false) }
+    var email by rememberSaveable { mutableStateOf<String?>(null) }
+    var dob by rememberSaveable { mutableStateOf<java.time.LocalDate?>(null) }
+    var pan by rememberSaveable { mutableStateOf("") }
     val c = MaterialTheme.colorScheme
     Surface(Modifier.fillMaxSize(), color = c.background) {
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BackdropColors.emerald.copy(alpha = 0.18f), Color.Transparent, BackdropColors.sapphire.copy(alpha = 0.12f))))) {
@@ -120,14 +127,31 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
                 Spacer(Modifier.height(16.dp))
                 AnimatedContent(mode, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "signin") { m ->
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (m == "phone") {
+                        if (m == "details") {
+                            Text("Unlock your statements", style = MaterialTheme.typography.titleMedium)
+                            if (email != null) {
+                                OutlinedTextField(
+                                    phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("Mobile number") },
+                                    prefix = { Text("+91 ") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Phone, null) }, shape = RoundedCornerShape(16.dp),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
+                                )
+                            }
+                            com.hisaab.app.ui.profile.StatementDetailsFields(dob, { dob = it }, pan, { pan = it })
+                            Button(
+                                onClick = { vm.finish(name, email, phone.takeIf { it.length == 10 }?.let { "+91 $it" }, dob, pan) },
+                                enabled = com.hisaab.app.ui.profile.validPan(pan), modifier = Modifier.fillMaxWidth().height(52.dp),
+                            ) { Text("Finish") }
+                            TextButton(onClick = { vm.finish(name, email, phone.takeIf { it.length == 10 }?.let { "+91 $it" }) }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Skip for now")
+                            }
+                        } else if (m == "phone") {
                             OutlinedTextField(
                                 phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("Mobile number") },
                                 prefix = { Text("+91 ") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Phone, null) }, shape = RoundedCornerShape(16.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
                             )
                             Button(
-                                onClick = { vm.finish(name, null, "+91 $phone") }, enabled = name.isNotBlank() && phone.length == 10,
+                                onClick = { mode = "details" }, enabled = name.isNotBlank() && phone.length == 10,
                                 modifier = Modifier.fillMaxWidth().height(52.dp),
                             ) { Text("Continue") }
                             TextButton(onClick = { mode = "choose" }, modifier = Modifier.fillMaxWidth()) { Text("Use email instead") }
@@ -156,6 +180,6 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
         }
     }
     if (connecting) {
-        EmailConnectDialog(onDismiss = { connecting = false }, onUseGoogle = null, onConnected = { email -> vm.finish(name, email, null) })
+        EmailConnectDialog(onDismiss = { connecting = false }, onUseGoogle = null, onConnected = { e -> email = e; connecting = false; mode = "details" })
     }
 }

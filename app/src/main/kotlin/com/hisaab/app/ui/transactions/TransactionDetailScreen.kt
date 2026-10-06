@@ -91,7 +91,7 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
     val sources by vm.sources.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
-        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(),
             title = { Text("Transaction") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete") } },
@@ -120,14 +120,14 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Field("Type", t.type.name.lowercase().replaceFirstChar { it.uppercase() })
-                    Field("When", Periods.dateTime(t.timestamp) + if (t.hasExplicitTime) "" else " (time the message arrived)")
-                    Field("Account", "${t.bankName}${t.accountLast4?.let { " •• $it" }.orEmpty()} (${t.accountKind.name.lowercase()})")
-                    Field("Channel", t.channel.name.replace('_', ' '))
+                    if (t.currency != "INR") Field("In rupees", t.inrMinor?.let { "≈ " + Money.format(it) } ?: "Add a rate in Settings › Forex rates")
+                    Field("When", Periods.dateTime(t.timestamp))
+                    Field(if (t.accountKind.name == "CARD") "Card" else "Account", "${t.bankName}${t.accountLast4?.let { " •• $it" }.orEmpty()}")
+                    if (t.channel.name != "OTHER") Field("Channel", t.channel.name.replace('_', ' '))
                     t.upiId?.let { Field("UPI id", it) }
                     t.referenceNumber?.let { Field("Reference", it) }
                     t.balanceMinor?.let { Field("Balance after", Money.format(it)) }
                     t.availableLimitMinor?.let { Field("Limit left", Money.format(it)) }
-                    Field("Parser confidence", "${(t.confidence * 100).toInt()}%")
                     t.reviewReason?.let { Field("Flagged", it) }
                 }
             }
@@ -136,11 +136,7 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
                 if (note != t.note.orEmpty()) TextButton(onClick = { vm.setNote(note) }) { Text("Save") }
             })
 
-            Text("Sources (${sources.size})", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Every message that reported this transaction. An SMS and an email for the same payment are merged into one record.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(if (sources.size > 1) "Messages (${sources.size})" else "Message", style = MaterialTheme.typography.titleMedium)
             sources.forEach { s -> SourceCard(s, canSplit = sources.size > 1, onSplit = { vm.split(s) }) }
         }
     }

@@ -56,6 +56,8 @@ data class TransactionEntity(
     @ColumnInfo(defaultValue = "NULL") val subcategory: String? = null,
     /** Set when the user filed it under a category of their own; [category] is then OTHER. */
     @ColumnInfo(defaultValue = "NULL") val customCategoryId: Long? = null,
+    /** The amount in paise; for other currencies converted at the user's rate (see ForexSql). Set by a trigger. */
+    @ColumnInfo(defaultValue = "NULL") val inrMinor: Long? = null,
 )
 
 /** Every message that contributed to a transaction. One transaction can have an SMS and an email. */
@@ -121,7 +123,19 @@ data class AccountEntity(
     @ColumnInfo(defaultValue = "0") val hidden: Boolean = false,
     /** Personal or business money; Analytics can show either alone. */
     @ColumnInfo(defaultValue = "'PERSONAL'") val usage: AccountUsage = AccountUsage.PERSONAL,
+    /** FD or RD: the day it matures (epoch day) and what the bank does then. */
+    @ColumnInfo(defaultValue = "NULL") val maturityDay: Long? = null,
+    @ColumnInfo(defaultValue = "NULL") val maturityAction: MaturityAction? = null,
+    /** A card's charge on spends in other currencies, in basis points (3.5% = 350). */
+    @ColumnInfo(defaultValue = "NULL") val forexMarkupBps: Int? = null,
 )
+
+/** What happens to a deposit on its maturity date. Paid out: it leaves the lists. Renewed: it stays. */
+enum class MaturityAction(val label: String, val closes: Boolean) {
+    CREDIT("Pay out to account", true),
+    RENEW_PRINCIPAL("Renew principal, pay out interest", false),
+    RENEW_ALL("Renew principal and interest", false),
+}
 
 enum class AccountUsage(val label: String) { PERSONAL("Personal"), BUSINESS("Business") }
 
@@ -203,6 +217,9 @@ data class AccountWithActivity(
     val linkedAccountId: Long? = null,
     val hidden: Boolean = false,
     val usage: AccountUsage = AccountUsage.PERSONAL,
+    val maturityDay: Long? = null,
+    val maturityAction: MaturityAction? = null,
+    val forexMarkupBps: Int? = null,
 ) {
     val isDebitCard: Boolean get() = kind == AccountKind.CARD && accountType == AccountType.DEBIT_CARD
 

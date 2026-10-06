@@ -125,7 +125,7 @@ class GmailSyncEngine(
         withContext(Dispatchers.Default) {
             for (m in messages) {
                 val content = MimeParser.extract(m)
-                if (filterBySender && !allow.allows(content.from)) {
+                if (filterBySender && !allow.allows(content.from, content.subject)) {
                     processed += ProcessedEmailEntity(m.id, now, OUTCOME_SKIPPED, null)
                     continue
                 }
@@ -167,15 +167,20 @@ class GmailSyncEngine(
 }
 
 object GmailQuery {
-    /** `from:(a OR b OR ...) newer_than:Nd`. Gmail matches a bare domain in from: against any address at it. */
+    /**
+     * `{from:(a OR b) subject:"..."} newer_than:Nd`: the allowed senders, or a statement subject from anyone.
+     * Gmail matches a bare domain in from: against any address at it.
+     */
     fun build(senders: List<String>, days: Int): String {
         val from = senders.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(" OR ")
-        return "from:($from) newer_than:${days}d"
+        val subjects = com.hisaab.parser.registry.ParserRegistry.STATEMENT_SUBJECTS.joinToString(" ") { "subject:\"$it\"" }
+        return "{from:($from) $subjects} newer_than:${days}d"
     }
 }
 
 /** Matches a From header against addresses and domains, including subdomains (alerts.sbi.co.in for sbi.co.in). */
 class SenderAllowList(senders: List<String>) {
     private val entries = senders.map { it.trim().lowercase() }.toHashSet()
-    fun allows(from: String): Boolean = SenderKeys.candidates(from).any { it in entries }
+    fun allows(from: String, subject: String? = null): Boolean =
+        SenderKeys.candidates(from).any { it in entries } || com.hisaab.parser.registry.ParserRegistry.isStatementSubject(subject)
 }

@@ -23,6 +23,10 @@ object MerchantNormalizer {
     private val NOISE_SUFFIX = setOf("PVT", "LTD", "PRIVATE", "LIMITED", "LLP", "INC", "CO", "UPI", "PAYMENTS", "PAYMENT")
     private val VPA_NOISE = setOf("UPI", "PAY", "PAYTM", "RAZORPAY", "RZP", "BHARATPE", "PAYU", "CASHFREE", "MERCHANT", "OKAXIS", "OKICICI")
 
+    /** "UBERIND13513699", "AMAZONPAY1234": letters glued to a terminal or order number. */
+    private val IFSC = rx("""[A-Z]{4}0[A-Z0-9]{6}""")
+    private val NAME_THEN_ID = rx("""^([A-Z]{3,}?)(?:IND|INDIA|IN)?\d{4,}$""")
+
     private val SALARY = rx("""\b(?:SALARY|SAL\s+CR|PAYROLL)\b""")
 
     fun normalize(raw: RawMerchant, type: TransactionType, channel: Channel, fullText: String): NormalizedMerchant {
@@ -58,6 +62,7 @@ object MerchantNormalizer {
     internal fun clean(raw: String): String? {
         var s = raw.uppercase()
         if ('@' in s) return fromVpa(s)
+        if (!IFSC.matches(s.trim())) NAME_THEN_ID.matchEntire(s.trim())?.let { s = it.groupValues[1] }
         // "NEFT/CITIN5202.../ACME CORP" and "CITIN5202...-ACME CORP": keep the first segment that is a name.
         val segments = s.split(SEGMENT_SPLIT).flatMap { seg ->
             val parts = seg.split(HYPHEN_SPLIT)

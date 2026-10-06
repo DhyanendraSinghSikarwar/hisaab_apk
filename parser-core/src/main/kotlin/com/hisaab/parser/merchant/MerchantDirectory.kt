@@ -28,9 +28,12 @@ object MerchantDirectory {
         listOf("DMART", "AVENUE SUPERMARTS") to Entry("DMart", Category.GROCERIES),
         listOf("JIOMART") to Entry("JioMart", Category.GROCERIES),
         // Transport
-        listOf("UBER") to Entry("Uber", Category.TRANSPORT),
-        listOf("OLA", "OLACABS", "ANI TECHNOLOGIES") to Entry("Ola", Category.TRANSPORT),
+        listOf("UBER", "UBERIND", "UBER INDIA") to Entry("Uber", Category.TRANSPORT),
+        listOf("OLA", "OLACABS", "OLAMONEY", "ANI TECHNOLOGIES") to Entry("Ola", Category.TRANSPORT),
         listOf("RAPIDO", "ROPPEN") to Entry("Rapido", Category.TRANSPORT),
+        listOf("BLUSMART", "BLU SMART") to Entry("BluSmart", Category.TRANSPORT),
+        listOf("NAMMA YATRI", "NAMMAYATRI") to Entry("Namma Yatri", Category.TRANSPORT),
+        listOf("MERU") to Entry("Meru", Category.TRANSPORT),
         listOf("FASTAG") to Entry("FASTag", Category.TRANSPORT),
         listOf("METRO", "DMRC", "BMRCL") to Entry("Metro", Category.TRANSPORT),
         // Fuel

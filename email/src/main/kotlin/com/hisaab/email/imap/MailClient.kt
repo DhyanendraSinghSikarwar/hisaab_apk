@@ -51,7 +51,7 @@ interface MailClient {
      * Inbox messages received on or after [since] (the server compares dates, not times) whose From
      * header passes [accept]. Only those bodies are downloaded; every other message is read as an envelope only.
      */
-    suspend fun fetchSince(login: MailLogin, since: Long, accept: (String) -> Boolean, withPdfs: Boolean): List<FetchedMail>
+    suspend fun fetchSince(login: MailLogin, since: Long, accept: (from: String, subject: String?) -> Boolean, withPdfs: Boolean): List<FetchedMail>
 }
 
 /** IMAP over TLS and SMTP with JavaMail. The password is used for the call and never logged. */
@@ -84,7 +84,7 @@ class JavaMailClient @Inject constructor() : MailClient {
         Transport.send(message, login.email, login.password)
     }
 
-    override suspend fun fetchSince(login: MailLogin, since: Long, accept: (String) -> Boolean, withPdfs: Boolean): List<FetchedMail> = io {
+    override suspend fun fetchSince(login: MailLogin, since: Long, accept: (from: String, subject: String?) -> Boolean, withPdfs: Boolean): List<FetchedMail> = io {
         val store = session(login).getStore("imaps")
         store.connect(login.server.imapHost, login.server.imapPort, login.email, login.password)
         try {
@@ -97,7 +97,7 @@ class JavaMailClient @Inject constructor() : MailClient {
                 inbox.fetch(found, FetchProfile().apply { add(FetchProfile.Item.ENVELOPE); add(UIDFolder.FetchProfileItem.UID) })
                 found.mapNotNull { m ->
                     val from = m.from?.firstOrNull()?.toString().orEmpty()
-                    if (!accept(from)) return@mapNotNull null
+                    if (!accept(from, m.subject)) return@mapNotNull null
                     runCatching { decode(inbox, m, from, withPdfs) }.getOrNull()
                 }
             } finally {

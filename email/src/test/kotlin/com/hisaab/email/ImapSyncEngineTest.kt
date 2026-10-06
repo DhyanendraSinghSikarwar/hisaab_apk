@@ -55,10 +55,10 @@ class ImapSyncEngineTest {
         var askedForPdfs: Boolean? = null
         override suspend fun checkLogin(login: MailLogin) = Unit
         override suspend fun sendToSelf(login: MailLogin, subject: String, body: String) = Unit
-        override suspend fun fetchSince(login: MailLogin, since: Long, accept: (String) -> Boolean, withPdfs: Boolean): List<FetchedMail> {
+        override suspend fun fetchSince(login: MailLogin, since: Long, accept: (String, String?) -> Boolean, withPdfs: Boolean): List<FetchedMail> {
             this.since = since
             askedForPdfs = withPdfs
-            return mails.filter { it.receivedAt >= since && accept(it.from) }
+            return mails.filter { it.receivedAt >= since && accept(it.from, it.subject) }
         }
     }
 

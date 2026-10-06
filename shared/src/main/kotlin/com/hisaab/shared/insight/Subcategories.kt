@@ -65,6 +65,7 @@ object Subcategories {
             s("Outings", "attractions", """wonderla|imagica|park|museum|zoo|bowling|smaaash"""),
         ),
         Category.TRAVEL to listOf(
+            s("Cabs", "local_taxi", """\buber\b|\bola\b|olacabs|ani\s*technologies|rapido|roppen|blusmart|meru|namma\s*yatri|savaari|outstation"""),
             s("Flights", "flight", """indigo|interglobe|air\s*india|vistara|spicejet|akasa|airline|airways"""),
             s("Trains", "train", """irctc|railway|\brail\b"""),
             s("Hotels & stays", "hotel", """\boyo\b|hotel|airbnb|treebo|fabhotel|\btaj\b|marriott|booking\.com|agoda|resort|zostel"""),

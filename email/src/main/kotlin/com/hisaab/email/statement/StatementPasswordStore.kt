@@ -40,6 +40,27 @@ class StatementPasswordStore @Inject constructor(@ApplicationContext context: Co
 
     suspend fun remove(id: String) = store.edit { p -> p[ENTRIES] = p[ENTRIES].orEmpty().filterNot { decode(it)?.first == id }.toSet() }
 
+    /** The user's details that banks build passwords from (name, DOB, PAN, mobile), sealed like the passwords. */
+    val identity: Flow<com.hisaab.parser.statement.Identity> = store.data.map { p -> p[IDENTITY]?.let(::decodeIdentity) ?: com.hisaab.parser.statement.Identity() }
+
+    suspend fun setIdentity(id: com.hisaab.parser.statement.Identity) = store.edit {
+        val fields = listOf(id.name.orEmpty(), id.dob?.toString().orEmpty(), id.pan.orEmpty().uppercase(), id.phone.orEmpty())
+        if (fields.all { f -> f.isBlank() }) it.remove(IDENTITY) else it[IDENTITY] = secret.seal(fields.joinToString(SEP.toString()) { f -> f.trim() })
+    }
+
+    private fun decodeIdentity(sealed: String): com.hisaab.parser.statement.Identity? {
+        val f = runCatching { secret.open(sealed) }.getOrNull()?.split(SEP) ?: return null
+        if (f.size != 4) return null
+        return com.hisaab.parser.statement.Identity(
+            f[0].ifBlank { null }, f[1].ifBlank { null }?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() },
+            f[2].ifBlank { null }, f[3].ifBlank { null },
+        )
+    }
+
+    /** Saved passwords first, then guesses from the user's details and card numbers. */
+    suspend fun attempts(cardLast4s: Collection<String>): List<String> =
+        (passwords() + com.hisaab.parser.statement.PasswordGuesser.candidates(identity.first(), cardLast4s)).distinct()
+
     /** Every saved password, decrypted for one attempt at opening a PDF. */
     suspend fun passwords(): List<String> = store.data.first()[ENTRIES].orEmpty().mapNotNull { decode(it)?.third?.let(secret::open) }
 
@@ -52,5 +73,6 @@ class StatementPasswordStore @Inject constructor(@ApplicationContext context: Co
         const val ALIAS = "hisaab.statement.passwords"
         const val SEP = '\u001F'
         val ENTRIES = stringSetPreferencesKey("entries")
+        val IDENTITY = androidx.datastore.preferences.core.stringPreferencesKey("identity")
     }
 }

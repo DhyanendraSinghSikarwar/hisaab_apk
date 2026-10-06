@@ -111,4 +111,38 @@ class FeedbackCasesTest {
         assertEquals("526812349999", d.reference)
         assertEquals("HDFC Bank", d.bankName)
     }
+
+    @Test
+    fun `a balance-only email is not a credit`() {
+        val body = "Dear Customer, Greetings from HDFC Bank! Your available balance in account ending XX5152 is Rs. INR 1,155.70 " +
+            "as on 17-OCT-25 Your account is maintained at HDFC Bank, KOYALI. If you ve deposited a cheque, the amount will " +
+            "reflect after clearance. For real-time balance updates, you can call us at 1800 270 3333."
+        assertNull(registry.parse(body, "alerts@hdfcbank.net", Fixture.RECEIVED_AT, Source.EMAIL))
+    }
+
+    @Test
+    fun `a merchant name glued to a terminal id is recognised`() {
+        val tx = registry.parse(
+            "Spent Rs.276.53 On HDFC Bank Card 2779 At UBERIND13513699 On 2026-10-01:18:24:32.Not You? " +
+                "To Block+Reissue Call 18002586161/SMS BLOCK CC 2779 to 7308080808",
+            "VM-HDFCBK", Fixture.RECEIVED_AT, Source.SMS,
+        )
+        assertEquals("Uber", tx!!.merchant)
+        assertEquals(Category.TRANSPORT, tx.category)
+        assertEquals("2779", tx.accountLast4)
+    }
+
+    @Test
+    fun `the payee's account is never taken as the user's`() {
+        val tx = registry.parse(
+            "Rs.5,000.00 transferred to A/c XX9876 from your A/c XX1234 on 05-09-26 via IMPS. Ref 526812345678",
+            "VM-HDFCBK", Fixture.RECEIVED_AT, Source.SMS,
+        )
+        assertEquals("1234", tx!!.accountLast4)
+        val onlyPayee = registry.parse(
+            "Rs.5,000.00 sent to A/c XX9876 on 05-09-26 via IMPS. Ref 526812345679",
+            "VM-HDFCBK", Fixture.RECEIVED_AT, Source.SMS,
+        )
+        assertNull(onlyPayee?.accountLast4)
+    }
 }

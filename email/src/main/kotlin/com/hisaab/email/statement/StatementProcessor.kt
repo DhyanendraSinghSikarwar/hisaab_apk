@@ -57,6 +57,7 @@ class StatementProcessor @Inject constructor(
     private val transactions: TransactionRepository,
     private val notifier: TransactionsChangedNotifier,
     private val lockedNotifier: LockedStatementNotifier,
+    private val accounts: com.hisaab.shared.db.AccountDao,
 ) : StatementHandler {
     private val parser = StatementParser()
     private val lockedDir: File get() = File(context.noBackupFilesDir, "locked-statements").apply { mkdirs() }
@@ -144,7 +145,7 @@ class StatementProcessor @Inject constructor(
     private suspend fun openWithSaved(bytes: ByteArray): PdfOpen {
         val first = pdf.open(bytes, null)
         if (first != PdfOpen.Locked) return first
-        for (p in passwords.passwords()) {
+        for (p in passwords.attempts(accounts.cardLast4s())) {
             val r = pdf.open(bytes, p)
             if (r is PdfOpen.Text) return r
         }

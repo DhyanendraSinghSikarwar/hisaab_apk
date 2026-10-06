@@ -32,8 +32,13 @@ object SharedModule {
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
             .addMigrations(*Migrations.ALL)
+            // Triggers that keep each transaction's rupee value (inrMinor) current; created on first open too.
+            .addCallback(object : androidx.room.RoomDatabase.Callback() {
+                override fun onOpen(connection: androidx.sqlite.SQLiteConnection) = com.hisaab.shared.db.ForexSql.install(connection)
+            })
             .build()
 
+    @Provides fun forexDao(db: HisaabDatabase): com.hisaab.shared.db.ForexDao = db.forex()
     @Provides fun transactionDao(db: HisaabDatabase): TransactionDao = db.transactions()
     @Provides fun sourceDao(db: HisaabDatabase): TransactionSourceDao = db.sources()
     @Provides fun processedEmailDao(db: HisaabDatabase): ProcessedEmailDao = db.processedEmails()

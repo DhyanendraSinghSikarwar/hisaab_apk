@@ -42,11 +42,11 @@ private fun guideFor(server: MailServer?): Guide = when (server?.provider) {
     )
     "Outlook" -> Guide(
         listOf(
-            "Turn on two-step verification for your Microsoft account (one time).",
-            "Open App passwords and choose Create a new app password.",
-            "Copy the password and paste it below.",
+            "Open Advanced security options and turn on Two-step verification first. Until it is on, Microsoft hides App passwords.",
+            "Back on the same page, scroll to App passwords and tap Create a new app password.",
+            "Copy the password and paste it below. Work or school accounts: your admin may have turned app passwords off.",
         ),
-        "Turn on two-step verification" to "https://account.live.com/proofs/manage/additional",
+        "Open Advanced security options" to "https://account.live.com/proofs/manage/additional",
     )
     "Yahoo Mail", "AOL Mail" -> Guide(
         listOf(

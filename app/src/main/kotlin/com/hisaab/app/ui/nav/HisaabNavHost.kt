@@ -220,6 +220,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                     onOpenInvestments = { nav.openTab(Tab.INVESTMENTS.route) }, contentPadding = PaddingValues(),
                     onOpenProfile = { nav.navigate("profile") }, onBack = nav::popBackStack,
                     onOpenCustomize = { nav.navigate("customize") },
+                    onOpenForex = { nav.navigate("forex") },
                 )
             }
             composable(
@@ -260,6 +261,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
             composable("account/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                 com.hisaab.app.ui.accounts.AccountDetailRoute(onBack = nav::popBackStack, onOpenTransactions = { nav.navigate("transactions?accountId=$it") })
             }
+            composable("forex") { com.hisaab.app.ui.settings.ForexRatesRoute(onBack = nav::popBackStack) }
             composable("customize") { com.hisaab.app.ui.settings.CustomizeTabsRoute(onBack = nav::popBackStack) }
             composable("profile") { com.hisaab.app.ui.profile.ProfileRoute(onBack = nav::popBackStack, onOpenSettings = { nav.navigate(SETTINGS_ROUTE) }) }
         }

@@ -64,6 +64,16 @@ object RejectionRules {
         "approved", "apply", "eligible", "avail", "get up", "limited", "offer", "click", "congratulations",
     )
 
+    /** "Your available balance in account ending XX5152 is Rs. 1,155.70 as on 17-OCT-25" */
+    private val BALANCE_ONLY = Guarded(
+        """\b(?:available|avl\.?|avbl\.?|account|a/c|closing|ledger)\s+bal(?:ance)?\b.{0,60}?\b(?:is|:)\s*(?:rs\.?|inr|\u20b9)""",
+        "bal",
+    )
+    /** "If you have deposited a cheque, the amount will reflect after clearance." */
+    private val IF_CLAUSE = rx("""\bif\s+you[^.]*""")
+
+    private val ACTIVITY = rx("""\b(?:using|used|purchase|transaction|txn|payment)\b""")
+
     fun shouldReject(text: String, lower: String = text.lowercase()): Boolean = reasonFor(text, lower) != null
 
     /** The rule that rejects [text], or null when it may be a transaction. Exposed for tests and debugging. */
@@ -75,6 +85,7 @@ object RejectionRules {
         if (COLLECT.containsMatchIn(text, lower)) return "collect"
         if (PROMO.containsMatchIn(text, lower)) return "promo"
         if (DUE.containsMatchIn(text, lower) && !SETTLED.containsMatchIn(text)) return "reminder"
+        if (BALANCE_ONLY.containsMatchIn(text, lower) && IF_CLAUSE.replace(text, "").let { !PAST_MOVEMENT.containsMatchIn(it) && !ACTIVITY.containsMatchIn(it) }) return "balance"
         return null
     }
 }

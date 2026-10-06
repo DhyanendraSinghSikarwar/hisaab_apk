@@ -81,6 +81,7 @@ fun SettingsRoute(
     onOpenProfile: () -> Unit = {},
     onBack: (() -> Unit)? = null,
     onOpenCustomize: () -> Unit = {},
+    onOpenForex: () -> Unit = {},
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -227,6 +228,11 @@ fun SettingsRoute(
                 headlineContent = { Text("Customize tabs") },
                 supportingContent = { Text("Choose and order the sections on Home, Analytics and Portfolio") },
                 modifier = Modifier.clickable(onClick = onOpenCustomize),
+            )
+            ListItem(
+                headlineContent = { Text("Forex rates") },
+                supportingContent = { Text("Rupee value of spends in other currencies") },
+                modifier = Modifier.clickable(onClick = onOpenForex),
             )
 
             Section("Data")
