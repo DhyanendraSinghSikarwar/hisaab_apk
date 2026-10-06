@@ -44,27 +44,29 @@ import androidx.compose.ui.unit.sp
 import com.hisaab.app.settings.ThemeMode
 import com.hisaab.parser.model.Category
 
-// Emerald (money), sapphire (trust) and gold (wealth). Every neutral carries a faint green-blue tint rather than
-// Material's default lilac, so no surface ever reads as purple.
+// Calm neutrals with one blue accent: warm off-white by day, near-black by night. Money in is green,
+// money out red, warnings amber. Every surface is flat; cards are set apart by a hairline border.
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF0F6E52), onPrimary = Color.White, primaryContainer = Color(0xFFB4F0D6), onPrimaryContainer = Color(0xFF002117),
-    secondary = Color(0xFF2A5D96), onSecondary = Color.White, secondaryContainer = Color(0xFFD5E4FA), onSecondaryContainer = Color(0xFF0B1D36),
-    tertiary = Color(0xFF8A6A00), onTertiary = Color.White, tertiaryContainer = Color(0xFFFCE7A6), onTertiaryContainer = Color(0xFF2B2000),
-    background = Color(0xFFF2F8F5), onBackground = Color(0xFF151D1A), surface = Color(0xFFF2F8F5), onSurface = Color(0xFF151D1A),
-    surfaceVariant = Color(0xFFDCE6E2), onSurfaceVariant = Color(0xFF414B48), outline = Color(0xFF717C78), outlineVariant = Color(0xFFC1CBC7),
-    surfaceContainerLowest = Color(0xFFFFFFFF), surfaceContainerLow = Color(0xFFF4F9F7), surfaceContainer = Color(0xFFECF3F1),
-    surfaceContainerHigh = Color(0xFFE5EEEB), surfaceContainerHighest = Color(0xFFDEE8E5), surfaceBright = Color(0xFFF8FCFA), surfaceDim = Color(0xFFD5DEDB),
-    inverseSurface = Color(0xFF2A3230), inverseOnSurface = Color(0xFFEAF2EF), inversePrimary = Color(0xFF7FD9B4), surfaceTint = Color(0xFF0F6E52),
+    primary = Color(0xFF2F5BEA), onPrimary = Color.White, primaryContainer = Color(0xFFDCE4FD), onPrimaryContainer = Color(0xFF0A1F66),
+    secondary = Color(0xFF4A5468), onSecondary = Color.White, secondaryContainer = Color(0xFFE4E8F2), onSecondaryContainer = Color(0xFF16181D),
+    tertiary = Color(0xFF13895A), onTertiary = Color.White, tertiaryContainer = Color(0xFFD3F1E3), onTertiaryContainer = Color(0xFF00391F),
+    error = Color(0xFFD2453B), onError = Color.White, errorContainer = Color(0xFFFBE0DD), onErrorContainer = Color(0xFF5C0E08),
+    background = Color(0xFFF7F7F5), onBackground = Color(0xFF16181D), surface = Color(0xFFF7F7F5), onSurface = Color(0xFF16181D),
+    surfaceVariant = Color(0xFFF0F0EC), onSurfaceVariant = Color(0xFF5D626C), outline = Color(0xFF9A9EA6), outlineVariant = Color(0xFFE6E6E1),
+    surfaceContainerLowest = Color(0xFFFFFFFF), surfaceContainerLow = Color(0xFFFFFFFF), surfaceContainer = Color(0xFFFFFFFF),
+    surfaceContainerHigh = Color(0xFFF0F0EC), surfaceContainerHighest = Color(0xFFE9E9E4), surfaceBright = Color(0xFFFFFFFF), surfaceDim = Color(0xFFE9E9E4),
+    inverseSurface = Color(0xFF16181D), inverseOnSurface = Color(0xFFF7F7F5), inversePrimary = Color(0xFF7C9BFF), surfaceTint = Color.Transparent,
 )
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF7FD9B4), onPrimary = Color(0xFF00382A), primaryContainer = Color(0xFF00513D), onPrimaryContainer = Color(0xFFB4F0D6),
-    secondary = Color(0xFFA9C8F2), onSecondary = Color(0xFF0E2F55), secondaryContainer = Color(0xFF1F4571), onSecondaryContainer = Color(0xFFD5E4FA),
-    tertiary = Color(0xFFE9C55A), onTertiary = Color(0xFF3D2F00), tertiaryContainer = Color(0xFF584500), onTertiaryContainer = Color(0xFFFCE7A6),
-    background = Color(0xFF0B1714), onBackground = Color(0xFFDDE5E2), surface = Color(0xFF0B1714), onSurface = Color(0xFFDDE5E2),
-    surfaceVariant = Color(0xFF3B4744), onSurfaceVariant = Color(0xFFBAC6C2), outline = Color(0xFF85918D), outlineVariant = Color(0xFF3B4744),
-    surfaceContainerLowest = Color(0xFF070F0D), surfaceContainerLow = Color(0xFF121D1B), surfaceContainer = Color(0xFF16221F),
-    surfaceContainerHigh = Color(0xFF1C2A27), surfaceContainerHighest = Color(0xFF243330), surfaceBright = Color(0xFF2E3B38), surfaceDim = Color(0xFF0B1714),
-    inverseSurface = Color(0xFFDDE5E2), inverseOnSurface = Color(0xFF243330), inversePrimary = Color(0xFF0F6E52), surfaceTint = Color(0xFF7FD9B4),
+    primary = Color(0xFF7C9BFF), onPrimary = Color(0xFF0A1A4D), primaryContainer = Color(0xFF233A80), onPrimaryContainer = Color(0xFFDCE4FD),
+    secondary = Color(0xFFB4BBC9), onSecondary = Color(0xFF1D222C), secondaryContainer = Color(0xFF2A2F3A), onSecondaryContainer = Color(0xFFECEDEF),
+    tertiary = Color(0xFF3CCB8B), onTertiary = Color(0xFF00391F), tertiaryContainer = Color(0xFF0F4A31), onTertiaryContainer = Color(0xFFC9F3DF),
+    error = Color(0xFFFF7B70), onError = Color(0xFF4A0904), errorContainer = Color(0xFF5C1A15), onErrorContainer = Color(0xFFFFDAD5),
+    background = Color(0xFF0E0F12), onBackground = Color(0xFFECEDEF), surface = Color(0xFF0E0F12), onSurface = Color(0xFFECEDEF),
+    surfaceVariant = Color(0xFF20232A), onSurfaceVariant = Color(0xFFA1A6B0), outline = Color(0xFF6B707A), outlineVariant = Color(0xFF2A2D35),
+    surfaceContainerLowest = Color(0xFF0B0C0F), surfaceContainerLow = Color(0xFF17191E), surfaceContainer = Color(0xFF17191E),
+    surfaceContainerHigh = Color(0xFF20232A), surfaceContainerHighest = Color(0xFF272A32), surfaceBright = Color(0xFF2A2D35), surfaceDim = Color(0xFF0E0F12),
+    inverseSurface = Color(0xFFECEDEF), inverseOnSurface = Color(0xFF16181D), inversePrimary = Color(0xFF2F5BEA), surfaceTint = Color.Transparent,
 )
 
 @Composable
@@ -107,15 +109,35 @@ private val HisaabTypography: Typography = Typography().let { b ->
 private val HisaabShapes = androidx.compose.material3.Shapes(
     extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
     small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-    medium = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-    large = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(32.dp),
 )
 
 /** Money in and out, chosen to stay readable in both themes. */
 object MoneyColors {
-    val credit: Color @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Color(0xFF7FD8A4) else Color(0xFF17703D)
-    val debit: Color @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Color(0xFFFFB4A9) else Color(0xFFB3261E)
+    val credit: Color @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Color(0xFF3CCB8B) else Color(0xFF13895A)
+    val debit: Color @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Color(0xFFFF7B70) else Color(0xFFD2453B)
+}
+
+/** The prototype's semantic colours: positive, negative, warning, transfer, and the soft accent wash. */
+object Hx {
+    val pos: Color @Composable @ReadOnlyComposable get() = MoneyColors.credit
+    val neg: Color @Composable @ReadOnlyComposable get() = MoneyColors.debit
+    val warn: Color @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Color(0xFFF2B84B) else Color(0xFFC98A0B)
+    val transfer: Color @Composable @ReadOnlyComposable get() = if (LocalDarkTheme.current) Color(0xFF8B919C) else Color(0xFF7A808A)
+    val accent: Color @Composable @ReadOnlyComposable get() = androidx.compose.material3.MaterialTheme.colorScheme.primary
+    val accentSoft: Color @Composable @ReadOnlyComposable get() = accent.copy(alpha = if (LocalDarkTheme.current) 0.14f else 0.10f)
+    val surface: Color @Composable @ReadOnlyComposable get() = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainer
+    val surface2: Color @Composable @ReadOnlyComposable get() = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh
+    val border: Color @Composable @ReadOnlyComposable get() = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant
+    val text2: Color @Composable @ReadOnlyComposable get() = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+
+    /** Chart series, in order. */
+    val palette = listOf(
+        Color(0xFF2F5BEA), Color(0xFFE07A2E), Color(0xFF16A394), Color(0xFFC2418B),
+        Color(0xFF7A5AE0), Color(0xFFC9A227), Color(0xFF3E9BD6), Color(0xFF8C8F96),
+    )
 }
 
 /** One hue per category, spaced around the wheel so neighbouring pie slices stay distinct. */

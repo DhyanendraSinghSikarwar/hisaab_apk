@@ -6,7 +6,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.filled.CurrencyRupee
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.DonutLarge
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Insights
@@ -61,18 +64,15 @@ import com.hisaab.app.ui.review.ReviewRoute
 import com.hisaab.app.ui.settings.SettingsRoute
 import com.hisaab.app.ui.transactions.TransactionDetailRoute
 import com.hisaab.app.ui.transactions.TransactionsRoute
-import dev.chrisbanes.haze.HazeTint
 import com.hisaab.app.ui.theme.appBackdrop
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
 
 /** The bottom bar: icons only. Settings is reached from the profile, not from here. */
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Home", Icons.Filled.Home),
-    TRANSACTIONS("transactions", "History", Icons.Filled.CurrencyRupee),
-    INVESTMENTS("investments", "Portfolio", Icons.Filled.BusinessCenter),
-    ANALYTICS("analytics", "Analytics", Icons.Filled.Insights),
+    TRANSACTIONS("transactions", "Transactions", Icons.Filled.SwapVert),
+    INVESTMENTS("investments", "Portfolio", Icons.Filled.DonutLarge),
+    ANALYTICS("analytics", "Analysis", Icons.Filled.BarChart),
+    MORE("more", "More", Icons.Filled.Menu),
 }
 
 private const val SETTINGS_ROUTE = "settings"
@@ -94,48 +94,38 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route?.substringBefore('?')
     val showBar = Tab.entries.any { it.route == route }
-    val haze = rememberHazeState()
-    val barColor = MaterialTheme.colorScheme.surfaceContainer
 
     Scaffold(
         bottomBar = {
             if (showBar) {
-                // Icons only; the selected one sits in a pill.
+                // A flat bar with a hairline on top. Icons only; the chosen one turns accent and sits on a soft pill.
                 val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-                androidx.compose.foundation.layout.Row(
-                    // Solid from the bar down to the screen edge: nothing scrolls visibly below or around it.
-                    modifier = Modifier
-                        .background(MaterialTheme.colorScheme.background)
-                        .navigationBarsPadding()
-                        .padding(horizontal = 40.dp, vertical = 10.dp)
-                        .fillMaxWidth()
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(32.dp))
-                        .hazeEffect(state = haze) {
-                            blurRadius = 24.dp
-                            tints = listOf(HazeTint(barColor))
-                        }
-                        .padding(6.dp),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                ) {
-                    Tab.entries.forEach { tab ->
-                        val selected = route == tab.route
-                        val bg by androidx.compose.animation.animateColorAsState(
-                            if (selected) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent,
-                            label = "tab-bg",
-                        )
-                        androidx.compose.foundation.layout.Row(
-                            Modifier.testTag("tab-${tab.route}")
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
-                                .background(bg)
-                                .clickable {
-                                    if (!selected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                    if (tab == Tab.HOME) nav.goHome() else nav.openTab(tab.route)
-                                }
-                                .padding(horizontal = 18.dp, vertical = 12.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        ) {
-                            TabIcon(tab, if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                androidx.compose.foundation.layout.Column(Modifier.background(MaterialTheme.colorScheme.surfaceContainer)) {
+                    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    androidx.compose.foundation.layout.Row(
+                        Modifier.navigationBarsPadding().fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceAround,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        Tab.entries.forEach { tab ->
+                            val selected = route == tab.route
+                            val bg by androidx.compose.animation.animateColorAsState(
+                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent, label = "tab-bg",
+                            )
+                            val tint by androidx.compose.animation.animateColorAsState(
+                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, label = "tab-tint",
+                            )
+                            androidx.compose.foundation.layout.Box(
+                                Modifier.testTag("tab-${tab.route}")
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                                    .background(bg)
+                                    .clickable {
+                                        if (!selected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                        if (tab == Tab.HOME) nav.goHome() else nav.openTab(tab.route)
+                                    }
+                                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                                contentAlignment = androidx.compose.ui.Alignment.Center,
+                            ) { TabIcon(tab, tint) }
                         }
                     }
                 }
@@ -144,7 +134,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
     ) { padding ->
         val bottom = PaddingValues(bottom = padding.calculateBottomPadding())
         NavHost(
-            nav, startDestination = Tab.HOME.route, modifier = Modifier.fillMaxSize().hazeSource(haze).appBackdrop(),
+            nav, startDestination = Tab.HOME.route, modifier = Modifier.fillMaxSize().appBackdrop(),
             // Tab to tab: a quick cross-fade. Into a detail screen: it slides in a little and fades, and back reverses it.
             enterTransition = {
                 if (isTabSwitch()) fadeIn(tween(TAB_MS))
@@ -181,6 +171,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                     contentPadding = bottom,
                     onOpenProfile = { nav.navigate("profile") },
                     onOpenCategoryKey = { nav.navigate("category/$it") },
+                    onOpenAccount = { nav.navigate("account/$it") },
                 )
             }
             composable(
@@ -198,9 +189,29 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 ),
             ) {
                 TransactionsRoute(onOpen = { nav.navigate("transaction/$it") }, onAdd = { nav.navigate("add") }, contentPadding = bottom,
-                    onOpenBills = { nav.navigate("bills") })
+                    onOpenBills = { nav.navigate("bills") }, onOpenReview = { nav.navigate("review") })
             }
-            composable(Tab.ANALYTICS.route) { AnalyticsRoute(contentPadding = bottom) }
+            composable(Tab.ANALYTICS.route) {
+                AnalyticsRoute(
+                    contentPadding = bottom,
+                    onOpenCategoryKey = { nav.navigate("category/$it") },
+                    onOpenTransaction = { nav.navigate("transaction/$it") },
+                )
+            }
+            composable(Tab.MORE.route) {
+                com.hisaab.app.ui.more.MoreRoute(contentPadding = bottom, onOpen = { r ->
+                    when (r) {
+                        "investments", "analytics" -> nav.openTab(r)
+                        else -> nav.navigate(r)
+                    }
+                })
+            }
+            composable("tax") { com.hisaab.app.ui.more.TaxRoute(onBack = nav::popBackStack) }
+            composable("business") {
+                com.hisaab.app.ui.more.BusinessRoute(onBack = nav::popBackStack, onOpenTransaction = { nav.navigate("transaction/$it") })
+            }
+            composable("rules") { com.hisaab.app.ui.more.RulesRoute(onBack = nav::popBackStack) }
+            composable("sources") { com.hisaab.app.ui.more.DataSourcesRoute(onBack = nav::popBackStack, onOpenSettings = { nav.navigate(SETTINGS_ROUTE) }) }
             composable(Tab.INVESTMENTS.route) {
                 InvestmentsRoute(onOpenStatements = { nav.navigate("statements") }, contentPadding = bottom,
                     onOpenAccounts = { tab -> nav.navigate("accounts?tab=$tab") })

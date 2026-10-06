@@ -26,14 +26,30 @@ object TabLayouts {
 
     val DEFAULTS: Map<String, List<Section>> = mapOf(
         HOME to listOf(
-            Section("budgets", "Budgets"), Section("categories", "Where it went"),
-            Section("subscriptions", "Upcoming subscriptions"), Section("activity", "Activity"),
+            Section("networth", "Net worth"), Section("cashflow", "Cash flow"), Section("safe", "Safe to spend"),
+            Section("upcoming", "Upcoming"), Section("insights", "Insights"), Section("categories", "Spend by category"),
+            Section("accounts", "Accounts"), Section("recent", "Recent transactions"), Section("budgets", "Budgets"),
         ),
         ANALYTICS to listOf(
-            Section("categories", "Where it went"), Section("merchants", "Top merchants"),
-            Section("trend", "Month by month"), Section("daily", "Daily spending"),
+            Section("categories", "Spend by category"), Section("monthly", "Monthly spend"),
+            Section("when", "When you spend"), Section("merchants", "Top merchants"),
         ),
-        PORTFOLIO to HoldingKind.entries.map { Section(it.name, it.label) },
+        PORTFOLIO to listOf(
+            Section("value", "Portfolio value"), Section("allocation", "Asset allocation"), Section("networth", "Net worth"),
+            Section("holdings", "Holdings"), Section("maturity", "Maturity calendar"),
+        ),
+    )
+
+    /** Hidden on Home until the user shows them. */
+    val HOME_HIDDEN_BY_DEFAULT = setOf("budgets")
+
+    /** Home presets: the widgets each one shows, in order. Everything else is hidden. */
+    val HOME_PRESETS: List<Pair<String, List<String>>> = listOf(
+        "Minimal" to listOf("networth", "cashflow", "upcoming"),
+        "Spender" to listOf("cashflow", "safe", "budgets", "categories", "upcoming", "recent"),
+        "Investor" to listOf("networth", "insights", "accounts", "upcoming"),
+        "Business" to listOf("cashflow", "upcoming", "insights", "recent"),
+        "Everything" to listOf("networth", "cashflow", "safe", "upcoming", "insights", "categories", "accounts", "recent", "budgets"),
     )
 }
 
@@ -81,12 +97,30 @@ class TabLayoutStore @Inject constructor(@ApplicationContext context: Context) {
 
     suspend fun reset(tab: String) = store.edit { p ->
         p.remove(orderKey(tab))
-        p[HIDDEN] = p[HIDDEN].orEmpty().filterNot { it.startsWith("$tab:") }.toSet()
+        p[HIDDEN] = p[HIDDEN].orEmpty().filterNot { it.startsWith("$tab:") }.toSet() +
+            if (tab == TabLayouts.HOME) TabLayouts.HOME_HIDDEN_BY_DEFAULT.map { "$tab:$it" } else emptyList()
+    }
+
+    /** Shows exactly [shown], in that order, and hides the rest (Home presets). */
+    suspend fun apply(tab: String, shown: List<String>) = store.edit { p ->
+        val all = TabLayouts.DEFAULTS[tab].orEmpty().map { it.key }
+        p[orderKey(tab)] = (shown + all.filter { it !in shown }).joinToString(",")
+        p[HIDDEN] = p[HIDDEN].orEmpty().filterNot { it.startsWith("$tab:") }.toSet() + all.filter { it !in shown }.map { "$tab:$it" }
+    }
+
+    /** First run of the new Home: budgets start hidden. */
+    suspend fun seedHomeOnce() = store.edit { p ->
+        if (p[SEEDED] == true) return@edit
+        p[SEEDED] = true
+        p.remove(orderKey(TabLayouts.HOME))
+        p[HIDDEN] = p[HIDDEN].orEmpty().filterNot { it.startsWith("${TabLayouts.HOME}:") }.toSet() +
+            TabLayouts.HOME_HIDDEN_BY_DEFAULT.map { "${TabLayouts.HOME}:$it" }
     }
 
     private fun orderKey(tab: String) = stringPreferencesKey("order_$tab")
 
     private companion object {
         val HIDDEN = stringSetPreferencesKey("hidden")
+        val SEEDED = androidx.datastore.preferences.core.booleanPreferencesKey("home_v2_seeded")
     }
 }

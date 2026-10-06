@@ -1,10 +1,8 @@
 package com.hisaab.app.ui.transactions
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,72 +14,84 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EventRepeat
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.saveable.rememberSaveable
-import com.hisaab.app.ui.components.CategorySheet
-import androidx.compose.material.icons.filled.ReceiptLong
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.border
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.ui.draw.shadow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.EventRepeat
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hisaab.app.ui.components.CardGap
+import com.hisaab.app.ui.components.CategorySheet
 import com.hisaab.app.ui.components.EmptyState
-import com.hisaab.app.ui.components.TransactionRow
+import com.hisaab.app.ui.components.HCard
+import com.hisaab.app.ui.components.KpiRow
+import com.hisaab.app.ui.components.Pill
+import com.hisaab.app.ui.components.RoundIcon
+import com.hisaab.app.ui.components.Segmented
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
+import com.hisaab.app.ui.ledger.BookPeriodChips
+import com.hisaab.app.ui.ledger.LedgerMath
+import com.hisaab.app.ui.theme.Hx
+import com.hisaab.app.ui.theme.clearTopBar
 import com.hisaab.parser.model.Category
-import com.hisaab.parser.model.TransactionType
-import com.hisaab.shared.db.AccountEntity
+import java.time.LocalDate
 import java.time.YearMonth
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private val SEGMENTS = listOf("List", "Calendar", "By merchant")
+
+/**
+ * The Transactions tab: global book and period, search, type chips, the period's in/out/net, and the
+ * transactions as a day list, a calendar, or by merchant. Long-press a row to select several.
+ *
+ * [onOpenReview] opens the review queue; when it is not wired, "Review" narrows the list to flagged rows instead.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionsRoute(
-    onOpen: (Long) -> Unit, onAdd: () -> Unit, contentPadding: PaddingValues, onOpenBills: () -> Unit = {},
+    onOpen: (Long) -> Unit,
+    onAdd: () -> Unit,
+    contentPadding: PaddingValues,
+    onOpenBills: () -> Unit = {},
+    onOpenReview: (() -> Unit)? = null,
     vm: TransactionsViewModel = hiltViewModel(),
 ) {
-    val filter by vm.filter.collectAsStateWithLifecycle()
-    val rows by vm.transactions.collectAsStateWithLifecycle()
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    val query by vm.query.collectAsStateWithLifecycle()
+    val kind by vm.kind.collectAsStateWithLifecycle()
+    val scope by vm.scope.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val sources by vm.sources.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    val nearEnd by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= listState.layoutInfo.totalItemsCount - 15 } ?: false } }
-    LaunchedEffect(nearEnd) { if (nearEnd) vm.loadMore() }
+
+    var segment by rememberSaveable { mutableStateOf(0) }
+    var expanded by rememberSaveable(stateSaver = StringSetSaver) { mutableStateOf(emptySet<String>()) }
 
     // Long-press starts selecting; while anything is selected, a tap toggles instead of opening.
     var selected by rememberSaveable(stateSaver = LongSetSaver) { mutableStateOf(emptySet<Long>()) }
@@ -89,16 +99,27 @@ fun TransactionsRoute(
     var confirmDelete by remember { mutableStateOf(false) }
     val selecting = selected.isNotEmpty()
     fun toggle(id: Long) { selected = if (id in selected) selected - id else selected + id }
+    val tap: (com.hisaab.shared.db.TransactionEntity) -> Unit = { if (selecting) toggle(it.id) else onOpen(it.id) }
+    val longTap: (com.hisaab.shared.db.TransactionEntity) -> Unit = { toggle(it.id) }
     BackHandler(enabled = selecting) { selected = emptySet() }
 
-    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent,
+    // Calendar: the period's last month first; arrows stay inside the period.
+    val firstMonth = YearMonth.from(ui.from)
+    val lastMonth = YearMonth.from(ui.to)
+    var calMonthText by rememberSaveable(ui.from, ui.to) { mutableStateOf(lastMonth.toString()) }
+    val calMonth = YearMonth.parse(calMonthText).let { if (it.isBefore(firstMonth)) firstMonth else if (it.isAfter(lastMonth)) lastMonth else it }
+    var calDayText by rememberSaveable(ui.from, ui.to) { mutableStateOf<String?>(null) }
+    val calDay = calDayText?.let(LocalDate::parse)
+
+    Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             if (selecting) {
                 TopAppBar(
                     title = { Text("${selected.size} selected") },
                     navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Filled.Close, "Cancel selection") } },
                     actions = {
-                        IconButton(onClick = { selected = rows.map { it.id }.toSet() }) { Icon(Icons.Filled.SelectAll, "Select all") }
+                        IconButton(onClick = { selected = ui.shown.map { it.id }.toSet() }) { Icon(Icons.Filled.SelectAll, "Select all") }
                         IconButton(onClick = { pickingCategory = true }) { Icon(Icons.Filled.Category, "Change category") }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete") }
                     },
@@ -106,46 +127,122 @@ fun TransactionsRoute(
                 )
             } else {
                 TopAppBar(
-                    colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("History") },
-                    actions = {
-                        TextButton(onClick = onOpenBills) {
-                            Icon(Icons.Filled.EventRepeat, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Bills")
-                        }
-                    },
+                    colors = clearTopBar(), title = { Text("Transactions") },
+                    actions = { RoundIcon(Icons.Filled.EventRepeat, "Bills", Modifier.padding(end = 14.dp), onClick = onOpenBills) },
                 )
             }
         },
         floatingActionButton = {
             if (!selecting) {
-                androidx.compose.material3.FloatingActionButton(
-                    onClick = onAdd, modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()),
-                ) { Icon(Icons.Filled.Add, "Add a transaction") }
+                FloatingActionButton(onClick = onAdd, modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding())) {
+                    Icon(Icons.Filled.Add, "Add a transaction")
+                }
             }
         },
     ) { inner ->
         Column(Modifier.padding(top = inner.calculateTopPadding()).fillMaxSize()) {
-            SearchPill(filter.search, rows.size, onChange = { q -> vm.update { it.copy(search = q) } })
-            Filters(filter, accounts, vm::update)
-            val grouped = remember(rows) { rows.groupBy { Periods.localDate(it.timestamp) } }
-            if (rows.isEmpty()) {
-                EmptyState(Icons.Filled.ReceiptLong, "Nothing here",
-                    filter.month?.let { "No transactions in ${Periods.month(it)} match these filters." } ?: "No transactions match these filters.")
+            // Fixed controls: book and period, any scope from a link, search, and type chips.
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BookPeriodChips()
+                scope.accountId?.let { id ->
+                    val a = accounts.firstOrNull { it.id == id }
+                    Pill(a?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: "One account", on = true, leading = Icons.Filled.Close) { vm.clearAccount() }
+                }
+                scope.category?.let { c -> Pill(c.label, on = true, leading = Icons.Filled.Close) { vm.clearCategory() } }
             }
-            LazyColumn(state = listState, contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + 16.dp)) {
-                grouped.forEach { (day, txs) ->
-                    stickyHeader(key = "h$day") {
-                        val out = txs.filter { it.type == TransactionType.DEBIT || it.type == TransactionType.INVESTMENT }.sumOf { it.amountMinor }
-                        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f)).padding(horizontal = 16.dp, vertical = 6.dp)) {
-                            Text(Periods.dayHeader(day), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                            if (out > 0) Text("−" + Money.format(out, showPaise = false), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SearchBox(query, ui.shown.size, vm::setQuery, Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp))
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TxKind.entries.forEach { k ->
+                    val label = if (k == TxKind.REVIEW && ui.reviewCount > 0) "${k.label} · ${ui.reviewCount}" else k.label
+                    Pill(label, on = kind == k) { vm.setKind(if (kind == k && k != TxKind.ALL) TxKind.ALL else k) }
+                }
+            }
+
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 2.dp, bottom = contentPadding.calculateBottomPadding() + 88.dp),
+                verticalArrangement = Arrangement.spacedBy(CardGap),
+            ) {
+                item(key = "kpi") {
+                    HCard(Modifier.animateItem(), padding = 14.dp) {
+                        val net = ui.inMinor - ui.outMinor
+                        KpiRow(
+                            Triple("In", Money.format(ui.inMinor, showPaise = false), Hx.pos),
+                            Triple("Out", Money.format(ui.outMinor, showPaise = false), null),
+                            Triple("Net", (if (net < 0) "−" else "+") + Money.format(kotlin.math.abs(net), showPaise = false), if (net < 0) Hx.neg else Hx.pos),
+                        )
+                        Text(
+                            "${ui.base.size} transactions · ${ui.periodLabel}" + if (ui.outMinor > 0 && LedgerMath.invested(ui.base) > 0) " · Out includes investments" else "",
+                            fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+                if (ui.reviewCount > 0) {
+                    item(key = "review") {
+                        ReviewBanner(
+                            ui.reviewCount, modifier = Modifier.animateItem(),
+                            onSelect = { vm.setKind(TxKind.REVIEW) },
+                            onReview = { if (onOpenReview != null) onOpenReview() else vm.setKind(TxKind.REVIEW) },
+                        )
+                    }
+                }
+                item(key = "segments") { Segmented(SEGMENTS, segment, { segment = it }, Modifier.animateItem()) }
+
+                if (ui.loaded && ui.shown.isEmpty()) {
+                    item(key = "empty") {
+                        val body = when {
+                            query.isNotBlank() -> "Nothing matches “${query.trim()}” in ${ui.periodLabel}."
+                            kind != TxKind.ALL -> "No ${kind.label.lowercase()} transactions in ${ui.periodLabel}."
+                            else -> "No transactions in ${ui.periodLabel}."
+                        }
+                        EmptyState(Icons.Filled.ReceiptLong, "Nothing here", body, Modifier.animateItem())
+                    }
+                } else when (segment) {
+                    0 -> items(ui.days, key = { "d${it.date}" }) { day ->
+                        DayCard(day, sources, selected, tap, longTap, Modifier.animateItem())
+                    }
+                    1 -> {
+                        item(key = "calendar") {
+                            val values = remember(ui.shown, kind) {
+                                ui.shown.filter { kind != TxKind.ALL || LedgerMath.isSpend(it) }
+                                    .groupBy { Periods.localDate(it.timestamp) }.mapValues { (_, l) -> l.sumOf(LedgerMath::rupees) }
+                            }
+                            val caption = when (kind) {
+                                TxKind.ALL, TxKind.EXPENSE -> "Daily spend"
+                                TxKind.INCOME -> "Daily income"
+                                TxKind.TRANSFER -> "Daily transfers"
+                                TxKind.INVESTMENT -> "Daily investments"
+                                TxKind.REVIEW -> "Flagged amounts by day"
+                            }
+                            CalendarCard(
+                                calMonth, ui.from, ui.to, values, caption, if (kind == TxKind.INCOME) Hx.pos else Hx.accent, calDay,
+                                onSelect = { d -> calDayText = if (d == calDay) null else d.toString() },
+                                onPrev = if (calMonth.isAfter(firstMonth)) ({ calMonthText = calMonth.minusMonths(1).toString() }) else null,
+                                onNext = if (calMonth.isBefore(lastMonth)) ({ calMonthText = calMonth.plusMonths(1).toString() }) else null,
+                                modifier = Modifier.animateItem(),
+                            )
+                        }
+                        val day = calDay?.let { d -> ui.days.firstOrNull { it.date == d } }
+                        item(key = "calendar-day") {
+                            if (day != null) DayCard(day, sources, selected, tap, longTap, Modifier.animateItem())
+                            else CalendarDayHint(calDay, Modifier.animateItem())
                         }
                     }
-                    items(txs, key = { it.id }) { tx ->
-                        TransactionRow(
-                            tx, selected = tx.id in selected, modifier = Modifier.animateItem(),
-                            onClick = { if (selecting) toggle(tx.id) else onOpen(tx.id) },
-                            onLongClick = { toggle(tx.id) },
-                        )
+                    else -> {
+                        val top = ui.merchants.firstOrNull()?.gross ?: 0L
+                        items(ui.merchants, key = { "m${it.name}" }) { m ->
+                            MerchantCard(
+                                m, top, expanded = m.name in expanded,
+                                onToggle = { expanded = if (m.name in expanded) expanded - m.name else expanded + m.name },
+                                sources = sources, selected = selected, onClick = tap, onLongClick = longTap, modifier = Modifier.animateItem(),
+                            )
+                        }
                     }
                 }
             }
@@ -153,7 +250,7 @@ fun TransactionsRoute(
     }
     BulkDialogs(
         count = selected.size, pickingCategory = pickingCategory, confirmDelete = confirmDelete,
-        onPick = { c -> vm.setCategory(selected, c); selected = emptySet() },
+        onPick = { c -> vm.setCategory(selected, c); selected = emptySet(); pickingCategory = false },
         onDelete = { vm.delete(selected); selected = emptySet(); confirmDelete = false },
         onDismissPicker = { pickingCategory = false }, onDismissDelete = { confirmDelete = false },
     )
@@ -170,139 +267,11 @@ private fun BulkDialogs(
             onDismissRequest = onDismissDelete,
             title = { Text("Delete $count transactions?") },
             text = { Text("They are removed from Hisaab and won't come back on a rescan. The SMS and emails themselves are not touched.") },
-            confirmButton = { TextButton(onClick = onDelete) { Text("Delete") } },
+            confirmButton = { TextButton(onClick = onDelete) { Text("Delete", fontWeight = FontWeight.SemiBold) } },
             dismissButton = { TextButton(onClick = onDismissDelete) { Text("Cancel") } },
         )
     }
 }
 
-private val LongSetSaver = androidx.compose.runtime.saveable.Saver<Set<Long>, LongArray>(
-    save = { it.toLongArray() }, restore = { it.toSet() },
-)
-
-/**
- * One row, no scrolling: the month, a Filters button that opens everything else in a sheet (with a count of what
- * is on), and Clear when anything is set.
- */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-@Composable
-private fun Filters(f: TransactionFilter, accounts: List<AccountEntity>, update: ((TransactionFilter) -> TransactionFilter) -> Unit) {
-    var sheet by remember { mutableStateOf(false) }
-    val active = listOf(f.source != SourceFilter.ALL, f.type != null, f.category != null, f.accountId != null).count { it }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-        val thisMonth = YearMonth.now(Periods.zone)
-        val months = (0L until MONTH_CHOICES).map { thisMonth.minusMonths(it) }.let { if (f.month != null && f.month !in it) it + f.month else it }
-        Menu(
-            label = f.month?.let(Periods::monthShort) ?: "Any time", selected = f.month != null,
-            options = listOf<Pair<String, YearMonth?>>("Any time" to null) + months.map { Periods.month(it) to it },
-            onPick = { m -> update { it.copy(month = m) } },
-        )
-        FilterChip(
-            selected = active > 0, onClick = { sheet = true },
-            leadingIcon = { Icon(Icons.Filled.Tune, null, Modifier.size(18.dp)) },
-            label = { Text(if (active > 0) "Filters · $active" else "Filters") },
-        )
-        if (active > 0 || f.month != null) {
-            androidx.compose.material3.AssistChip(
-                onClick = { update { it.copy(source = SourceFilter.ALL, type = null, category = null, accountId = null, month = null) } },
-                label = { Text("Clear") }, leadingIcon = { Icon(Icons.Filled.Clear, null, Modifier.size(16.dp)) },
-            )
-        }
-    }
-    if (sheet) {
-        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { sheet = false }) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Filters", style = MaterialTheme.typography.titleLarge)
-                Group("Source") {
-                    SourceFilter.entries.forEach { s -> FilterChip(selected = f.source == s, onClick = { update { it.copy(source = s) } }, label = { Text(s.label) }) }
-                }
-                Group("Type") {
-                    TransactionType.entries.forEach { t ->
-                        FilterChip(selected = f.type == t, onClick = { update { it.copy(type = if (f.type == t) null else t) } },
-                            label = { Text(t.name.lowercase().replaceFirstChar { c -> c.uppercase() }) })
-                    }
-                }
-                Group("Category") {
-                    Menu(f.category?.label ?: "Any category", f.category != null,
-                        listOf<Pair<String, Category?>>("Any category" to null) + Category.entries.map { it.label to it }) { c -> update { it.copy(category = c) } }
-                }
-                Group("Account") {
-                    Menu(accounts.firstOrNull { it.id == f.accountId }?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: "Any account", f.accountId != null,
-                        listOf<Pair<String, Long?>>("Any account" to null) + accounts.map { "${it.nickname ?: it.bankName} ••${it.last4}" to it.id }) { id ->
-                        update { it.copy(accountId = id) }
-                    }
-                }
-                androidx.compose.material3.Button(onClick = { sheet = false }, modifier = Modifier.fillMaxWidth()) { Text("Show results") }
-            }
-        }
-    }
-}
-
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-@Composable
-private fun Group(title: String, content: @Composable () -> Unit) {
-    Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
-}
-
-private const val MONTH_CHOICES = 24L
-
-@Composable
-private fun <T> Menu(label: String, selected: Boolean, options: List<Pair<String, T>>, onPick: (T) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        FilterChip(selected = selected, onClick = { open = true }, label = { Text(label) })
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            options.forEach { (text, value) -> DropdownMenuItem(text = { Text(text) }, onClick = { open = false; onPick(value) }) }
-        }
-    }
-}
-
-/**
- * A soft pill search box: no underline, a gradient ring that lights up while typing, a clear button, and a count
- * of what matched.
- */
-@Composable
-private fun SearchPill(query: String, matches: Int, onChange: (String) -> Unit) {
-    val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val ring by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f, label = "ring")
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
-    val c = MaterialTheme.colorScheme
-    androidx.compose.material3.TextField(
-        value = query, onValueChange = onChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("search")
-            .shadow((2 + 6 * ring).dp, shape, ambientColor = c.primary, spotColor = c.primary)
-            .border(
-                (1 + ring).dp,
-                androidx.compose.ui.graphics.Brush.linearGradient(
-                    listOf(c.primary.copy(alpha = 0.25f + 0.6f * ring), c.tertiary.copy(alpha = 0.25f + 0.6f * ring)),
-                ),
-                shape,
-            ),
-        shape = shape,
-        interactionSource = interaction,
-        placeholder = { Text("Search merchant, bank, amount, ref…", maxLines = 1) },
-        leadingIcon = { Icon(Icons.Filled.Search, null, tint = if (focused) c.primary else c.onSurfaceVariant) },
-        trailingIcon = {
-            androidx.compose.animation.AnimatedVisibility(query.isNotEmpty(), enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
-                androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text("$matches", style = MaterialTheme.typography.labelMedium, color = c.onPrimaryContainer,
-                        modifier = Modifier.background(c.primaryContainer, androidx.compose.foundation.shape.CircleShape).padding(horizontal = 8.dp, vertical = 2.dp))
-                    IconButton(onClick = { onChange(""); focus.clearFocus() }) { Icon(Icons.Filled.Clear, "Clear") }
-                }
-            }
-        },
-        singleLine = true,
-        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { focus.clearFocus() }),
-        colors = androidx.compose.material3.TextFieldDefaults.colors(
-            focusedContainerColor = c.surfaceContainerHigh, unfocusedContainerColor = c.surfaceContainerHigh.copy(alpha = 0.85f),
-            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-        ),
-    )
-}
+private val LongSetSaver = Saver<Set<Long>, LongArray>(save = { it.toLongArray() }, restore = { it.toSet() })
+private val StringSetSaver = Saver<Set<String>, ArrayList<String>>(save = { ArrayList(it) }, restore = { it.toSet() })

@@ -27,5 +27,18 @@ Done releases are collapsed to one line; details live in git history.
 - [x] Card edit: forex markup %
 - [x] Statement mails picked by subject too (CAS via INDmoney, NPS, EPF); more CDSL/NPS/EPFO domains
 - [x] AGENTS.md and doc/PLAN.md
-- [~] GitHub wiki: pages in doc/wiki/; publishing needs the wiki enabled + first page created on github.com
+- [~] GitHub wiki: pages in doc/wiki/; waiting for the wiki to be enabled on github.com, then push to hisaab_apk.wiki.git
 - [x] Transaction detail: rupee value for forex, no parser internals
+
+## 2.0.0 redesign from Hisaab_UI_Prototype.html (requested 2026-10-06)
+Inspiration, not a copy. Keep settings, profile and every existing feature. Bottom bar: icons only.
+- [x] Palette + background from the prototype (light/dark), flat surfaces, animations
+- [x] Home: keep profile, accounts, notifications, refresh, add; eye mask; no gear. Widgets: net worth, cash flow, safe to spend, upcoming, insights, category donut (drill-down), accounts, recent, budget rings; edit mode with presets
+- [x] Transactions: keep bills top right; search, type chips, in/out/net, needs-review banner, List / Calendar / By merchant; new icon
+- [x] Portfolio: keep statements on top; value + gain, allocation donut, net worth chart (1M–All), holdings by class, maturity calendar; new icon
+- [x] Analysis: Spending (donut cross-filter, 12-month bars + avg, when-you-spend heatmap, top merchants), Cash flow (sankey, savings rate), Forecast (month-end fan, cash 30 days), Compare
+- [x] Global book (Personal/Business/All) + period chips
+- [x] More tab: Budgets, Bills, Tax centre (from tracked data), Business book, Rules, Data sources, Customise, Accounts, Statements, Security & backup, Settings, Profile
+- Rule (2026-10-06): only features fed by SMS, email, mailed statements or app notifications. Dropped: goals, split & lend, credit score, manual tax inputs
+- [x] Portfolio tab (agent): value, allocation, net worth, holdings by class, maturity calendar
+- Built + unit tests pass; not yet run on a device

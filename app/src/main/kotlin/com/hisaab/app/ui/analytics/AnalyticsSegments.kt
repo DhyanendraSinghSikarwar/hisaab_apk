@@ -1,0 +1,214 @@
+package com.hisaab.app.ui.analytics
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.hisaab.app.ui.charts.DivergingRow
+import com.hisaab.app.ui.charts.FanChart
+import com.hisaab.app.ui.charts.Sankey
+import com.hisaab.app.ui.charts.SankeyNode
+import com.hisaab.app.ui.charts.Sparkline
+import com.hisaab.app.ui.components.HCard
+import com.hisaab.app.ui.components.KpiRow
+import com.hisaab.app.ui.components.Pill
+import com.hisaab.app.ui.format.Money
+import com.hisaab.app.ui.format.Periods
+import com.hisaab.app.ui.ledger.SpendGroup
+import com.hisaab.app.ui.theme.Hx
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+private val DAY_MONTH = DateTimeFormatter.ofPattern("d MMM")
+
+// ---------------------------------------------------------------- Cash flow
+
+@Composable
+internal fun CashFlowSegment(d: AnalyticsData) {
+    HCard(title = "Where your income went") {
+        if (d.income <= 0) {
+            Note("No income recorded in ${d.slice.filter.label}. Once a salary or other credit arrives, this shows where it went.")
+            return@HCard
+        }
+        val saved = d.income - d.spent - d.invested
+        KpiRow(
+            Triple("Income", Money.compact(d.income), Hx.pos),
+            Triple("Spent", Money.compact(d.spent), Hx.neg),
+            Triple("Invested", Money.compact(d.invested), null),
+            Triple(if (saved >= 0) "Left over" else "Shortfall", Money.compact(abs(saved)), if (saved >= 0) Hx.accent else Hx.warn),
+        )
+        Spacer(Modifier.height(14.dp))
+        val p = Hx.palette
+        Sankey(
+            inputs = listOf(
+                SankeyNode("Salary", d.salary, Hx.pos),
+                SankeyNode("Other income", d.otherIncome, p[2]),
+                SankeyNode("Refunds & interest", d.refunds, p[6]),
+            ),
+            outputs = listOf(
+                SankeyNode("Essentials", d.groups[SpendGroup.ESSENTIALS] ?: 0L, p[0]),
+                SankeyNode("Lifestyle", d.groups[SpendGroup.LIFESTYLE] ?: 0L, p[1]),
+                SankeyNode("Other", d.groups[SpendGroup.OTHER] ?: 0L, p[7]),
+                SankeyNode("Invested", d.invested, p[4]),
+                SankeyNode("Saved", saved.coerceAtLeast(0), Hx.pos),
+            ),
+            valueText = { Money.compact(it) },
+        )
+        if (saved < 0) Note("Spending and investing exceeded income by ${Money.compact(-saved)}.", Modifier.padding(top = 6.dp))
+    }
+
+    HCard(title = "Income vs spend · savings rate") {
+        val rates = d.savingsRates
+        if (rates.size < 2) {
+            Note("Needs at least two months with income in the last 12.")
+            return@HCard
+        }
+        val avg = rates.map { it.second }.average().roundToInt()
+        val last = rates.last()
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("${last.second.roundToInt()}%", style = MaterialTheme.typography.headlineSmall, color = if (last.second >= 0) Hx.pos else Hx.neg)
+            Spacer(Modifier.width(8.dp))
+            Text("saved in ${Periods.month(last.first)}", fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(bottom = 4.dp))
+        }
+        Spacer(Modifier.height(10.dp))
+        Sparkline(rates.map { it.second }, color = if (avg >= 0) Hx.pos else Hx.neg, height = 64.dp)
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+            Text(Periods.monthShort(rates.first().first), fontSize = 11.sp, color = Hx.text2)
+            Spacer(Modifier.weight(1f))
+            Text("avg $avg% · ${rates.size} months", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            Text(Periods.monthShort(last.first), fontSize = 11.sp, color = Hx.text2)
+        }
+        Note("Share of each month's income not spent. Months without income are left out.", Modifier.padding(top = 4.dp))
+    }
+}
+
+// ---------------------------------------------------------------- Forecast
+
+@Composable
+internal fun ForecastSegment(d: AnalyticsData, onThisMonth: () -> Unit) {
+    if (!d.isCurrentMonth) {
+        HCard(title = "Month-end spend forecast") {
+            Text("Forecast is for the current month", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Note("It projects this month's spend and your cash for the next 30 days from today.")
+            Spacer(Modifier.height(8.dp))
+            Pill("Show ${Periods.month(YearMonth.now(Periods.zone))}", on = true, onClick = onThisMonth)
+        }
+        return
+    }
+    val f = d.forecast
+    HCard(title = "Month-end spend forecast") {
+        if (f == null) { Note("Not enough data yet."); return@HCard }
+        Text("${Money.compact(f.lowEnd)} – ${Money.compact(f.highEnd)}", style = MaterialTheme.typography.headlineSmall)
+        val budget = d.budget.takeIf { it > 0 }
+        val verdict = when {
+            budget == null -> "no monthly budget set"
+            f.likely <= budget -> "within budget (${Money.compact(budget)})"
+            else -> "over budget (${Money.compact(budget)}) by ${Money.compact(f.likely - budget)}"
+        }
+        Text(
+            "Likely ${Money.compact(f.likely)} · $verdict", fontSize = 13.sp,
+            color = if (budget != null && f.likely > budget) Hx.neg else Hx.text2, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
+        )
+        val short = Periods.monthShort(f.month)
+        FanChart(
+            actual = f.actual, expected = f.expected, low = f.low, high = f.high, budget = budget,
+            daysInMonth = f.month.lengthOfMonth(), budgetLabel = budget?.let { "Budget ${Money.compact(it)}" },
+            dayLabel = { day -> "$day $short" },
+        )
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Swatch(MaterialTheme.colorScheme.onSurface, "Actual")
+            Swatch(Hx.accent, "Expected")
+            Swatch(Hx.accent.copy(alpha = 0.25f), "Range")
+        }
+        Note(
+            "About ${Money.compact(f.dailyRate)} a day in everyday spending" +
+                (if (f.billsLeft > 0) ", plus ${Money.compact(f.billsLeft)} in bills still due." else "."),
+            Modifier.padding(top = 6.dp),
+        )
+    }
+
+    HCard(title = "Cash balance · next 30 days") {
+        val c = d.cash
+        if (c == null) {
+            Note("No bank balance known yet. Balances are read from bank SMS, or you can set one on an account.")
+            return@HCard
+        }
+        KpiRow(
+            Triple("Today", Money.compact(c.start), null),
+            Triple("In 30 days", Money.compact(c.series.last()), if (c.series.last() < 0) Hx.neg else null),
+            Triple("Lowest", Money.compact(c.lowest), if (c.lowest < 0) Hx.neg else null),
+        )
+        Spacer(Modifier.height(12.dp))
+        Sparkline(c.series.map { it / 100f }, color = if (c.lowest < 0) Hx.neg else Hx.accent, height = 64.dp)
+        Text(
+            "Lowest ${Money.format(c.lowest, showPaise = false)} on ${c.lowestOn.format(DAY_MONTH)}",
+            fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 8.dp),
+        )
+        if (c.lowest < 0) {
+            Text(
+                "Shortfall of ${Money.format(-c.lowest, showPaise = false)} around ${c.lowestOn.format(DAY_MONTH)}. Move money in before then.",
+                fontSize = 13.sp, color = Hx.neg, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    .background(Hx.neg.copy(alpha = 0.10f)).padding(10.dp),
+            )
+        }
+        Note(
+            "Liquid bank balances, less ${c.bills} bill${if (c.bills == 1) "" else "s"} and ${Money.compact(c.dailyRate)} a day of spending" +
+                (if (c.incomes > 0) ", plus ${c.incomes} expected credit${if (c.incomes == 1) "" else "s"}." else "."),
+            Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+// ---------------------------------------------------------------- Compare
+
+@Composable
+internal fun CompareSegment(d: AnalyticsData, onOpenCategoryKey: (String) -> Unit) {
+    HCard(title = "${d.slice.filter.label} vs previous · by category") {
+        val change = d.spent - d.previousSpent
+        KpiRow(
+            Triple(d.slice.filter.label, Money.compact(d.spent), null),
+            Triple(d.previousLabel, Money.compact(d.previousSpent), null),
+            Triple(
+                "Change",
+                (if (change > 0) "+" else if (change < 0) "−" else "") + Money.compact(abs(change)),
+                if (change > 0) Hx.neg else if (change < 0) Hx.pos else null,
+            ),
+        )
+        Spacer(Modifier.height(12.dp))
+        if (d.changes.isEmpty()) {
+            Note("No spending in either period.")
+            return@HCard
+        }
+        val month = d.slice.filter.let { if (it.isMonth) it.month else null }
+        d.changes.forEach { ch ->
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onOpenCategoryKey(categoryKey(ch.category, month)) }.padding(vertical = 2.dp)) {
+                DivergingRow(ch.category.label, ch.percent)
+                Text(
+                    "${Money.compact(ch.before)} → ${Money.compact(ch.now)}", fontSize = 10.5.sp, color = Hx.text2,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
+            }
+        }
+        Note("Green fell, red rose. Bars cap at ±50%. Tap a row to open it.", Modifier.padding(top = 6.dp))
+    }
+}

@@ -66,6 +66,10 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT :limit")
     fun observeRecent(limit: Int): Flow<List<TransactionEntity>>
 
+    /** Every transaction in [from, to], newest first: the screens aggregate these themselves. */
+    @Query("SELECT * FROM transactions WHERE timestamp BETWEEN :from AND :to ORDER BY timestamp DESC")
+    fun observeBetween(from: Long, to: Long): Flow<List<TransactionEntity>>
+
     @Query("SELECT COALESCE(SUM(inrMinor), 0) FROM transactions WHERE type IN (:types) AND inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to")
     fun observeTotal(types: List<String>, from: Long, to: Long): Flow<Long>
 

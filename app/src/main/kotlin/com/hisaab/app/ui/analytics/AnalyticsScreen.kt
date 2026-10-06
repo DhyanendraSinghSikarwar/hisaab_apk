@@ -1,46 +1,44 @@
 package com.hisaab.app.ui.analytics
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,460 +46,372 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
-import com.hisaab.app.ui.charts.AreaLineChart
-import com.hisaab.app.ui.charts.BarGroup
 import com.hisaab.app.ui.charts.ChartSlice
 import com.hisaab.app.ui.charts.DonutChart
-import com.hisaab.app.ui.charts.GroupedBarChart
-import com.hisaab.app.ui.components.AnimatedAmount
-import com.hisaab.app.ui.components.CategoryBadge
-import com.hisaab.app.ui.components.EmptyState
+import com.hisaab.app.ui.charts.HeatGrid
+import com.hisaab.app.ui.charts.StackedMonthBars
+import com.hisaab.app.ui.components.CardGap
+import com.hisaab.app.ui.components.Delta
+import com.hisaab.app.ui.components.HCard
+import com.hisaab.app.ui.components.HRow
+import com.hisaab.app.ui.components.KpiRow
+import com.hisaab.app.ui.components.Pill
+import com.hisaab.app.ui.components.Segmented
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
-import com.hisaab.app.ui.theme.MoneyColors
+import com.hisaab.app.ui.ledger.BookPeriodChips
+import com.hisaab.app.ui.ledger.LedgerMath
+import com.hisaab.app.ui.ledger.PeriodKind
+import com.hisaab.app.ui.ledger.SpendGroup
+import com.hisaab.app.ui.theme.Hx
 import com.hisaab.app.ui.theme.color
-import com.hisaab.shared.db.CategoryTotal
-import com.hisaab.shared.db.DayTotal
-import com.hisaab.shared.db.MerchantTotal
-import com.hisaab.shared.db.MonthTotal
-import com.hisaab.shared.db.TransactionDao
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
-import java.time.LocalDate
+import com.hisaab.app.ui.theme.icon
+import com.hisaab.parser.model.Category
+import com.hisaab.shared.db.TransactionEntity
 import java.time.YearMonth
-import kotlinx.coroutines.flow.map
-import androidx.compose.material.icons.filled.Tune
-import java.time.temporal.ChronoUnit
-import kotlinx.coroutines.flow.flowOf
-import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DateRangePicker
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.SelectableDates
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDateRangePickerState
-import javax.inject.Inject
 
-enum class Period(val label: String) {
-    THIS_MONTH("This month"), LAST_MONTH("Last month"), THIS_FY("This FY"), ALL_TIME("All time"), CUSTOM("Custom")
-}
+private val SEGMENTS = listOf("Spending", "Cash flow", "Forecast", "Compare")
 
-/** Which money to count: personal, business, or both. Names match the SQL the DAO expects. */
-enum class Scope(val label: String) { ALL("All"), PERSONAL("Personal"), BUSINESS("Business") }
-
-enum class KindFilter(val label: String, val sql: String) { ALL("All accounts", "ALL"), ACCOUNT("Bank accounts", "ACCOUNT"), CARD("Cards", "CARD") }
-
-data class AnalyticsFilter(
-    val period: Period = Period.THIS_MONTH,
-    val customFrom: LocalDate? = null,
-    val customTo: LocalDate? = null,
-    val scope: Scope = Scope.ALL,
-    val kind: KindFilter = KindFilter.ALL,
-)
-
-data class AnalyticsState(
-    val filter: AnalyticsFilter = AnalyticsFilter(),
-    val from: LocalDate = LocalDate.now(Periods.zone).withDayOfMonth(1),
-    val to: LocalDate = LocalDate.now(Periods.zone),
-    val categories: List<CategoryTotal> = emptyList(),
-    val income: Long = 0,
-    val monthly: List<MonthTotal> = emptyList(),
-    val daily: List<DayTotal> = emptyList(),
-    val previousDaily: List<DayTotal> = emptyList(),
-    val merchants: List<MerchantTotal> = emptyList(),
-    val loaded: Boolean = false,
+@Composable
+fun AnalyticsRoute(
+    contentPadding: PaddingValues,
+    onOpenCategoryKey: (String) -> Unit = {},
+    onOpenTransaction: (Long) -> Unit = {},
+    vm: AnalyticsViewModel = hiltViewModel(),
 ) {
-    val spent: Long get() = categories.sumOf { it.total }
-
-    /** Days in the period up to today; the per-day figure and the daily chart stop there. */
-    val elapsedDays: Int get() = (ChronoUnit.DAYS.between(from, minOf(to, LocalDate.now(Periods.zone))) + 1).toInt().coerceAtLeast(1)
-    val totalDays: Int get() = (ChronoUnit.DAYS.between(from, to) + 1).toInt()
-
-    val label: String get() = when (filter.period) {
-        Period.THIS_MONTH, Period.LAST_MONTH -> Periods.month(YearMonth.from(from))
-        Period.THIS_FY -> "FY ${from.year}–${(from.year + 1) % 100}"
-        else -> "${from.format(SHORT_DATE)} – ${to.format(SHORT_DATE)}"
-    }
-
-    companion object {
-        val SHORT_DATE: java.time.format.DateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")
-    }
-}
-
-@HiltViewModel
-class AnalyticsViewModel @Inject constructor(
-    private val dao: TransactionDao,
-    plans: com.hisaab.app.ui.plan.PlanSource,
-    layout: com.hisaab.app.settings.TabLayoutStore,
-) : ViewModel() {
-    val plan = plans.snapshot
-
-    /** The report's sections, in the order and visibility set under Settings → Customize tabs. */
-    val sections = layout.settings.map { it.visible(com.hisaab.app.settings.TabLayouts.ANALYTICS) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, com.hisaab.app.settings.TabLayouts.DEFAULTS.getValue(com.hisaab.app.settings.TabLayouts.ANALYTICS).map { it.key })
-
-    private val filter = MutableStateFlow(AnalyticsFilter())
-
-    private suspend fun resolve(f: AnalyticsFilter): Pair<LocalDate, LocalDate> {
-        val today = LocalDate.now(Periods.zone)
-        return when (f.period) {
-            Period.THIS_MONTH -> today.withDayOfMonth(1) to today
-            Period.LAST_MONTH -> YearMonth.from(today).minusMonths(1).let { it.atDay(1) to it.atEndOfMonth() }
-            // India's financial year runs April to March.
-            Period.THIS_FY -> LocalDate.of(if (today.monthValue >= 4) today.year else today.year - 1, 4, 1) to today
-            Period.ALL_TIME -> (dao.firstTimestamp()?.let { Periods.localDate(it) } ?: today).coerceAtMost(today) to today
-            Period.CUSTOM -> (f.customFrom ?: today) to (f.customTo ?: today)
-        }
-    }
-
-    private fun LocalDate.startMillis() = atStartOfDay(Periods.zone).toInstant().toEpochMilli()
-    private fun LocalDate.endMillis() = plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli() - 1
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val state = filter.flatMapLatest { f ->
-        val (from, to) = resolve(f)
-        val start = from.startMillis()
-        val end = to.endMillis()
-        val offset = Periods.offsetMillis(start)
-        val scope = f.scope.name
-        val kind = f.kind.sql
-        // Bars: at least six months ending with the period, at most twelve.
-        val lastMonth = YearMonth.from(to)
-        val months = ChronoUnit.MONTHS.between(YearMonth.from(from), lastMonth).toInt() + 1
-        val trendFrom = lastMonth.minusMonths((months.coerceIn(6, 12) - 1).toLong()).atDay(1).startMillis()
-        // The daily line compares with the same number of days just before the period.
-        val days = ChronoUnit.DAYS.between(from, to) + 1
-        val prevStart = from.minusDays(days).startMillis()
-        combine(
-            combine(dao.categoryTotalsFor(start, end, scope, kind), dao.monthlyFor(start, end, offset, scope, kind)) { a, b -> a to b.sumOf { it.income } },
-            dao.monthlyFor(trendFrom, end, offset, scope, kind),
-            if (days <= 62) dao.dailyFor(start, end, offset, scope, kind) else flowOf(emptyList()),
-            if (days <= 62) dao.dailyFor(prevStart, start - 1, offset, scope, kind) else flowOf(emptyList()),
-            dao.topMerchantsFor(start, end, 6, scope, kind),
-        ) { (cats, income), monthly, daily, prevDaily, merchants ->
-            AnalyticsState(f, from, to, cats, income, monthly, daily, prevDaily, merchants, loaded = true)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsState())
-
-    fun setPeriod(p: Period) = filter.update { it.copy(period = p) }
-    fun setCustom(from: LocalDate, to: LocalDate) = filter.update { it.copy(period = Period.CUSTOM, customFrom = from, customTo = to) }
-    fun setScope(s: Scope) = filter.update { it.copy(scope = s) }
-    fun setKind(k: KindFilter) = filter.update { it.copy(kind = k) }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AnalyticsRoute(contentPadding: PaddingValues, vm: AnalyticsViewModel = hiltViewModel()) {
-    val s by vm.state.collectAsStateWithLifecycle()
-    val plan by vm.plan.collectAsStateWithLifecycle()
+    val d by vm.data.collectAsStateWithLifecycle()
     val sections by vm.sections.collectAsStateWithLifecycle()
-    Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
-        TopAppBar(title = { Text("Analytics") }, colors = com.hisaab.app.ui.theme.clearTopBar())
-    }) { inner ->
-        Column(
-            Modifier.padding(top = inner.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding())
-                .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Kpis(s)
-            FilterBar(s, vm)
-            if (plan.insights.isNotEmpty() && s.filter.period == Period.THIS_MONTH) {
-                Text("Insights", style = MaterialTheme.typography.titleMedium)
-                plan.insights.forEach { com.hisaab.app.ui.home.InsightRow(it) }
+    var segment by rememberSaveable { mutableIntStateOf(0) }
+    var selectedName by rememberSaveable { mutableStateOf<String?>(null) }
+    val selected = selectedName?.let { n -> Category.entries.firstOrNull { it.name == n } }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding()
+            .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = contentPadding.calculateBottomPadding() + 20.dp),
+        verticalArrangement = Arrangement.spacedBy(CardGap),
+    ) {
+        Text("Analysis", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 2.dp, top = 4.dp))
+        BookPeriodChips()
+        Segmented(SEGMENTS, segment, { segment = it })
+        Crossfade(targetState = segment, animationSpec = tween(220), label = "segment") { seg ->
+            Column(verticalArrangement = Arrangement.spacedBy(CardGap)) {
+                when (seg) {
+                    0 -> SpendingSegment(d, sections, selected, { selectedName = it?.name }, onOpenCategoryKey, onOpenTransaction)
+                    1 -> CashFlowSegment(d)
+                    2 -> ForecastSegment(d, onThisMonth = vm::showThisMonth)
+                    else -> CompareSegment(d, onOpenCategoryKey)
+                }
             }
-            // The report rises in whenever the filter changes.
-            AnimatedContent(
-                targetState = s,
-                contentKey = { it.filter to it.from },
-                transitionSpec = {
-                    (slideInVertically(tween(260)) { it / 12 } + fadeIn(tween(220))) togetherWith fadeOut(tween(140)) using SizeTransform(clip = false)
-                },
-                label = "report",
-            ) { state -> Report(state, sections) }
         }
+    }
+}
+
+/** The key the category screen expects; for a calendar month it also opens on that month. */
+internal fun categoryKey(c: Category, month: YearMonth?): String = if (month != null) "${c.name}?month=$month" else c.name
+
+private fun periodMonth(d: AnalyticsData): YearMonth? =
+    d.slice.filter.let { f -> if (f.kind == PeriodKind.MONTH || f.kind == PeriodKind.LAST_MONTH) YearMonth.from(d.slice.from) else null }
+
+// ---------------------------------------------------------------- Spending
+
+@Composable
+private fun SpendingSegment(
+    d: AnalyticsData,
+    sections: List<String>,
+    selected: Category?,
+    onSelect: (Category?) -> Unit,
+    onOpenCategoryKey: (String) -> Unit,
+    onOpenTransaction: (Long) -> Unit,
+) {
+    AnimatedVisibility(selected != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Pill("${(selected ?: Category.OTHER).label}  ✕", on = true) { onSelect(null) }
+            Spacer(Modifier.width(8.dp))
+            Text("cross-filter active", fontSize = 12.sp, color = Hx.text2)
+        }
+    }
+    sections.forEach { key ->
+        when (key) {
+            "categories" -> CategoriesCard(d, selected, onSelect, onOpenCategoryKey)
+            "monthly" -> MonthlyCard(d, selected, onOpenCategoryKey)
+            "when" -> WhenCard(d, selected)
+            "merchants" -> MerchantsCard(d, selected, onOpenTransaction)
+        }
+    }
+}
+
+@Composable
+private fun CategoriesCard(d: AnalyticsData, selected: Category?, onSelect: (Category?) -> Unit, onOpenCategoryKey: (String) -> Unit) {
+    val month = periodMonth(d)
+    HCard(
+        title = "Spend by category",
+        action = if (selected != null) "Open ›" else null,
+        onAction = selected?.let { c -> { onOpenCategoryKey(categoryKey(c, month)) } },
+    ) {
+        val saved = d.income - d.spent
+        KpiRow(
+            Triple("Spent", Money.compact(d.spent), Hx.neg),
+            Triple("Income", Money.compact(d.income), Hx.pos),
+            Triple(if (saved >= 0) "Saved" else "Overspent", Money.compact(kotlin.math.abs(saved)), if (saved >= 0) Hx.accent else Hx.warn),
+            Triple("Per day", Money.compact(d.perDay), null),
+        )
+        Spacer(Modifier.height(14.dp))
+        if (d.categories.isEmpty()) {
+            Note("No spending in ${d.slice.filter.label}.")
+            return@HCard
+        }
+        var all by rememberSaveable { mutableStateOf(false) }
+        val slices = remember(d.categories) { d.categories.map { (c, v) -> ChartSlice(c.label, v, c.color) } }
+        val selIndex = d.categories.indexOfFirst { it.first == selected }.takeIf { it >= 0 }
+        val total = d.spent.coerceAtLeast(1)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            DonutChart(
+                slices = slices, selected = selIndex, onSelect = { i -> onSelect(i?.let { d.categories[it].first }) },
+                centerLabel = "Spent", centerValue = { Money.compact(it) }, modifier = Modifier.width(136.dp), thickness = 16.dp,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                d.categories.take(6).forEach { (c, v) ->
+                    CategoryLegend(c, v, total, c == selected, { onSelect(if (c == selected) null else c) }, { onOpenCategoryKey(categoryKey(c, month)) })
+                }
+            }
+        }
+        if (d.categories.size > 6) {
+            AnimatedVisibility(all, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                Column(Modifier.padding(top = 2.dp)) {
+                    d.categories.drop(6).forEach { (c, v) ->
+                        CategoryLegend(c, v, total, c == selected, { onSelect(if (c == selected) null else c) }, { onOpenCategoryKey(categoryKey(c, month)) })
+                    }
+                }
+            }
+            Text(
+                if (all) "Show fewer" else "All ${d.categories.size} categories",
+                color = Hx.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).clickable { all = !all }.padding(4.dp),
+            )
+        }
+        Text("Tap to filter the cards below · long-press to open", fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CategoryLegend(c: Category, value: Long, total: Long, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(if (selected) Hx.accentSoft else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() })
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(9.dp).clip(RoundedCornerShape(3.dp)).background(c.color))
+        Spacer(Modifier.width(6.dp))
+        Text(c.label, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            fontWeight = if (selected) FontWeight.SemiBold else null)
+        Text("${value * 100 / total}%", fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(end = 6.dp))
+        Text(Money.compact(value), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FilterBar(s: AnalyticsState, vm: AnalyticsViewModel) {
-    var picking by remember { mutableStateOf(false) }
-    var sheet by remember { mutableStateOf(false) }
-    var periodMenu by remember { mutableStateOf(false) }
-    val active = listOf(s.filter.scope != Scope.ALL, s.filter.kind != KindFilter.ALL).count { it }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box {
-            FilterChip(
-                selected = true, onClick = { periodMenu = true },
-                label = { Text(if (s.filter.period == Period.CUSTOM) s.label else s.filter.period.label, maxLines = 1) },
-                leadingIcon = { Icon(Icons.Filled.DateRange, null, Modifier.size(18.dp)) },
-                trailingIcon = { Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(18.dp)) },
-            )
-            DropdownMenu(periodMenu, { periodMenu = false }) {
-                Period.entries.forEach { p ->
-                    DropdownMenuItem(text = { Text(if (p == Period.CUSTOM) "Custom range…" else p.label) },
-                        onClick = { periodMenu = false; if (p == Period.CUSTOM) picking = true else vm.setPeriod(p) })
-                }
-            }
+private fun MonthlyCard(d: AnalyticsData, selected: Category?, onOpenCategoryKey: (String) -> Unit) {
+    var open by rememberSaveable { mutableStateOf<Int?>(null) }
+    val months = d.slice.months
+    HCard(title = "Monthly spend · 12 months") {
+        if (months.isEmpty() || d.monthly.all { it.spent == 0L }) {
+            Note("No spending in the last 12 months.")
+            return@HCard
         }
-        FilterChip(
-            selected = active > 0, onClick = { sheet = true },
-            leadingIcon = { Icon(Icons.Filled.Tune, null, Modifier.size(18.dp)) },
-            label = { Text(if (active > 0) "Filters · $active" else "Filters") },
+        val catByMonth = remember(d.slice.year, selected) {
+            if (selected == null) null
+            else d.slice.year.filter { LedgerMath.isSpend(it) && it.category == selected }
+                .groupBy { YearMonth.from(Periods.localDate(it.timestamp)) }.mapValues { (_, l) -> l.sumOf(LedgerMath::rupees) }
+        }
+        val stacks = d.monthly.map { m ->
+            if (catByMonth != null) { val c = catByMonth[m.month] ?: 0L; listOf(c, (m.spent - c).coerceAtLeast(0)) }
+            else listOf(m.byGroup[SpendGroup.ESSENTIALS] ?: 0L, m.byGroup[SpendGroup.LIFESTYLE] ?: 0L, m.byGroup[SpendGroup.OTHER] ?: 0L)
+        }
+        val colors = if (selected != null) listOf(selected.color, Hx.border) else listOf(Hx.palette[0], Hx.palette[1], Hx.palette[7])
+        val history = (if (catByMonth != null) d.monthly.map { catByMonth[it.month] ?: 0L } else d.monthly.map { it.spent }).dropLast(1)
+        val avg = if (history.isEmpty()) null else history.sum() / history.size
+        StackedMonthBars(
+            labels = months.map { Periods.monthShort(it) }, stacks = stacks, colors = colors,
+            averageLabel = avg?.let { "avg ${Money.compact(it)}" }, average = avg,
+            onTap = { open = it }, selected = open,
         )
-        if (active > 0 || s.filter.period != Period.THIS_MONTH) {
-            AssistChip(onClick = { vm.setPeriod(Period.THIS_MONTH); vm.setScope(Scope.ALL); vm.setKind(KindFilter.ALL) }, label = { Text("Clear") })
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selected != null) { Swatch(selected.color, selected.label); Swatch(Hx.border, "Rest") }
+            else { Swatch(colors[0], "Essentials"); Swatch(colors[1], "Lifestyle"); Swatch(colors[2], "Other") }
+            Spacer(Modifier.weight(1f))
+            Text("Tap a bar", fontSize = 11.sp, color = Hx.text2)
         }
-    }
-    if (sheet) {
-        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { sheet = false }) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Filters", style = MaterialTheme.typography.titleLarge)
-                Text("Money", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    Scope.entries.forEachIndexed { i, sc ->
-                        SegmentedButton(s.filter.scope == sc, { vm.setScope(sc) }, SegmentedButtonDefaults.itemShape(i, Scope.entries.size)) { Text(sc.label) }
-                    }
-                }
-                Text("Paid from", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    KindFilter.entries.forEachIndexed { i, k ->
-                        SegmentedButton(s.filter.kind == k, { vm.setKind(k) }, SegmentedButtonDefaults.itemShape(i, KindFilter.entries.size)) { Text(k.label, maxLines = 1) }
-                    }
-                }
-                androidx.compose.material3.Button(onClick = { sheet = false }, modifier = Modifier.fillMaxWidth()) { Text("Show results") }
-            }
-        }
-    }
-    if (picking) {
-        val utc = java.time.ZoneOffset.UTC
-        val state = rememberDateRangePickerState(
-            initialSelectedStartDateMillis = s.from.atStartOfDay(utc).toInstant().toEpochMilli(),
-            initialSelectedEndDateMillis = s.to.atStartOfDay(utc).toInstant().toEpochMilli(),
-            selectableDates = object : SelectableDates {
-                override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= System.currentTimeMillis()
-            },
-        )
-        DatePickerDialog(
-            onDismissRequest = { picking = false },
-            confirmButton = {
-                TextButton(enabled = state.selectedStartDateMillis != null, onClick = {
-                    val a = java.time.Instant.ofEpochMilli(state.selectedStartDateMillis!!).atZone(utc).toLocalDate()
-                    val b = state.selectedEndDateMillis?.let { java.time.Instant.ofEpochMilli(it).atZone(utc).toLocalDate() } ?: a
-                    vm.setCustom(a, b); picking = false
-                }) { Text("Apply") }
-            },
-            dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
-        ) {
-            DateRangePicker(state, Modifier.weight(1f), title = { Text("Choose dates", Modifier.padding(start = 24.dp, top = 16.dp)) })
-        }
-    }
-}
 
-@Composable
-private fun Report(s: AnalyticsState, sections: List<String>) {
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        sections.forEach { key ->
-            when (key) {
-                "categories" -> CategoriesCard(s)
-                "merchants" -> if (s.merchants.isNotEmpty()) MerchantsCard(s.merchants, s.spent)
-                "trend" -> TrendCard(s)
-                "daily" -> if (s.totalDays <= 62) DailyCard(s)
+        val i = open
+        if (i != null && i in months.indices) {
+            val m = months[i]
+            val monthAvg = d.monthly.filterIndexed { j, _ -> j != i }.map { it.spent }.let { l -> if (l.isEmpty()) 0L else l.sum() / l.size }
+            ModalBottomSheet(onDismissRequest = { open = null }, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                MonthSheet(d, m, monthAvg) { c -> open = null; onOpenCategoryKey(categoryKey(c, m)) }
             }
         }
     }
 }
 
 @Composable
-private fun Kpis(s: AnalyticsState) {
-    val days = s.elapsedDays
-    val saved = s.income - s.spent
-    Text(s.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Kpi("Spent", s.spent, MoneyColors.debit, Modifier.weight(1f))
-        Kpi("Income", s.income, MoneyColors.credit, Modifier.weight(1f))
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Kpi(if (saved >= 0) "Saved" else "Overspent", kotlin.math.abs(saved), MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-        Kpi("Per day", s.spent / days.coerceAtLeast(1), MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun Kpi(label: String, minor: Long, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            AnimatedAmount(minor, MaterialTheme.typography.titleLarge, color = color, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
-
-@Composable
-private fun ChartCard(title: String, subtitle: String?, action: (@Composable () -> Unit)? = null, content: @Composable () -> Unit) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
-                    subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                }
-                action?.invoke()
+private fun MonthSheet(d: AnalyticsData, m: YearMonth, average: Long, onCategory: (Category) -> Unit) {
+    val txs = remember(d.slice.year, m) { d.slice.year.filter { YearMonth.from(Periods.localDate(it.timestamp)) == m } }
+    val cats = remember(txs) { LedgerMath.byCategory(txs) }
+    val total = cats.sumOf { it.second }
+    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 28.dp)) {
+        Text(Periods.month(m), style = MaterialTheme.typography.titleLarge)
+        Row(Modifier.padding(top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(Money.format(total, showPaise = false), style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.width(10.dp))
+            if (average > 0) {
+                val diff = total - average
+                val pct = (kotlin.math.abs(diff) * 100 / average)
+                Delta("${if (diff > 0) "▲" else "▼"} $pct% ${if (diff > 0) "above" else "below"} avg", good = diff <= 0)
             }
-            Spacer(Modifier.height(12.dp))
-            content()
+        }
+        if (cats.isEmpty()) Note("No spending this month.")
+        cats.forEach { (c, v) ->
+            HRow(
+                c.label, "${v * 100 / total.coerceAtLeast(1)}% of the month",
+                leading = { CategoryIcon(c) }, onClick = { onCategory(c) },
+            ) { Text(Money.format(v, showPaise = false), fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
         }
     }
 }
 
+private val DAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+private val SLOTS = listOf("6a", "9a", "12p", "3p", "6p", "9p", "12a", "3a")
+
+/** The heat-grid cell a spend falls in (weekday row, three-hour column), or null without a known time. */
+private fun cellOf(t: TransactionEntity): Pair<Int, Int>? {
+    if (!t.hasExplicitTime) return null
+    val z = java.time.Instant.ofEpochMilli(t.timestamp).atZone(Periods.zone)
+    return (z.dayOfWeek.value - 1) to ((z.hour - 6 + 24) % 24) / 3
+}
+
 @Composable
-private fun CategoriesCard(s: AnalyticsState) {
-    var selected by rememberSaveable(s.label) { mutableStateOf<Int?>(null) }
-    ChartCard("Where it went", "Tap a slice or a row for its share") {
-        if (s.categories.isEmpty()) {
-            EmptyState(Icons.Filled.PieChart, "No spending", "Nothing was spent in ${s.label}.")
-            return@ChartCard
+private fun WhenCard(d: AnalyticsData, selected: Category?) {
+    val txs = remember(d.slice.txs, selected) { d.slice.txs.filter { LedgerMath.isSpend(it) && (selected == null || it.category == selected) } }
+    val grid = remember(txs) { LedgerMath.heat(txs) }
+    var cell by remember(txs) { mutableStateOf<Pair<Int, Int>?>(null) }
+    fun topCategory(r: Int, c: Int): Category? = txs.filter { cellOf(it) == r to c }
+        .groupBy { it.category }.maxByOrNull { (_, l) -> l.sumOf(LedgerMath::rupees) }?.key
+    HCard(title = "When you spend") {
+        val max = grid.maxOf { row -> row.max() }
+        if (max == 0L) {
+            Note("No spends with a time of day in this period.")
+            return@HCard
         }
-        val slices = remember(s.categories) { s.categories.map { ChartSlice(it.category.label, it.total, it.category.color) } }
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            DonutChart(
-                slices = slices, selected = selected, onSelect = { selected = it }, centerLabel = "Total spent",
-                centerValue = { Money.format(it, showPaise = false) }, modifier = Modifier.fillMaxWidth(0.72f),
-            )
+        HeatGrid(grid, DAYS, SLOTS, onCell = { r, c -> cell = if (cell == r to c) null else r to c })
+        AnimatedContent(cell, transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(100)) }, label = "cell") { sel ->
+            val text = if (sel == null) "Tap a cell for its amount"
+            else {
+                val (r, c) = sel
+                val top = if (selected == null && grid[r][c] > 0) topCategory(r, c)?.let { " · mostly ${it.label}" }.orEmpty() else ""
+                "${DAYS[r]} ${SLOTS[c]}: ${Money.format(grid[r][c], showPaise = false)}$top"
+            }
+            Text(text, fontSize = 12.sp, color = if (sel == null) Hx.text2 else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (sel == null) null else FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
         }
-        Spacer(Modifier.height(12.dp))
-        val total = s.spent.coerceAtLeast(1)
-        s.categories.forEachIndexed { i, c ->
-            val share by animateFloatAsState(c.total.toFloat() / total, tween(600), label = "share")
-            val isSel = selected == i
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                    .background(if (isSel) c.category.color.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent)
-                    .clickable { selected = if (isSel) null else i }.padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        val peak = remember(grid) {
+            var pr = 0; var pc = 0
+            grid.forEachIndexed { r, row -> row.forEachIndexed { c, v -> if (v > grid[pr][pc]) { pr = r; pc = c } } }
+            // Neighbouring days in the same slot that come close to the peak widen it to a range.
+            var a = pr; var b = pr
+            while (a > 0 && grid[a - 1][pc] * 10 >= grid[pr][pc] * 6) a--
+            while (b < 6 && grid[b + 1][pc] * 10 >= grid[pr][pc] * 6) b++
+            val days = if (a == b) DAYS[a] else "${DAYS[a]}–${DAYS[b]}"
+            val top = if (selected == null) topCategory(pr, pc)?.let { ", mostly ${it.label}" }.orEmpty() else ""
+            "Peak: $days, ${SLOTS[pc]}–${SLOTS[(pc + 1) % 8]}$top"
+        }
+        Text(peak, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MerchantsCard(d: AnalyticsData, selected: Category?, onOpenTransaction: (Long) -> Unit) {
+    val spends = remember(d.slice.txs, selected) { d.slice.txs.filter { LedgerMath.isSpend(it) && (selected == null || it.category == selected) } }
+    val top = remember(spends) { LedgerMath.byMerchant(spends).take(6) }
+    var open by rememberSaveable { mutableStateOf<String?>(null) }
+    HCard(title = if (selected != null) "Top merchants · ${selected.label}" else "Top merchants") {
+        if (top.isEmpty()) {
+            Note(if (selected != null) "No ${selected.label.lowercase()} spends in this period." else "No spending in this period.")
+            return@HCard
+        }
+        val max = top.first().total.coerceAtLeast(1)
+        top.forEach { m ->
+            val f by animateFloatAsState(m.total.toFloat() / max, tween(600), label = "merchant")
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { open = m.name }.padding(vertical = 8.dp, horizontal = 2.dp),
             ) {
-                CategoryBadge(c.category, size = 32)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Row {
-                        Text(c.category.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
-                            fontWeight = if (isSel) FontWeight.SemiBold else null)
-                        Text(Money.format(c.total, showPaise = false), style = MaterialTheme.typography.bodyMedium)
-                    }
-                    LinearProgressIndicator(
-                        progress = { share }, color = c.category.color, trackColor = c.category.color.copy(alpha = 0.12f),
-                        modifier = Modifier.fillMaxWidth().padding(top = 5.dp).height(5.dp).clip(CircleShape),
-                        drawStopIndicator = {},
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(m.name, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(Money.format(m.total, showPaise = false), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(" · ${m.count}×", fontSize = 12.sp, color = Hx.text2)
                 }
+                Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(4.dp).clip(CircleShape).background(Hx.surface2)) {
+                    Box(Modifier.fillMaxWidth(f).height(4.dp).clip(CircleShape).background(m.category.color))
+                }
+            }
+        }
+    }
+    val name = open
+    if (name != null) {
+        val list = remember(spends, name) { spends.filter { (it.merchant ?: it.bankName) == name }.sortedByDescending { it.timestamp } }
+        ModalBottomSheet(onDismissRequest = { open = null }, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 28.dp)) {
+                Text(name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${list.size} payment${if (list.size == 1) "" else "s"} · ${Money.format(list.sumOf(LedgerMath::rupees), showPaise = false)} · ${d.slice.filter.label}",
+                    fontSize = 13.sp, color = Hx.text2, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+                )
+                if (list.isEmpty()) Note("No payments in this period.")
+                list.take(60).forEach { t ->
+                    HRow(
+                        t.note?.takeIf { it.isNotBlank() } ?: t.category.label, Periods.dateTime(t.timestamp),
+                        leading = { CategoryIcon(t.category) }, onClick = { open = null; onOpenTransaction(t.id) },
+                    ) { Text(Money.format(LedgerMath.rupees(t), showPaise = false), fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                }
+                if (list.size > 60) Note("Showing the latest 60.")
             }
         }
     }
 }
 
+// ---------------------------------------------------------------- shared bits
+
 @Composable
-private fun MerchantsCard(merchants: List<MerchantTotal>, spent: Long) {
-    ChartCard("Top merchants", null) {
-        merchants.forEachIndexed { i, m ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(28.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                    Text("${i + 1}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(m.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                    Text("${m.count} payment${if (m.count > 1) "s" else ""} · ${m.total * 100 / spent.coerceAtLeast(1)}% of spend",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(Money.format(m.total, showPaise = false), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            }
-        }
-    }
+internal fun Note(text: String, modifier: Modifier = Modifier) {
+    Text(text, fontSize = 13.sp, color = Hx.text2, modifier = modifier.padding(vertical = 4.dp))
 }
 
 @Composable
-private fun TrendCard(s: AnalyticsState) {
-    val spent = MoneyColors.debit
-    val income = MoneyColors.credit
-    ChartCard("Month by month", "Tap or slide across the bars") {
-        val groups = remember(s.monthly) { s.monthly.map { BarGroup(Periods.monthShort(YearMonth.parse(it.month)), listOf(it.spent, it.income)) } }
-        GroupedBarChart(groups, listOf("Spent", "Income"), listOf(spent, income), format = { Money.compact(it) })
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Legend("Spent", spent); Legend("Income", income)
-        }
-    }
-}
-
-@Composable
-private fun DailyCard(s: AnalyticsState) {
-    var cumulative by rememberSaveable { mutableStateOf(true) }
-    val color = MaterialTheme.colorScheme.primary
-    val values = remember(s.daily, s.from) { perDay(s.daily, s.from, s.totalDays) }
-    val previous = remember(s.previousDaily, s.from) { perDay(s.previousDaily, s.from.minusDays(s.totalDays.toLong()), s.totalDays) }
-    // The line stops at today; the comparison covers the same number of days just before.
-    val upTo = s.elapsedDays
-    val shown = (if (cumulative) values.runningReduce { a, b -> a + b } else values).take(upTo)
-    val compare = (if (cumulative) previous.runningReduce { a, b -> a + b } else previous).take(upTo)
-    val monthly = s.filter.period == Period.THIS_MONTH || s.filter.period == Period.LAST_MONTH
-    val nowName = if (monthly) Periods.monthShort(YearMonth.from(s.from)) else "This period"
-    val prevName = if (monthly) Periods.monthShort(YearMonth.from(s.from).minusMonths(1)) else "Before"
-    ChartCard(
-        if (cumulative) "Spending so far" else "Daily spending", "Drag along the line",
-        action = {
-            SingleChoiceSegmentedButtonRow {
-                SegmentedButton(cumulative, { cumulative = true }, SegmentedButtonDefaults.itemShape(0, 2)) { Text("Total") }
-                SegmentedButton(!cumulative, { cumulative = false }, SegmentedButtonDefaults.itemShape(1, 2)) { Text("Daily") }
-            }
-        },
-    ) {
-        if (values.none { it > 0 }) {
-            Text("No spending in this period.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            return@ChartCard
-        }
-        val fmt = java.time.format.DateTimeFormatter.ofPattern("d MMM")
-        AreaLineChart(
-            values = shown, compare = compare.takeIf { previous.any { it > 0 } }, color = color,
-            xLabel = { s.from.plusDays(it.toLong()).format(fmt) }, format = { Money.compact(it) },
-            seriesName = nowName, compareName = prevName,
-        )
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Legend(nowName, color)
-            if (previous.any { it > 0 }) Legend(prevName, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-        }
-    }
-}
-
-private fun perDay(daily: List<DayTotal>, from: LocalDate, days: Int): List<Long> {
-    val first = from.atStartOfDay(Periods.zone).toInstant().toEpochMilli()
-    val startDay = (first + Periods.offsetMillis(first)) / 86_400_000L
-    val byDay = daily.associate { (it.day - startDay).toInt() to it.total }
-    return List(days) { byDay[it] ?: 0L }
-}
-
-@Composable
-private fun Legend(label: String, color: androidx.compose.ui.graphics.Color) {
+internal fun Swatch(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).background(color, CircleShape))
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.size(9.dp).clip(RoundedCornerShape(3.dp)).background(color))
+        Spacer(Modifier.width(5.dp))
+        Text(label, fontSize = 11.sp, color = Hx.text2)
+    }
+}
+
+@Composable
+internal fun CategoryIcon(c: Category) {
+    Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(c.color.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+        Icon(c.icon, null, tint = c.color, modifier = Modifier.size(18.dp))
     }
 }
