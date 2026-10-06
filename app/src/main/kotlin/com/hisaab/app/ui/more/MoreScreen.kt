@@ -27,8 +27,9 @@ import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DonutLarge
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -248,14 +249,24 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
             ),
         ),
         "App" to listOf(
-            Entry("customize", "Customise", "Tabs and Home sections", Icons.Filled.Tune, p[7]),
-            Entry("forex", "Forex rates", "Rates used for foreign spends", Icons.Filled.CurrencyExchange, p[6]),
             Entry(
-                "settings", "Security & backup",
+                "customize", "Customise",
+                "${(app?.theme ?: com.hisaab.app.settings.ThemeMode.SYSTEM).name.lowercase().replaceFirstChar { it.uppercase() }} theme · tab sections",
+                Icons.Filled.Tune, p[7],
+            ),
+            Entry(
+                "alerts", "Notifications & alerts",
+                if (app == null) "Transaction and budget alerts"
+                else "Transactions ${if (app.transactionNotifications) "on" else "off"} · budgets at ${app.budgetAlertPercent}%",
+                Icons.Filled.Notifications, p[1],
+            ),
+            Entry(
+                "security", "Security & backup",
                 if (app == null) "App lock and backup" else "App lock ${if (app.appLock) "on" else "off"} · amounts ${if (app.hideAmounts) "hidden" else "shown"}",
                 Icons.Filled.Lock, p[3],
             ),
-            Entry("settings", "Settings", "Notifications, email, theme and more", Icons.Filled.Settings, p[7]),
+            Entry("forex", "Forex rates", "Rates used for foreign spends", Icons.Filled.CurrencyExchange, p[6]),
+            Entry("settings", "About & updates", "Version ${com.hisaab.app.BuildConfig.VERSION_NAME}", Icons.Filled.Info, p[2]),
         ),
     )
 

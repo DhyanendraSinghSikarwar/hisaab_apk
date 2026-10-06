@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.hisaab.app.ui.theme.clearTopBar
 
 /** The frame every More detail screen shares: a clear top bar with a back arrow, on the app backdrop. */
@@ -51,3 +52,20 @@ internal fun listPadding(inner: PaddingValues, bottomExtra: Dp = 24.dp) = Paddin
     top = inner.calculateTopPadding() + 4.dp,
     bottom = inner.calculateBottomPadding() + bottomExtra,
 )
+
+/** A setting row inside an [com.hisaab.app.ui.components.HCard]: title, one line of help, and a switch. */
+@Composable
+internal fun SettingSwitch(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true) {
+    com.hisaab.app.ui.components.HRow(
+        title, subtitle,
+        onClick = if (enabled) ({ onChange(!checked) }) else null,
+    ) {
+        androidx.compose.material3.Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+    }
+}
+
+/** A short line of explanatory text under a card's controls. */
+@Composable
+internal fun HelpText(text: String, modifier: Modifier = Modifier) {
+    Text(text, modifier, fontSize = 12.sp, color = com.hisaab.app.ui.theme.Hx.text2)
+}

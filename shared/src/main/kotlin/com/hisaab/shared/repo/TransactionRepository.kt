@@ -18,6 +18,7 @@ import com.hisaab.shared.db.DeletedMessageEntity
 import com.hisaab.shared.db.MerchantRuleEntity
 import com.hisaab.shared.db.HisaabDatabase
 import com.hisaab.shared.db.ProcessedEmailEntity
+import com.hisaab.shared.db.RuleMatch
 import com.hisaab.shared.db.TransactionEntity
 import com.hisaab.shared.db.TransactionSourceEntity
 import javax.inject.Inject
@@ -78,7 +79,7 @@ class TransactionRepository @Inject constructor(
 
     suspend fun ingest(message: IncomingMessage): IngestOutcome {
         var outcome = IngestOutcome.ALREADY_PROCESSED
-        write { outcome = ingestInTransaction(message, System.currentTimeMillis()) }
+        write { outcome = ingestInTransaction(message, System.currentTimeMillis(), rules.manualRules()) }
         return outcome
     }
 
@@ -89,8 +90,9 @@ class TransactionRepository @Inject constructor(
         write {
             val now = System.currentTimeMillis()
             var inserted = 0; var merged = 0; var flagged = 0; var skipped = 0
+            val manual = if (messages.isEmpty()) emptyList() else rules.manualRules()
             for (m in messages) {
-                when (ingestInTransaction(m, now)) {
+                when (ingestInTransaction(m, now, manual)) {
                     IngestOutcome.INSERTED -> inserted++
                     IngestOutcome.MERGED -> merged++
                     IngestOutcome.FLAGGED_FOR_REVIEW -> flagged++
@@ -103,12 +105,21 @@ class TransactionRepository @Inject constructor(
         return report
     }
 
-    private suspend fun ingestInTransaction(m: IncomingMessage, now: Long): IngestOutcome {
-        // A category the user chose for this merchant before wins over the parser's guess.
-        val tx = MerchantRuleEntity.keyOf(m.parsed.merchant, m.parsed.upiId)
-            ?.takeIf { m.parsed.type != TransactionType.TRANSFER }
-            ?.let { rules.get(it) }
-            ?.let { m.parsed.copy(category = it.category) } ?: m.parsed
+    /**
+     * The rule for a new transaction, or null: the user's own rules ([manual], exact before "contains", the
+     * longest "contains" first) win over one learned from a recategorisation. Transfers are never re-filed.
+     */
+    private suspend fun ruleFor(p: ParsedTransaction, manual: List<MerchantRuleEntity>): MerchantRuleEntity? {
+        if (p.type == TransactionType.TRANSFER) return null
+        return MerchantRuleEntity.pick(manual, p.merchant, p.upiId)
+            ?: MerchantRuleEntity.keyOf(p.merchant, p.upiId)?.let { rules.get(it) }?.takeIf { !it.manual }
+    }
+
+    private suspend fun ingestInTransaction(m: IncomingMessage, now: Long, manual: List<MerchantRuleEntity>): IngestOutcome {
+        // A category the user set for this merchant wins over the parser's guess.
+        val rule = ruleFor(m.parsed, manual)
+        val tx = rule?.let { m.parsed.copy(category = it.category) } ?: m.parsed
+        fun TransactionEntity.filed() = if (rule == null) this else copy(subcategory = rule.subcategory, customCategoryId = rule.customCategoryId)
         if (sourceDao.exists(m.sourceName, m.sourceMessageId)) return IngestOutcome.ALREADY_PROCESSED
         if (deletedDao.exists(m.sourceName, m.sourceMessageId)) return IngestOutcome.ALREADY_PROCESSED
 
@@ -119,19 +130,22 @@ class TransactionRepository @Inject constructor(
         when (decision) {
             is DedupDecision.Duplicate -> {
                 val existing = txDao.getById(decision.existingId)!!
-                txDao.update(existing.mergedWith(tx).copy(accountId = existing.accountId ?: accountId))
+                val merged = existing.mergedWith(tx).copy(accountId = existing.accountId ?: accountId)
+                // The rule's sub-category follows only when the record still has no placement of the user's own.
+                val keepsOwn = existing.subcategory != null || existing.customCategoryId != null || merged.category != tx.category
+                txDao.update(if (keepsOwn) merged else merged.filed())
                 txId = existing.id
                 outcome = IngestOutcome.MERGED
             }
             is DedupDecision.PossibleDuplicate -> {
                 // The flagged copy needs its own unique hash until the user decides.
                 val entity = tx.toEntity(accountId, now, hash = "${tx.transactionHash}#${m.sourceName}:${m.sourceMessageId}")
-                    .copy(needsReview = true, duplicateOfId = decision.existingId, reviewReason = decision.reason)
+                    .copy(needsReview = true, duplicateOfId = decision.existingId, reviewReason = decision.reason).filed()
                 txId = txDao.insert(entity)
                 outcome = IngestOutcome.FLAGGED_FOR_REVIEW
             }
             DedupDecision.New -> {
-                val id = txDao.insert(tx.toEntity(accountId, now))
+                val id = txDao.insert(tx.toEntity(accountId, now).filed())
                 if (id == -1L) {
                     // Unique hash hit: the matcher and the index disagree only under a race. Merge.
                     val existing = txDao.findByHash(tx.transactionHash)!!
@@ -236,7 +250,7 @@ class TransactionRepository @Inject constructor(
 
     /**
      * Sets the category and remembers it for each merchant involved, so their future transactions (and past
-     * ones still uncategorised) get it too.
+     * ones still uncategorised) get it too. A rule the user wrote is never replaced by a learned one.
      */
     suspend fun setCategory(ids: List<Long>, category: Category) {
         for (chunk in ids.chunked(SQLITE_MAX_ARGS)) txDao.setCategoryFor(chunk, category.name)
@@ -244,10 +258,32 @@ class TransactionRepository @Inject constructor(
         val keys = ids.mapNotNull { txDao.getById(it) }.filter { it.type != TransactionType.TRANSFER }
             .mapNotNull { MerchantRuleEntity.keyOf(it.merchant, it.upiId) }.distinct()
         for (k in keys) {
+            if (rules.get(k)?.manual == true) continue
             rules.upsert(MerchantRuleEntity(k, category, now))
             rules.applyToUncategorised(k, category.name)
         }
     }
+
+    /**
+     * Saves a rule the user wrote (replacing [previousKey] when its text changed) and, when [applyToPast], files
+     * every earlier transaction it matches. Returns how many past transactions changed.
+     */
+    suspend fun saveRule(rule: MerchantRuleEntity, previousKey: String?, applyToPast: Boolean): Int {
+        var changed = 0
+        write {
+            if (previousKey != null && previousKey != rule.merchantKey) rules.delete(previousKey)
+            rules.upsert(rule.copy(manual = true, updatedAt = System.currentTimeMillis()))
+            if (applyToPast) changed = applyRule(rule)
+        }
+        return changed
+    }
+
+    /** Files the past transactions [rule] matches under its category and sub-category. Returns the count. */
+    suspend fun applyRule(rule: MerchantRuleEntity): Int = rules.applyToPast(
+        key = rule.merchantKey, like = MerchantRuleEntity.likeOf(rule.merchantKey),
+        contains = rule.matchType == RuleMatch.CONTAINS,
+        category = rule.category.name, subcategory = rule.subcategory, customCategoryId = rule.customCategoryId,
+    )
 
     /**
      * What a statement says about the account: a card's credit limit and amount due give its available limit;

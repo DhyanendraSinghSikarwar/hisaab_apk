@@ -42,3 +42,12 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - Rule (2026-10-06): only features fed by SMS, email, mailed statements or app notifications. Dropped: goals, split & lend, credit score, manual tax inputs
 - [x] Portfolio tab (agent): value, allocation, net worth, holdings by class, maturity calendar
 - Built + unit tests pass; not yet run on a device
+
+## 2.1.0 (requested 2026-10-06)
+- [x] Stylish, appealing background and richer (still professional) styling
+- [x] Tax centre: pencil (top right) to override values; default stays calculated
+- [x] Portfolio: asset-class groups and maturity calendar expand/collapse
+- [x] Rules: add rules manually (category + sub-category); user rules win over automatic
+- [x] Analysis opens on Spending; Budgets section at the end
+- [x] More: each item edits only its own function (Security & backup, Data sources, Customise…); removed from Settings, one place each
+- Built + all tests pass (DB v13); not yet run on a device

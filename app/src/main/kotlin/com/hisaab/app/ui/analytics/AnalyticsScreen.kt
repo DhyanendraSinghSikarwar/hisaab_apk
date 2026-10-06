@@ -86,11 +86,13 @@ fun AnalyticsRoute(
     contentPadding: PaddingValues,
     onOpenCategoryKey: (String) -> Unit = {},
     onOpenTransaction: (Long) -> Unit = {},
+    onOpenBudgets: () -> Unit = {},
     vm: AnalyticsViewModel = hiltViewModel(),
 ) {
     val d by vm.data.collectAsStateWithLifecycle()
     val sections by vm.sections.collectAsStateWithLifecycle()
-    var segment by rememberSaveable { mutableIntStateOf(0) }
+    // Not saveable: every visit to the tab opens on Spending.
+    var segment by remember { mutableIntStateOf(0) }
     var selectedName by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = selectedName?.let { n -> Category.entries.firstOrNull { it.name == n } }
 
@@ -105,7 +107,7 @@ fun AnalyticsRoute(
         Crossfade(targetState = segment, animationSpec = tween(220), label = "segment") { seg ->
             Column(verticalArrangement = Arrangement.spacedBy(CardGap)) {
                 when (seg) {
-                    0 -> SpendingSegment(d, sections, selected, { selectedName = it?.name }, onOpenCategoryKey, onOpenTransaction)
+                    0 -> SpendingSegment(d, sections, selected, { selectedName = it?.name }, onOpenCategoryKey, onOpenTransaction, onOpenBudgets)
                     1 -> CashFlowSegment(d)
                     2 -> ForecastSegment(d, onThisMonth = vm::showThisMonth)
                     else -> CompareSegment(d, onOpenCategoryKey)
@@ -131,6 +133,7 @@ private fun SpendingSegment(
     onSelect: (Category?) -> Unit,
     onOpenCategoryKey: (String) -> Unit,
     onOpenTransaction: (Long) -> Unit,
+    onOpenBudgets: () -> Unit,
 ) {
     AnimatedVisibility(selected != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -145,6 +148,7 @@ private fun SpendingSegment(
             "monthly" -> MonthlyCard(d, selected, onOpenCategoryKey)
             "when" -> WhenCard(d, selected)
             "merchants" -> MerchantsCard(d, selected, onOpenTransaction)
+            "budgets" -> BudgetsCard(d.budgets, d.slice.filter.label, selected, onOpenBudgets)
         }
     }
 }

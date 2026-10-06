@@ -32,7 +32,7 @@ object TabLayouts {
         ),
         ANALYTICS to listOf(
             Section("categories", "Spend by category"), Section("monthly", "Monthly spend"),
-            Section("when", "When you spend"), Section("merchants", "Top merchants"),
+            Section("when", "When you spend"), Section("merchants", "Top merchants"), Section("budgets", "Budgets"),
         ),
         PORTFOLIO to listOf(
             Section("value", "Portfolio value"), Section("allocation", "Asset allocation"), Section("networth", "Net worth"),

@@ -2,6 +2,7 @@ package com.hisaab.app.ui.analytics
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.settings.TabLayoutStore
 import com.hisaab.app.settings.TabLayouts
 import com.hisaab.app.ui.format.Periods
@@ -18,6 +19,7 @@ import com.hisaab.app.ui.plan.Upcoming
 import com.hisaab.parser.model.AccountKind
 import com.hisaab.parser.model.Category
 import com.hisaab.shared.db.BudgetDao
+import com.hisaab.shared.db.BudgetEntity
 import com.hisaab.shared.db.TransactionEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +64,20 @@ data class CashProjection(
     val dailyRate: Long,
 )
 
+/** One category budget measured over the selected period: [limit] is the monthly limit times the months the period spans. */
+data class BudgetUse(val category: Category, val limit: Long, val spent: Long)
+
+/** Budgets for the selected period. [pace] is the share of the current month gone (day/days), or null for a past period. */
+data class BudgetSummary(
+    val lines: List<BudgetUse> = emptyList(),
+    val months: Int = 1,
+    val alertPercent: Int = 80,
+    val pace: Float? = null,
+) {
+    val limit: Long get() = lines.sumOf { it.limit }
+    val spent: Long get() = lines.sumOf { it.spent }
+}
+
 data class AnalyticsData(
     val slice: LedgerSlice = LedgerSlice(),
     val spent: Long = 0,
@@ -81,6 +97,7 @@ data class AnalyticsData(
     val previousLabel: String = "",
     val isCurrentMonth: Boolean = false,
     val budget: Long = 0,
+    val budgets: BudgetSummary = BudgetSummary(),
     val forecast: Forecast? = null,
     val cash: CashProjection? = null,
     val loaded: Boolean = false,
@@ -93,6 +110,7 @@ class AnalyticsViewModel @Inject constructor(
     plans: PlanSource,
     layout: TabLayoutStore,
     budgets: BudgetDao,
+    settings: AppSettingsStore,
 ) : ViewModel() {
 
     /** The Spending cards, in the order and visibility set under Settings → Customize tabs. */
@@ -100,9 +118,9 @@ class AnalyticsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, TabLayouts.DEFAULTS.getValue(TabLayouts.ANALYTICS).map { it.key })
 
     val data: StateFlow<AnalyticsData> = combine(
-        ledger.slice, plans.snapshot, budgets.observeAll().map { b -> b.sumOf { it.monthlyLimitMinor } },
-    ) { s, plan, budget ->
-        AnalyticsMath.build(s, plan, budget, LocalDate.now(Periods.zone))
+        ledger.slice, plans.snapshot, budgets.observeAll(), settings.settings.map { it.budgetAlertPercent },
+    ) { s, plan, b, alertAt ->
+        AnalyticsMath.build(s, plan, b, alertAt, LocalDate.now(Periods.zone))
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnalyticsData())
 
     fun showThisMonth() = filters.setMonth(YearMonth.now(Periods.zone))
@@ -117,8 +135,9 @@ object AnalyticsMath {
     private val MONTH = DateTimeFormatter.ofPattern("MMM yyyy")
     private val SHORT = DateTimeFormatter.ofPattern("d MMM")
 
-    fun build(s: LedgerSlice, plan: PlanSnapshot, budget: Long, today: LocalDate): AnalyticsData {
+    fun build(s: LedgerSlice, plan: PlanSnapshot, budgetList: List<BudgetEntity>, alertPercent: Int, today: LocalDate): AnalyticsData {
         if (!s.loaded) return AnalyticsData()
+        val budget = budgetList.sumOf { it.monthlyLimitMinor }
         val spent = LedgerMath.spent(s.txs)
         val income = LedgerMath.income(s.txs)
         val days = (ChronoUnit.DAYS.between(s.from, minOf(s.to, today)) + 1).coerceAtLeast(1)
@@ -156,10 +175,24 @@ object AnalyticsMath {
             savingsRates = monthly.filter { it.income > 0 }.map { it.month to ((it.income - it.spent) * 100f / it.income).coerceIn(-100f, 100f) },
             changes = changes, previousSpent = LedgerMath.spent(s.previous), previousLabel = prevLabel,
             isCurrentMonth = current, budget = budget,
+            budgets = budgetSummary(s, now, budgetList, alertPercent, today),
             forecast = if (current) forecast(s.txs, plan, rate, today) else null,
             cash = if (current) cash(s, plan, rate, today) else null,
             loaded = true,
         )
+    }
+
+    /** Each budget against the period's spend in its category; limits scale with the calendar months the period spans. */
+    private fun budgetSummary(
+        s: LedgerSlice, spent: Map<Category, Long>, list: List<BudgetEntity>, alertPercent: Int, today: LocalDate,
+    ): BudgetSummary {
+        val months = (ChronoUnit.MONTHS.between(YearMonth.from(s.from), YearMonth.from(s.to)) + 1).toInt().coerceAtLeast(1)
+        val lines = list.filter { it.monthlyLimitMinor > 0 }
+            .map { BudgetUse(it.category, it.monthlyLimitMinor * months, spent[it.category] ?: 0L) }
+            .sortedByDescending { it.spent.toDouble() / it.limit }
+        val single = months == 1 && YearMonth.from(s.from) == YearMonth.from(today) && !s.to.isBefore(today)
+        val pace = if (single) today.dayOfMonth.toFloat() / today.lengthOfMonth() else null
+        return BudgetSummary(lines, months, alertPercent.takeIf { it in 1..100 } ?: 80, pace)
     }
 
     /** Average day's spend outside scheduled bills: the last three months blended with this month's pace. */

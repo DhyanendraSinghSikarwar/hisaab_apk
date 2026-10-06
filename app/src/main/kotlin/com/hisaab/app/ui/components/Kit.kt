@@ -28,6 +28,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,9 +57,15 @@ fun HCard(
     container: Color = Hx.surface,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val dark = com.hisaab.app.ui.theme.LocalDarkTheme.current
+    val shape = RoundedCornerShape(18.dp)
     Surface(
-        modifier = modifier.fillMaxWidth().let { if (onClick != null) it.clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick) else it },
-        shape = RoundedCornerShape(16.dp), color = container, border = BorderStroke(1.dp, Hx.border),
+        modifier = modifier.fillMaxWidth()
+            // A soft, accent-tinted shadow by day; at night a faint top highlight on the border does the lifting.
+            .shadow(if (dark) 0.dp else 10.dp, shape, ambientColor = Hx.accent.copy(alpha = 0.06f), spotColor = Hx.accent.copy(alpha = 0.10f))
+            .let { if (onClick != null) it.clip(shape).clickable(onClick = onClick) else it },
+        shape = shape, color = container,
+        border = BorderStroke(1.dp, if (dark) Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.10f), Hx.border)) else SolidColor(Hx.border)),
     ) {
         Column(Modifier.padding(padding).animateContentSize()) {
             if (title != null) {
@@ -65,6 +80,66 @@ fun HCard(
                 }
             }
             content()
+        }
+    }
+}
+
+/**
+ * The headline card: a blue-to-violet gradient with white text and two faint decorative rings.
+ * Content inside should use [LocalContentColor] (white).
+ */
+@Composable
+fun HeroCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    val shape = RoundedCornerShape(22.dp)
+    val brush = com.hisaab.app.ui.theme.HeroBrush
+    Box(
+        modifier.fillMaxWidth()
+            .shadow(16.dp, shape, ambientColor = Color(0xFF2F5BEA).copy(alpha = 0.25f), spotColor = Color(0xFF5A48D6).copy(alpha = 0.35f))
+            .clip(shape).background(brush)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .drawBehind {
+                drawCircle(Color.White.copy(alpha = 0.07f), radius = size.height * 0.9f, center = Offset(size.width * 1.02f, -size.height * 0.15f))
+                drawCircle(Color.White.copy(alpha = 0.05f), radius = size.height * 0.55f, center = Offset(size.width * 0.88f, size.height * 1.1f))
+            },
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides Color.White) {
+            Column(Modifier.padding(18.dp).animateContentSize(), content = content)
+        }
+    }
+}
+
+/** A card whose body folds away under its header; the chevron turns as it opens. */
+@Composable
+fun CollapsibleCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    trailing: String? = null,
+    initiallyExpanded: Boolean = true,
+    expanded: Boolean? = null,
+    onToggle: ((Boolean) -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var local by androidx.compose.runtime.saveable.rememberSaveable(title) { androidx.compose.runtime.mutableStateOf(initiallyExpanded) }
+    val open = expanded ?: local
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, label = "chevron")
+    HCard(modifier, padding = 0.dp) {
+        Row(
+            Modifier.fillMaxWidth().clickable { val n = !open; local = n; onToggle?.invoke(n) }.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CardTitle(title, Modifier.weight(1f))
+            if (trailing != null) Text(trailing, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(end = 8.dp))
+            Icon(
+                androidx.compose.material.icons.Icons.Filled.KeyboardArrowDown, if (open) "Collapse" else "Expand",
+                tint = Hx.text2, modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
+            )
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            open,
+            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+        ) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), content = content)
         }
     }
 }

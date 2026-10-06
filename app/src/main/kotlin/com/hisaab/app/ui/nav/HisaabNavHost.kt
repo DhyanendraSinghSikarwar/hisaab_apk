@@ -196,6 +196,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                     contentPadding = bottom,
                     onOpenCategoryKey = { nav.navigate("category/$it") },
                     onOpenTransaction = { nav.navigate("transaction/$it") },
+                    onOpenBudgets = { nav.navigate("budgets") },
                 )
             }
             composable(Tab.MORE.route) {
@@ -211,7 +212,9 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 com.hisaab.app.ui.more.BusinessRoute(onBack = nav::popBackStack, onOpenTransaction = { nav.navigate("transaction/$it") })
             }
             composable("rules") { com.hisaab.app.ui.more.RulesRoute(onBack = nav::popBackStack) }
-            composable("sources") { com.hisaab.app.ui.more.DataSourcesRoute(onBack = nav::popBackStack, onOpenSettings = { nav.navigate(SETTINGS_ROUTE) }) }
+            composable("sources") { com.hisaab.app.ui.more.DataSourcesRoute(onBack = nav::popBackStack, onOpenStatements = { nav.navigate("statements") }) }
+            composable("security") { com.hisaab.app.ui.more.SecurityRoute(onBack = nav::popBackStack) }
+            composable("alerts") { com.hisaab.app.ui.more.AlertsRoute(onBack = nav::popBackStack) }
             composable(Tab.INVESTMENTS.route) {
                 InvestmentsRoute(onOpenStatements = { nav.navigate("statements") }, contentPadding = bottom,
                     onOpenAccounts = { tab -> nav.navigate("accounts?tab=$tab") })
@@ -226,13 +229,8 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 com.hisaab.app.ui.plan.BillsRoute(onBack = { if (!nav.popBackStack()) nav.goHome() })
             }
             composable(SETTINGS_ROUTE) {
-                SettingsRoute(
-                    onOpenBench = { nav.navigate("bench") }, onOpenStatements = { nav.navigate("statements") },
-                    onOpenInvestments = { nav.openTab(Tab.INVESTMENTS.route) }, contentPadding = PaddingValues(),
-                    onOpenProfile = { nav.navigate("profile") }, onBack = nav::popBackStack,
-                    onOpenCustomize = { nav.navigate("customize") },
-                    onOpenForex = { nav.navigate("forex") },
-                )
+                // About & updates. Data sources, security, alerts and appearance each have their own screen under More.
+                SettingsRoute(onBack = nav::popBackStack)
             }
             composable(
                 "transaction/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType }),

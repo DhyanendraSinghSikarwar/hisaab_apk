@@ -44,6 +44,8 @@ import com.hisaab.app.ui.charts.Sparkline
 import com.hisaab.app.ui.components.CardTitle
 import com.hisaab.app.ui.components.Delta
 import com.hisaab.app.ui.components.HCard
+import com.hisaab.app.ui.components.CollapsibleCard
+import com.hisaab.app.ui.components.HeroCard
 import com.hisaab.app.ui.components.HRow
 import com.hisaab.app.ui.components.KpiRow
 import com.hisaab.app.ui.components.LegendDot
@@ -158,8 +160,9 @@ private val shortDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM
 
 @Composable
 internal fun ValueCard(m: PortfolioModel, modifier: Modifier = Modifier) {
-    HCard(modifier, title = "Portfolio value") {
-        Text(Money.format(m.valueMinor, showPaise = false), fontSize = 30.sp, fontWeight = FontWeight.Bold)
+    HeroCard(modifier) {
+        Text("PORTFOLIO VALUE", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.7.sp, color = Color.White.copy(alpha = 0.8f))
+        Text(Money.format(m.valueMinor, showPaise = false), fontSize = 32.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
         Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (m.investedMinor > 0) {
                 Delta("${if (m.gainMinor >= 0) "▲" else "▼"} ${Money.compact(abs(m.gainMinor))} overall", good = m.gainMinor >= 0)
@@ -167,18 +170,25 @@ internal fun ValueCard(m: PortfolioModel, modifier: Modifier = Modifier) {
             }
             Text(
                 if (m.depositsMinor > 0) "Holdings ${Money.compact(m.holdingsValueMinor)} · Deposits ${Money.compact(m.depositsMinor)}" else "Across your holdings",
-                fontSize = 12.sp, color = Hx.text2, maxLines = 1,
+                fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f), maxLines = 1,
             )
         }
-        Spacer(Modifier.height(14.dp))
-        val gainColor = if (m.gainMinor >= 0) Hx.pos else Hx.neg
-        KpiRow(
-            Triple("Invested", if (m.investedMinor > 0) Money.format(m.investedMinor, showPaise = false) else "—", null),
-            Triple("Gain", if (m.investedMinor > 0) signed(m.gainMinor) else "—", if (m.investedMinor > 0) gainColor else null),
-            Triple("Return", m.returnPct?.let { pct(it) } ?: "—", if (m.investedMinor > 0) gainColor else null),
-        )
+        Spacer(Modifier.height(16.dp))
+        val gainColor = if (m.gainMinor >= 0) Color(0xFF9DF2C9) else Color(0xFFFFB3AB)
+        Row(Modifier.fillMaxWidth()) {
+            listOf(
+                Triple("Invested", if (m.investedMinor > 0) Money.format(m.investedMinor, showPaise = false) else "—", Color.White),
+                Triple("Gain", if (m.investedMinor > 0) signed(m.gainMinor) else "—", if (m.investedMinor > 0) gainColor else Color.White),
+                Triple("Return", m.returnPct?.let { pct(it) } ?: "—", if (m.investedMinor > 0) gainColor else Color.White),
+            ).forEach { (l, v, c) ->
+                Column(Modifier.weight(1f)) {
+                    Text(l, fontSize = 11.sp, color = Color.White.copy(alpha = 0.75f))
+                    Text(v, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = c, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+                }
+            }
+        }
         if (m.investedMinor > 0 && (m.depositsMinor > 0 || m.lines.any { it.holding != null && it.investedMinor == null })) {
-            Text("Gain and return cover holdings with a purchase cost.", fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 10.dp))
+            Text("Gain and return cover holdings with a purchase cost.", fontSize = 11.sp, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(top = 10.dp))
         }
     }
 }
@@ -299,13 +309,10 @@ internal fun LazyListScope.holdingsSection(
     shown.forEach { cls ->
         val lines = groups[cls].orEmpty()
         item(key = "group-${cls.name}") {
-            HCard(Modifier.animateItem()) {
-                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    LegendDot(cls.color)
-                    Spacer(Modifier.width(8.dp))
-                    CardTitle(cls.label, Modifier.weight(1f))
-                    Text(Money.format(lines.sumOf { it.valueMinor ?: 0 }, showPaise = false), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
+            CollapsibleCard(
+                "${cls.label} · ${lines.size}", Modifier.animateItem(),
+                trailing = Money.format(lines.sumOf { it.valueMinor ?: 0 }, showPaise = false),
+            ) {
                 lines.forEachIndexed { i, line ->
                     if (i > 0) HorizontalDivider(color = Hx.border.copy(alpha = 0.6f))
                     LineRow(line, onClick = {
@@ -356,10 +363,10 @@ internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Uni
             .mapNotNull { a -> a.maturityDay?.let { LocalDate.ofEpochDay(it) }?.takeIf { !it.isBefore(today) && !it.isAfter(end) }?.let { a to it } }
             .sortedBy { it.second }
     }
-    HCard(modifier, title = "Maturity calendar · 12 months", action = "Deposits", onAction = onOpen) {
+    CollapsibleCard("Maturity calendar · 12 months", modifier, trailing = if (due.isEmpty()) null else "${due.size}") {
         if (due.isEmpty()) {
             Note("No deposits mature in the next 12 months.")
-            return@HCard
+            return@CollapsibleCard
         }
         due.forEachIndexed { i, (a, date) ->
             if (i > 0) HorizontalDivider(color = Hx.border.copy(alpha = 0.6f))
@@ -381,6 +388,9 @@ internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Uni
             }
             SplitBar(listOf((months.coerceIn(0, 12) / 12f).coerceAtLeast(0.02f) to if (soon) Hx.warn else Hx.accent), Modifier.padding(bottom = 10.dp), height = 5.dp)
         }
-        Text("Bar shows months remaining out of 12.", fontSize = 11.sp, color = Hx.text2, style = MaterialTheme.typography.bodySmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Bar shows months remaining out of 12.", Modifier.weight(1f), fontSize = 11.sp, color = Hx.text2, style = MaterialTheme.typography.bodySmall)
+            Pill("Deposits ›", onClick = onOpen)
+        }
     }
 }

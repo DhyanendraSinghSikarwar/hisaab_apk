@@ -139,19 +139,56 @@ enum class MaturityAction(val label: String, val closes: Boolean) {
 
 enum class AccountUsage(val label: String) { PERSONAL("Personal"), BUSINESS("Business") }
 
-/** "Swiggy is always Food": the category the user last chose for a merchant or UPI id. Applied first to new transactions. */
+/**
+ * "Swiggy is always Food": a category (and optionally a sub-category) for a merchant or UPI id. Learned when the
+ * user recategorises a transaction, or added by the user in More › Rules ([manual]). Applied first to new
+ * transactions: a manual exact match beats a manual "contains" match (longest pattern wins), which beats a
+ * learned match. [merchantKey] is the lower-cased name, UPI id, or (for [RuleMatch.CONTAINS]) text to look for.
+ */
 @Entity(tableName = "merchant_rules")
 data class MerchantRuleEntity(
     @PrimaryKey val merchantKey: String,
     val category: Category,
     val updatedAt: Long,
+    @ColumnInfo(defaultValue = "'EXACT'") val matchType: RuleMatch = RuleMatch.EXACT,
+    /** A built-in or custom sub-category name; null leaves it to the automatic guess. */
+    @ColumnInfo(defaultValue = "NULL") val subcategory: String? = null,
+    /** Set when the rule files into a category of the user's own; [category] is then OTHER. */
+    @ColumnInfo(defaultValue = "NULL") val customCategoryId: Long? = null,
+    /** Added by the user rather than learned; a later recategorisation never overwrites it. */
+    @ColumnInfo(defaultValue = "0") val manual: Boolean = false,
 ) {
+    /** Whether this rule matches a transaction from [merchant] / [upiId]. */
+    fun matches(merchant: String?, upiId: String?): Boolean = when (matchType) {
+        RuleMatch.EXACT -> listOfNotNull(merchant, upiId).any { it.trim().lowercase() == merchantKey }
+        RuleMatch.CONTAINS -> textOf(merchant, upiId)?.contains(merchantKey) == true
+    }
+
     companion object {
         /** The key a transaction is remembered by: its merchant name, or else its UPI id, lower-cased. */
         fun keyOf(merchant: String?, upiId: String?): String? =
             (merchant ?: upiId)?.trim()?.lowercase()?.takeIf { it.length >= 2 }
+
+        /** The text a "contains" rule looks in: merchant and UPI id, lower-cased. */
+        fun textOf(merchant: String?, upiId: String?): String? =
+            listOfNotNull(merchant, upiId).joinToString(" ").trim().lowercase().ifEmpty { null }
+
+        /** A LIKE pattern ("%text%", with % _ and \ escaped by '\') for a "contains" rule's [key]. */
+        fun likeOf(key: String): String =
+            "%" + key.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+        /** The best rule for a transaction: manual exact > manual contains (longest) > learned exact. */
+        fun pick(rules: List<MerchantRuleEntity>, merchant: String?, upiId: String?): MerchantRuleEntity? {
+            val hits = rules.filter { it.matches(merchant, upiId) }
+            return hits.firstOrNull { it.manual && it.matchType == RuleMatch.EXACT }
+                ?: hits.filter { it.manual && it.matchType == RuleMatch.CONTAINS }.maxByOrNull { it.merchantKey.length }
+                ?: keyOf(merchant, upiId)?.let { k -> hits.firstOrNull { !it.manual && it.merchantKey == k } }
+        }
     }
 }
+
+/** How a rule's text is compared with a transaction's merchant and UPI id. */
+enum class RuleMatch(val label: String) { EXACT("Is exactly"), CONTAINS("Contains") }
 
 /** What kind of account or card this is. [liquid] accounts count towards the Home balance. */
 enum class AccountType(val label: String, val kind: AccountKind, val liquid: Boolean = true) {

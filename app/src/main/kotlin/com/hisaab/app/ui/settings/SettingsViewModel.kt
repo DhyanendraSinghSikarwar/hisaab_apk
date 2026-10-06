@@ -45,6 +45,10 @@ data class SettingsState(
     val smsScanning: Boolean = false,
 )
 
+/**
+ * Backs every settings screen reached from More: Data sources, Security & backup, Notifications & alerts,
+ * Customise (theme) and About & updates. Each screen takes its own instance and uses only its part.
+ */
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -154,6 +158,7 @@ class SettingsViewModel @Inject constructor(
     fun setAppNotifications(value: Boolean) = viewModelScope.launch { appSettings.setAppNotificationsEnabled(value) }
     fun setTransactionNotifications(value: Boolean) = viewModelScope.launch { appSettings.setTransactionNotifications(value) }
     fun setHideAmounts(value: Boolean) = viewModelScope.launch { appSettings.setHideAmounts(value) }
+    fun setBudgetAlertPercent(value: Int) = viewModelScope.launch { appSettings.setBudgetAlertPercent(value) }
     fun setDisplayName(value: String) = viewModelScope.launch { appSettings.setDisplayName(value) }
 
     // App

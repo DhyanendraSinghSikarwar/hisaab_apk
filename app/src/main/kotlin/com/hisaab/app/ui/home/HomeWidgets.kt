@@ -35,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -92,25 +93,39 @@ fun WidgetCard(
     onAction: (() -> Unit)? = null,
     edit: WidgetEdit? = null,
     contentPadding: Dp = 16.dp,
+    hero: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val dark = com.hisaab.app.ui.theme.LocalDarkTheme.current
+    val shape = RoundedCornerShape(if (hero) 22.dp else 18.dp)
+    val heroBrush = com.hisaab.app.ui.theme.HeroBrush
+    val onCard = if (hero) Color.White else MaterialTheme.colorScheme.onSurface
     Surface(
-        modifier = modifier.fillMaxWidth().alpha(if (edit?.hidden == true) 0.35f else 1f),
-        shape = RoundedCornerShape(16.dp), color = Hx.surface, border = BorderStroke(1.dp, Hx.border),
+        modifier = modifier.fillMaxWidth().alpha(if (edit?.hidden == true) 0.35f else 1f)
+            .shadow(
+                if (hero) 16.dp else if (dark) 0.dp else 10.dp, shape,
+                ambientColor = Hx.accent.copy(alpha = if (hero) 0.25f else 0.06f), spotColor = Hx.accent.copy(alpha = if (hero) 0.35f else 0.10f),
+            ),
+        shape = shape, color = if (hero) Color.Transparent else Hx.surface, contentColor = onCard,
+        border = if (hero) null else BorderStroke(1.dp, Hx.border),
     ) {
-        Column(Modifier.animateContentSize()) {
+        Column(
+            Modifier.then(if (hero) Modifier.background(heroBrush) else Modifier).animateContentSize(),
+        ) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = if (edit != null) 8.dp else 12.dp, top = 12.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CardTitle(title, Modifier.weight(1f))
+                if (hero) {
+                    Text(title.uppercase(), Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.7.sp, color = Color.White.copy(alpha = 0.8f))
+                } else CardTitle(title, Modifier.weight(1f))
                 if (edit != null) {
                     EditButton(Icons.Filled.KeyboardArrowUp, "Move up", edit.canUp, edit.onUp)
                     EditButton(Icons.Filled.KeyboardArrowDown, "Move down", edit.canDown, edit.onDown)
                     EditButton(if (edit.hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (edit.hidden) "Show" else "Hide", true, edit.onToggle)
                 } else if (action != null && onAction != null) {
                     Text(
-                        action, color = Hx.accent, style = MaterialTheme.typography.labelLarge,
+                        action, color = if (hero) Color.White else Hx.accent, style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onAction).padding(4.dp),
                     )
                 }
@@ -150,13 +165,13 @@ private fun usageColor(fraction: Float, pos: Color, warn: Color, neg: Color) = w
 @Composable
 fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit?) {
     val nw = w.netWorth
-    WidgetCard("Net worth", action = "Portfolio ›", onAction = onOpenPortfolio, edit = edit) {
+    WidgetCard("Net worth", action = "Portfolio ›", onAction = onOpenPortfolio, edit = edit, hero = true) {
         if (nw.loaded && nw.assetsMinor == 0L && nw.liabilitiesMinor == 0L) {
-            Hint("Add account balances, deposits or holdings to see your net worth.")
+            Text("Add account balances, deposits or holdings to see your net worth.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
             return@WidgetCard
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(signedMoney(nw.netMinor), fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+            Text(signedMoney(nw.netMinor), fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
             w.netWorthBefore?.let { before ->
                 val diff = nw.netMinor - before
                 val text = if (before != 0L) "%s %.1f%%".format(if (diff >= 0) "▲" else "▼", abs(diff) * 100.0 / abs(before))
@@ -168,14 +183,14 @@ fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit
         val points = nw.history.map { it.netMinor.toFloat() }
         if (points.size >= 2) {
             Spacer(Modifier.height(8.dp))
-            Sparkline(points, color = Hx.accent, height = 46.dp)
+            Sparkline(points, color = Color.White, height = 46.dp)
         }
         val total = (nw.assetsMinor + nw.liabilitiesMinor).coerceAtLeast(1)
         Spacer(Modifier.height(12.dp))
-        SplitBar(listOf(nw.assetsMinor.toFloat() / total to Hx.pos, nw.liabilitiesMinor.toFloat() / total to Hx.neg))
+        SplitBar(listOf(nw.assetsMinor.toFloat() / total to Color(0xFF9DF2C9), nw.liabilitiesMinor.toFloat() / total to Color(0xFFFFB3AB)))
         Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            LabelValue("Assets", Money.format(nw.assetsMinor, showPaise = false), Hx.pos, Modifier.weight(1f))
-            LabelValue("Liabilities", Money.format(nw.liabilitiesMinor, showPaise = false), Hx.neg)
+            LabelValue("Assets", Money.format(nw.assetsMinor, showPaise = false), Color(0xFF9DF2C9), Modifier.weight(1f), onHero = true)
+            LabelValue("Liabilities", Money.format(nw.liabilitiesMinor, showPaise = false), Color(0xFFFFB3AB), onHero = true)
         }
     }
 }
@@ -183,9 +198,9 @@ fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit
 private fun signedMoney(v: Long) = (if (v < 0) "−" else "") + Money.format(abs(v), showPaise = false)
 
 @Composable
-private fun LabelValue(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+private fun LabelValue(label: String, value: String, color: Color, modifier: Modifier = Modifier, onHero: Boolean = false) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Text("$label ", fontSize = 12.sp, color = Hx.text2)
+        Text("$label ", fontSize = 12.sp, color = if (onHero) Color.White.copy(alpha = 0.75f) else Hx.text2)
         Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
     }
 }

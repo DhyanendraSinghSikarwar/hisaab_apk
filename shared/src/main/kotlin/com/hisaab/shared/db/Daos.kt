@@ -243,6 +243,31 @@ interface MerchantRuleDao {
     @Query("SELECT * FROM merchant_rules ORDER BY merchantKey")
     fun observeAll(): Flow<List<MerchantRuleEntity>>
 
+    /** The rules the user added, which are checked before learned ones on every new transaction. */
+    @Query("SELECT * FROM merchant_rules WHERE manual = 1")
+    suspend fun manualRules(): List<MerchantRuleEntity>
+
+    /**
+     * Files every past transaction a rule matches (exactly, by merchant or UPI id, or by [like] = "%text%" when
+     * [contains]); transfers are left alone. Returns how many changed.
+     */
+    @Query(
+        """UPDATE transactions SET category = :category, subcategory = :subcategory, customCategoryId = :customCategoryId
+           WHERE type != 'TRANSFER' AND (
+             (:contains = 0 AND (LOWER(TRIM(merchant)) = :key OR LOWER(TRIM(upiId)) = :key))
+             OR (:contains = 1 AND (merchant LIKE :like ESCAPE '\' OR upiId LIKE :like ESCAPE '\')))""",
+    )
+    suspend fun applyToPast(key: String, like: String, contains: Boolean, category: String, subcategory: String?, customCategoryId: Long?): Int
+
+    /** How many past transactions [applyToPast] would change, for the preview in the rule editor. */
+    @Query(
+        """SELECT COUNT(*) FROM transactions
+           WHERE type != 'TRANSFER' AND (
+             (:contains = 0 AND (LOWER(TRIM(merchant)) = :key OR LOWER(TRIM(upiId)) = :key))
+             OR (:contains = 1 AND (merchant LIKE :like ESCAPE '\' OR upiId LIKE :like ESCAPE '\')))""",
+    )
+    fun observeMatchCount(key: String, like: String, contains: Boolean): Flow<Int>
+
     /** Earlier transactions from the same merchant that were never categorised, so the new rule can fix them too. */
     @Query(
         """UPDATE transactions SET category = :category

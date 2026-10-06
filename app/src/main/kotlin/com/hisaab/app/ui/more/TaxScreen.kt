@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,14 +16,23 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import com.hisaab.app.ApplicationScope
 import com.hisaab.app.ui.components.CardGap
 import com.hisaab.app.ui.components.HCard
@@ -61,6 +72,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
 import javax.inject.Inject
@@ -112,18 +124,31 @@ object TaxMath {
         return roundRupee(tax)
     }
 
-    fun newRegime(income: Long): RegimeTax {
-        val taxable = max(0L, income - NEW_STANDARD)
+    /** 80CCD(1B), your own NPS contribution over and above 80C. */
+    const val LIMIT_NPS = 50_000L * 100
+    /** 24(b), interest on a home loan for a self-occupied house. */
+    const val LIMIT_HOME_LOAN = 200_000L * 100
+
+    /** [employerNps] is 80CCD(2), the one deduction the new regime allows. */
+    fun newRegime(income: Long, employerNps: Long = 0): RegimeTax {
+        val afterStd = max(0L, income - NEW_STANDARD)
+        val ded = min(afterStd, max(0L, employerNps))
+        val taxable = afterStd - ded
         val base = slabTax(taxable, NEW)
         // Section 87A: nil tax up to ₹12 lakh; just above it, marginal relief caps the tax at the income over ₹12 lakh.
         val rebate = if (taxable <= NEW_REBATE_UPTO) base else max(0L, base - (taxable - NEW_REBATE_UPTO))
         val cess = roundRupee((base - rebate) * 0.04)
-        return RegimeTax(income, min(income, NEW_STANDARD), 0, taxable, base, rebate, cess)
+        return RegimeTax(income, min(income, NEW_STANDARD), ded, taxable, base, rebate, cess)
     }
 
-    fun oldRegime(income: Long, c80: Long, d80: Long): RegimeTax {
+    fun oldRegime(
+        income: Long, c80: Long, d80: Long,
+        nps: Long = 0, homeLoan: Long = 0, hraOther: Long = 0, employerNps: Long = 0,
+    ): RegimeTax {
         val afterStd = max(0L, income - OLD_STANDARD)
-        val ded = min(afterStd, min(c80, LIMIT_80C) + min(d80, LIMIT_80D))
+        val claimed = min(c80, LIMIT_80C) + min(d80, LIMIT_80D) + min(nps, LIMIT_NPS) + min(homeLoan, LIMIT_HOME_LOAN) +
+            max(0L, hraOther) + max(0L, employerNps)
+        val ded = min(afterStd, claimed)
         val taxable = afterStd - ded
         val base = slabTax(taxable, OLD)
         val rebate = if (taxable <= OLD_REBATE_UPTO) base else 0L
@@ -146,24 +171,50 @@ data class TaxState(
     val fyStartYear: Int = ViewFilter.fyStart(LocalDate.now()).year,
     val salarySoFar: Long = 0,
     val salaryMonths: Int = 0,
+    /** Other income credits so far, as calculated. */
     val otherIncome: Long = 0,
-    /** Salary projected to twelve months, plus other income so far. */
+    /** Salary projected to twelve months, as calculated. */
+    val projectedSalary: Long = 0,
+    /** Salary and other income used for the estimate: calculated, or the user's values. */
     val income: Long = 0,
     val items80C: List<TaxItem> = emptyList(),
     val items80D: List<TaxItem> = emptyList(),
     /** Investments this year that do not qualify for 80C (equity funds, stocks…), shown for context. */
     val otherInvested: Long = 0,
+    /** Values the user typed in for this financial year; empty by default. */
+    val overrides: TaxOverrides = TaxOverrides(),
     val newRegime: RegimeTax = TaxMath.newRegime(0),
     val oldRegime: RegimeTax = TaxMath.oldRegime(0, 0, 0),
     val loaded: Boolean = false,
 ) {
     val fyLabel: String get() = "FY $fyStartYear-${(fyStartYear + 1) % 100}"
-    val c80: Long get() = items80C.sumOf { it.amountMinor }
-    val d80: Long get() = items80D.sumOf { it.amountMinor }
+    /** The store key for this year's overrides, "2026-27". */
+    val fyKey: String get() = "$fyStartYear-${"%02d".format((fyStartYear + 1) % 100)}"
+    val c80Calc: Long get() = items80C.sumOf { it.amountMinor }
+    val d80Calc: Long get() = items80D.sumOf { it.amountMinor }
+    val c80: Long get() = overrides.c80 ?: c80Calc
+    val d80: Long get() = overrides.d80 ?: d80Calc
+    val salaryUsed: Long get() = overrides.salary ?: projectedSalary
+    val otherIncomeUsed: Long get() = overrides.otherIncome ?: otherIncome
+    val nps: Long get() = overrides.nps ?: 0
+    val homeLoan: Long get() = overrides.homeLoan ?: 0
+    val hraOther: Long get() = overrides.hraOther ?: 0
+    val employerNps: Long get() = overrides.employerNps ?: 0
     val newIsBetter: Boolean get() = newRegime.total <= oldRegime.total
     val saving: Long get() = kotlin.math.abs(newRegime.total - oldRegime.total)
     val left80C: Long get() = max(0L, TaxMath.LIMIT_80C - c80)
     val hasIncome: Boolean get() = income > 0
+
+    /** This state with [o] applied: income and both regimes recomputed. With no overrides, exactly the calculated estimate. */
+    fun withOverrides(o: TaxOverrides): TaxState {
+        val s = copy(overrides = o)
+        val income = s.salaryUsed + s.otherIncomeUsed
+        return s.copy(
+            income = income,
+            newRegime = TaxMath.newRegime(income, s.employerNps),
+            oldRegime = TaxMath.oldRegime(income, s.c80, s.d80, s.nps, s.homeLoan, s.hraOther, s.employerNps),
+        )
+    }
 }
 
 /** The current financial year's estimate, shared by the Tax centre and the More list. */
@@ -171,13 +222,17 @@ data class TaxState(
 class TaxSource @Inject constructor(
     transactions: TransactionDao,
     holdings: HoldingDao,
+    private val overrides: TaxOverridesStore,
     @ApplicationScope scope: CoroutineScope,
 ) {
     private val fyStart: LocalDate = ViewFilter.fyStart(LocalDate.now(Periods.zone))
     private val fyFrom = millis(fyStart)
     private val fyTo = millis(fyStart.plusYears(1)) - 1
+    private val fyKey = TaxState(fyStartYear = fyStart.year).fyKey
 
-    val state: StateFlow<TaxState> = combine(transactions.observeBetween(fyFrom, fyTo), holdings.observeAll()) { all, held ->
+    val state: StateFlow<TaxState> = combine(
+        transactions.observeBetween(fyFrom, fyTo), holdings.observeAll(), overrides.observe(fyKey),
+    ) { all, held, typed ->
         val txs = all.filter { !it.needsReview }
         val salary = txs.filter { LedgerMath.isIncome(it) && it.category == Category.SALARY }
         val salarySoFar = salary.sumOf(LedgerMath::rupees)
@@ -204,11 +259,12 @@ class TaxSource @Inject constructor(
         val d80 = items80D.sumOf { it.amountMinor }
         val qualifyingIds = qualifying.map { it.id }.toSet()
         TaxState(
-            fyStartYear = fyStart.year, salarySoFar = salarySoFar, salaryMonths = months, otherIncome = other, income = income,
+            fyStartYear = fyStart.year, salarySoFar = salarySoFar, salaryMonths = months, otherIncome = other,
+            projectedSalary = projected, income = income,
             items80C = items80C, items80D = items80D,
             otherInvested = invest.filter { it.id !in qualifyingIds }.sumOf(LedgerMath::rupees),
             newRegime = TaxMath.newRegime(income), oldRegime = TaxMath.oldRegime(income, c80, d80), loaded = true,
-        )
+        ).let { if (typed.any) it.withOverrides(typed) else it }
     }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(10_000), TaxState())
 
     /**
@@ -225,6 +281,10 @@ class TaxSource @Inject constructor(
         val share = (now - before).toDouble() * overlap / (at - prevAt)
         return (share * 12.0 / 15.67).toLong()
     }
+
+    suspend fun saveOverrides(o: TaxOverrides) = overrides.save(fyKey, o)
+
+    suspend fun resetOverrides() = overrides.reset(fyKey)
 
     private fun millis(d: LocalDate) = d.atStartOfDay(Periods.zone).toInstant().toEpochMilli()
 
@@ -249,8 +309,12 @@ class TaxSource @Inject constructor(
 }
 
 @HiltViewModel
-class TaxViewModel @Inject constructor(source: TaxSource) : ViewModel() {
+class TaxViewModel @Inject constructor(private val source: TaxSource) : ViewModel() {
     val state: StateFlow<TaxState> = source.state
+
+    fun save(o: TaxOverrides) { viewModelScope.launch { source.saveOverrides(o) } }
+
+    fun reset() { viewModelScope.launch { source.resetOverrides() } }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -260,9 +324,14 @@ class TaxViewModel @Inject constructor(source: TaxSource) : ViewModel() {
 @Composable
 fun TaxRoute(onBack: () -> Unit, vm: TaxViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
-    MoreScaffold("Tax centre", onBack) { inner ->
+    var editing by rememberSaveable { mutableStateOf(false) }
+    MoreScaffold(
+        "Tax centre", onBack,
+        actions = { if (s.loaded) IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Edit, "Edit tax values") } },
+    ) { inner ->
         if (!s.loaded) return@MoreScaffold
         LazyColumn(contentPadding = listPadding(inner), verticalArrangement = Arrangement.spacedBy(CardGap)) {
+            if (s.overrides.any) item("edited") { EditedBanner(onEdit = { editing = true }, onReset = vm::reset) }
             item("summary") { Summary(s) }
             item("income") { IncomeCard(s) }
             item("deductions") { DeductionsCard(s) }
@@ -271,11 +340,27 @@ fun TaxRoute(onBack: () -> Unit, vm: TaxViewModel = hiltViewModel()) {
                 Text(
                     "Worked out from what Hisaab tracked this year, for a resident individual under 60. Salary credits are what " +
                         "reached your bank, after TDS and PF, so your taxable salary is likely higher. It leaves out surcharge, " +
-                        "capital gains, HRA and deductions Hisaab cannot see. Check with a tax professional before you file.",
+                        "capital gains, HRA and deductions Hisaab cannot see; tap the pencil to enter your own figures. Check with a tax professional before you file.",
                     style = MaterialTheme.typography.bodySmall, color = Hx.text2, modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
         }
+    }
+    if (editing && s.loaded) TaxEditSheet(s, onDismiss = { editing = false }, onSave = vm::save, onReset = vm::reset)
+}
+
+/** Shown while any of the user's values replace the calculated ones. */
+@Composable
+private fun EditedBanner(onEdit: () -> Unit, onReset: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Hx.accentSoft).clickable(onClick = onEdit)
+            .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.Edit, null, tint = Hx.accent, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Using your values", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.accent, modifier = Modifier.weight(1f))
+        TextButton(onClick = onReset) { Text("Reset") }
     }
 }
 
@@ -284,6 +369,7 @@ private fun Summary(s: TaxState) {
     HCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(s.fyLabel, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            if (s.overrides.any) { Tag("Edited", Hx.accent); Spacer(Modifier.width(6.dp)) }
             Tag("Estimate", Hx.warn)
         }
         Spacer(Modifier.height(14.dp))
@@ -337,7 +423,10 @@ private fun IncomeCard(s: TaxState) {
     HCard(title = "Income") {
         ItemRow("Salary received", s.salarySoFar, if (s.salaryMonths > 0) "${s.salaryMonths} month${if (s.salaryMonths == 1) "" else "s"} so far" else "None found yet")
         if (s.salaryMonths in 1..11) ItemRow("Projected for the year", s.salarySoFar * 12 / s.salaryMonths, "At the same monthly pay")
-        if (s.otherIncome > 0) ItemRow("Other income", s.otherIncome, null)
+        s.overrides.salary?.let { ItemRow("Annual gross salary", it, "Calculated: ${Money.format(s.projectedSalary, showPaise = false)}", edited = true) }
+        val other = s.overrides.otherIncome
+        if (other != null) ItemRow("Other income", other, "Calculated: ${Money.format(s.otherIncome, showPaise = false)}", edited = true)
+        else if (s.otherIncome > 0) ItemRow("Other income", s.otherIncome, null)
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Hx.border)
         ItemRow("Gross income used", s.income, null, bold = true)
     }
@@ -347,7 +436,9 @@ private fun IncomeCard(s: TaxState) {
 private fun DeductionsCard(s: TaxState) {
     HCard(title = "Deductions · old regime") {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("80C", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text("80C", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            if (s.overrides.c80 != null) { Spacer(Modifier.width(6.dp)); Tag("Edited", Hx.accent) }
+            Spacer(Modifier.weight(1f))
             Text("${Money.format(min(s.c80, TaxMath.LIMIT_80C), showPaise = false)} of ₹1,50,000", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(6.dp))
@@ -358,6 +449,9 @@ private fun DeductionsCard(s: TaxState) {
             fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (s.left80C > 0) Hx.warn else Hx.pos,
             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
         )
+        if (s.overrides.c80 != null) {
+            Text("Your value. Calculated from tracked payments: ${Money.format(s.c80Calc, showPaise = false)}", fontSize = 12.sp, color = Hx.text2)
+        }
         if (s.items80C.isEmpty()) {
             Text("No PPF, ELSS, life cover or EPF payments found this year.", fontSize = 12.sp, color = Hx.text2)
         } else {
@@ -371,22 +465,44 @@ private fun DeductionsCard(s: TaxState) {
         }
         HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Hx.border)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("80D", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text("80D", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            if (s.overrides.d80 != null) { Spacer(Modifier.width(6.dp)); Tag("Edited", Hx.accent) }
+            Spacer(Modifier.weight(1f))
             Text("${Money.format(min(s.d80, TaxMath.LIMIT_80D), showPaise = false)} of ₹25,000", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+        if (s.overrides.d80 != null) {
+            Text(
+                "Your value. Calculated from tracked premiums: ${Money.format(s.d80Calc, showPaise = false)}",
+                fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(top = 4.dp),
+            )
         }
         if (s.items80D.isEmpty()) {
             Text("No health insurance premiums found this year.", fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(top = 4.dp))
         } else {
             s.items80D.forEach { ItemRow(it.label, it.amountMinor, null) }
         }
+        val o = s.overrides
+        if (listOf(o.nps, o.homeLoan, o.hraOther, o.employerNps).any { it != null }) {
+            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Hx.border)
+            o.nps?.let { ItemRow("NPS 80CCD(1B)", min(it, TaxMath.LIMIT_NPS), capNote(it, TaxMath.LIMIT_NPS, "₹50,000"), edited = true) }
+            o.homeLoan?.let { ItemRow("Home-loan interest 24(b)", min(it, TaxMath.LIMIT_HOME_LOAN), capNote(it, TaxMath.LIMIT_HOME_LOAN, "₹2,00,000"), edited = true) }
+            o.hraOther?.let { ItemRow("HRA exemption / other", it, "Old regime only", edited = true) }
+            o.employerNps?.let { ItemRow("Employer NPS 80CCD(2)", it, "Counts in both regimes", edited = true) }
+        }
     }
 }
 
+private fun capNote(entered: Long, cap: Long, capText: String): String =
+    if (entered > cap) "You entered ${Money.format(entered, showPaise = false)}; capped at $capText" else "Up to $capText · old regime only"
+
 @Composable
-private fun ItemRow(label: String, amount: Long, sub: String?, bold: Boolean = false) {
+private fun ItemRow(label: String, amount: Long, sub: String?, bold: Boolean = false, edited: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 13.sp, fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, fontSize = 13.sp, fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f, fill = false))
+                if (edited) { Spacer(Modifier.width(6.dp)); Tag("Edited", Hx.accent) }
+            }
             if (sub != null) Text(sub, fontSize = 11.sp, color = Hx.text2)
         }
         Text(Money.format(amount, showPaise = false), fontSize = 13.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.SemiBold)
@@ -405,7 +521,7 @@ private fun Breakdown(s: TaxState) {
         val o = s.oldRegime
         Line("Gross income", n.gross, o.gross)
         Line("Standard deduction", -n.standardDeduction, -o.standardDeduction)
-        Line("80C and 80D", -n.deductions, -o.deductions)
+        Line(if (s.overrides.any || n.deductions > 0) "Deductions" else "80C and 80D", -n.deductions, -o.deductions)
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Hx.border)
         Line("Taxable income", n.taxable, o.taxable, bold = true)
         Line("Tax on slabs", n.slabTax, o.slabTax)

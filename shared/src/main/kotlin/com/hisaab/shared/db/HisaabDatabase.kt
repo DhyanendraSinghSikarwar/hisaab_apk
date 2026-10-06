@@ -41,7 +41,7 @@ abstract class HisaabDatabase : RoomDatabase() {
 
     companion object {
         const val NAME = "hisaab.db"
-        const val VERSION = 12
+        const val VERSION = 13
     }
 }
 
@@ -180,5 +180,15 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+    /** 12 -> 13: rules the user adds: "contains" matching, a sub-category or own category, and a manual flag. */
+    val MIGRATION_12_13 = object : Migration(12, 13) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE merchant_rules ADD COLUMN matchType TEXT NOT NULL DEFAULT 'EXACT'")
+            connection.execSQL("ALTER TABLE merchant_rules ADD COLUMN subcategory TEXT DEFAULT NULL")
+            connection.execSQL("ALTER TABLE merchant_rules ADD COLUMN customCategoryId INTEGER DEFAULT NULL")
+            connection.execSQL("ALTER TABLE merchant_rules ADD COLUMN manual INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
 }

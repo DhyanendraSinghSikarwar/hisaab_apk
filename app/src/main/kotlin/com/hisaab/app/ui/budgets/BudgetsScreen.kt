@@ -99,7 +99,6 @@ class BudgetsViewModel @Inject constructor(
 
     fun save(category: Category, limitMinor: Long) = viewModelScope.launch { budgets.upsert(BudgetEntity(category, limitMinor)) }
     fun delete(category: Category) = viewModelScope.launch { budgets.delete(category.name) }
-    fun setAlertPercent(p: Int) = viewModelScope.launch { settings.setBudgetAlertPercent(p) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -142,7 +141,6 @@ fun BudgetsRoute(
                 item { EmptyState(Icons.Filled.Savings, "No budgets yet", "Set a monthly limit for a category. It applies every month, and you'll be alerted before you cross it.") }
             } else {
                 item { Overview(lines) }
-                item { AlertLevel(alertAt, vm::setAlertPercent) }
             }
             items(lines, key = { it.category }) { l -> BudgetCard(l, alertAt, onOpen = { onOpenCategory(l.category) }, onEdit = { editing = l }) }
         }
@@ -179,14 +177,6 @@ private fun Overview(lines: List<BudgetLine>) {
                 drawStopIndicator = {},
             )
         }
-    }
-}
-
-@Composable
-private fun AlertLevel(current: Int, onChange: (Int) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Alert me at", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        for (p in listOf(80, 90, 95)) FilterChip(selected = current == p, onClick = { onChange(p) }, label = { Text("$p%") })
     }
 }
 
