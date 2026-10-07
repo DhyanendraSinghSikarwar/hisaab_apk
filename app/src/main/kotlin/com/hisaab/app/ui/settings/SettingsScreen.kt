@@ -2,6 +2,9 @@ package com.hisaab.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -48,10 +51,10 @@ fun SettingsRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
             item("about") {
                 HCard {
                     Text("DhanKosh", fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    Text(
-                        t("Version {version}", "version" to BuildConfig.VERSION_NAME), fontSize = 13.sp, color = Hx.text2, textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                    )
+                    Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Text(t("Version {version}", "version" to BuildConfig.VERSION_NAME), fontSize = 13.sp, color = Hx.text2)
+                        com.hisaab.app.ui.more.WhatsNewButton(Modifier.size(32.dp))
+                    }
                 }
             }
             item("update") { HCard(title = t("Updates")) { UpdateRow(update, onCheck = vm::checkForUpdate, onInstall = vm::installUpdate) } }
@@ -65,6 +68,7 @@ private fun UpdateRow(state: UpdateState, onCheck: () -> Unit, onInstall: (Relea
     val version = BuildConfig.VERSION_NAME
     when (state) {
         is UpdateState.Available -> HRow(t("DhanKosh {version} is available", "version" to state.release.version), t("You have {version}", "version" to version)) {
+            com.hisaab.app.ui.more.WhatsNewButton(Modifier.size(36.dp))
             Button(onClick = { onInstall(state.release) }) { Text(t("Install")) }
         }
         is UpdateState.Downloading -> Column(Modifier.padding(vertical = 10.dp)) {

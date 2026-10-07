@@ -203,7 +203,7 @@ private fun Header(s: StatementEntity) {
     }
 }
 
-private val KIND_LABELS = mapOf("CREDIT_CARD" to "Credit card statement", "BANK" to "Bank statement", "INVESTMENT" to "Investment statement", "OTHER" to "Statement")
+private val KIND_LABELS = mapOf("CREDIT_CARD" to "Credit card statement", "BANK" to "Bank statement", "INVESTMENT" to "Holdings statement", "OTHER" to "Statement")
 
 @Composable
 private fun Summary(s: StatementEntity, moneyIn: Long, moneyOut: Long) {

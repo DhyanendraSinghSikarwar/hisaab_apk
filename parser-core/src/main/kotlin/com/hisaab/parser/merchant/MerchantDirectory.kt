@@ -123,7 +123,12 @@ object MerchantDirectory {
         listOf("ADITYA BIRLA SUN LIFE INSURANCE", "ABSLI") to Entry("Aditya Birla Sun Life Insurance", Category.INSURANCE),
         listOf("ADITYA BIRLA SUN LIFE", "ABSLMF", "ABSLAMC") to Entry("Aditya Birla Sun Life MF", Category.INVESTMENT),
         listOf("ADITYA BIRLA FASHION") to Entry("Aditya Birla Fashion", Category.SHOPPING),
+        // Only Tata Capital lends; the other Tata financial names are investments, never loans.
         listOf("TATA CAPITAL", "TATACAPITAL") to Entry("Tata Capital", Category.EMI_LOAN),
+        listOf("TATA CAPITAL SECURITIES", "TATA SECURITIES") to Entry("Tata Securities", Category.INVESTMENT),
+        listOf("TATA MUTUAL FUND", "TATA MF", "TATAMF", "TATA ASSET MANAGEMENT", "TATA AMC", "TATA SMALL CAP", "TATA DIGITAL INDIA",
+            "TATA NIFTY", "TATA ELSS", "TATA BANKING", "TATA FLEXI", "TATA LARGE", "TATA MID", "TATA ARBITRAGE", "TATA LIQUID",
+            "TATA MONEY MARKET", "TATA BALANCED", "TATA HYBRID", "TATA EQUITY", "TATA INDEX") to Entry("Tata Mutual Fund", Category.INVESTMENT),
         listOf("CREDILA", "HDFC CREDILA") to Entry("HDFC Credila", Category.EMI_LOAN),
         listOf("AVANSE") to Entry("Avanse", Category.EMI_LOAN),
         listOf("INCRED") to Entry("InCred", Category.EMI_LOAN),

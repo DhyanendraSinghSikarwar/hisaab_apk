@@ -120,31 +120,12 @@ enum class NewsFeed(val label: String, val sources: List<FeedSource>) {
     )),
 }
 
-/** How far back the list reaches. Today starts at local midnight. */
-enum class NewsRange(val label: String) {
-    TODAY("Today"), WEEK("Week"), MONTH("Month");
-
-    /** The earliest publication time this range shows. */
-    fun since(now: ZonedDateTime = ZonedDateTime.now()): Instant = when (this) {
-        TODAY -> now.toLocalDate().atStartOfDay(now.zone)
-        WEEK -> now.minusDays(7)
-        MONTH -> now.minusDays(30)
-    }.toInstant()
-}
-
 data class NewsState(
     val feed: NewsFeed = NewsFeed.LATEST,
-    val range: NewsRange = NewsRange.TODAY,
     val items: List<Headline> = emptyList(),
     val loading: Boolean = false,
     val failed: Boolean = false,
-) {
-    /** Headlines published since [r] began, newest first (items are kept sorted). */
-    fun within(r: NewsRange): List<Headline> {
-        val since = r.since()
-        return items.filter { h -> h.published?.toInstant()?.let { !it.isBefore(since) } == true }
-    }
-}
+)
 
 /** Fetches a tab's feeds in parallel, merges and dedupes them, and keeps the result for 10 minutes. */
 @Singleton
@@ -226,7 +207,6 @@ class NewsViewModel @Inject constructor(private val repo: NewsRepository) : View
 
     fun select(feed: NewsFeed) { if (feed != _state.value.feed) { _state.update { it.copy(feed = feed, items = emptyList()) }; load(false) } }
 
-    fun range(r: NewsRange) = _state.update { it.copy(range = r) }
 
     fun load(force: Boolean) = viewModelScope.launch {
         val feed = _state.value.feed
@@ -263,15 +243,9 @@ fun NewsRoute(onBack: () -> Unit, vm: NewsViewModel = hiltViewModel()) {
         Column(Modifier.padding(top = inner.calculateTopPadding()).fillMaxSize()) {
             Segmented(
                 NewsFeed.entries.map { t(it.label) }, NewsFeed.entries.indexOf(s.feed), { vm.select(NewsFeed.entries[it]) },
-                Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
             )
-            Segmented(
-                NewsRange.entries.map { t(it.label) }, NewsRange.entries.indexOf(s.range), { vm.range(NewsRange.entries[it]) },
-                Modifier.padding(horizontal = 16.dp, vertical = 8.dp).width(240.dp),
-            )
-            val inRange = s.within(s.range)
-            val fallback = inRange.isEmpty() && s.range == NewsRange.TODAY
-            val shown = if (fallback) s.within(NewsRange.WEEK) else inRange
+            val shown = s.items
             PullToRefreshBox(isRefreshing = s.loading && s.items.isNotEmpty(), onRefresh = { vm.load(true) }, modifier = Modifier.fillMaxSize()) {
                 AnimatedContent(
                     targetState = when { s.items.isNotEmpty() -> 0; s.failed -> 1; else -> 2 },
@@ -286,13 +260,7 @@ fun NewsRoute(onBack: () -> Unit, vm: NewsViewModel = hiltViewModel()) {
                             ),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            if (fallback || shown.isEmpty()) item(key = "note") {
-                                Text(
-                                    if (fallback) t("No stories today") else t("No stories in this period"),
-                                    fontSize = 12.sp, color = Hx.text2, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                )
-                            }
-                            itemsIndexed(shown, key = { _, h -> h.link }) { i, h -> HeadlineCard(h, lead = i == 0 && !fallback) { open(h) } }
+                            itemsIndexed(shown, key = { _, h -> h.link }) { i, h -> HeadlineCard(h, lead = i == 0) { open(h) } }
                         }
                         1 -> Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                             Icon(Icons.Filled.CloudOff, null, tint = Hx.text2, modifier = Modifier.size(40.dp))

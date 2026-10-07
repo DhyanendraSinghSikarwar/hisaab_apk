@@ -92,13 +92,13 @@ class ParserRegistry(
         val STATEMENT_SUBJECTS = listOf(
             "Consolidated Account Statement", "NPS Transaction Statement", "PRAN", "EPF Passbook", "Member Passbook",
             "SIP installment", "SIP instalment", "units allotted", "allotment of units",
-            "Statement of Transaction", "NPS contribution", "Holdings statement", "mutual fund statement",
+            "Statement of Transaction", "NPS contribution", "Holdings statement", "mutual fund statement", "Holdings report", "Balance statement", "Portfolio statement",
             "Fixed Deposit", "Term Deposit", "Recurring Deposit", "Deposit advice", "PPF statement", "Public Provident Fund", "portfolio summary",
         )
         private val STATEMENT_SUBJECT = com.hisaab.parser.text.rx(
             """consolidated\s+account\s+statement|\bCAS\b|\bNPS\b.{0,40}statement|\bPRAN\b|\bEPF\b.{0,30}(?:passbook|statement)|member\s+passbook""" +
                 """|\bSIP\b.{0,60}\b(?:instal+ment|processed|successful|allot+ed)|\bunits?\s+(?:have\s+been\s+)?allot+ed|allotment\s+of\s+units""" +
-                """|statement\s+of\s+transactions?|\bNPS\b.{0,40}(?:contribution|holding|transaction)|holdings?\s+statement|mutual\s+fund\s+statement""" +
+                """|statement\s+of\s+transactions?|\bNPS\b.{0,40}(?:contribution|holding|transaction)|holdings?\s+(?:statement|report)|(?:balance|portfolio|investment)\s+(?:statement|report)|mutual\s+fund\s+statement""" +
                 """|(?:fixed|term|recurring)\s+deposit|deposit\s+advice|\bPPF\b.{0,30}statement|public\s+provident\s+fund|portfolio\s+summary""",
         )
 

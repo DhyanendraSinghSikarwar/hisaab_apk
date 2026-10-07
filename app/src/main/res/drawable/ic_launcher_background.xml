@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Artha: the logo's light cool-grey wash behind the shield. -->
+<!-- Fully transparent: only the shield shows. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <gradient android:angle="315" android:startColor="#F7FAF8" android:centerColor="#F3F6F8" android:endColor="#E9EEF6" android:type="linear" />
+    <solid android:color="#00000000" />
 </shape>

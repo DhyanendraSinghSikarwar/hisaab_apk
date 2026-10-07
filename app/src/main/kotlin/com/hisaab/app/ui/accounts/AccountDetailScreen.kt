@@ -57,6 +57,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.AccountAvatar
+import com.hisaab.app.ui.components.HCard
+import com.hisaab.app.ui.components.SplitBar
+import com.hisaab.app.ui.theme.Hx
+import androidx.compose.ui.unit.sp
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.app.ui.theme.MoneyColors
@@ -71,6 +75,10 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import com.hisaab.shared.db.StatementDao
+import com.hisaab.shared.db.StatementEntity
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emptyFlow
 import java.time.LocalDate
 import java.time.YearMonth
 import javax.inject.Inject
@@ -83,11 +91,32 @@ sealed interface AccountRange {
 }
 
 @HiltViewModel
-class AccountDetailViewModel @Inject constructor(handle: SavedStateHandle, accounts: AccountDao, private val dao: TransactionDao) : ViewModel() {
+class AccountDetailViewModel @Inject constructor(handle: SavedStateHandle, accounts: AccountDao, private val dao: TransactionDao, statements: StatementDao) : ViewModel() {
     val id: Long = checkNotNull(handle.get<Long>("id"))
     val account = accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())).map { all -> all.firstOrNull { it.id == id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val range = MutableStateFlow<AccountRange>(AccountRange.SixMonths)
+
+    /** Credit-card summary: limit, headroom and what the latest statement billed, with spends since it. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val card = combine(account, statements.observeAll()) { a, all ->
+        if (a == null || !a.isCreditCard) return@combine null
+        val mine = all.filter { it.last4 == a.last4 && (it.bankName == null || it.bankName.equals(a.bankName, ignoreCase = true)) }
+        a to mine
+    }.flatMapLatest { pair ->
+        if (pair == null) return@flatMapLatest flow<CardSummary?> { emit(null) }
+        val (a, mine) = pair
+        val bill = mine.filter { it.totalDueMinor != null }.maxByOrNull { it.statementEpochDay ?: 0 }
+        val limit = mine.filter { it.creditLimitMinor != null }.maxByOrNull { it.statementEpochDay ?: 0 }?.creditLimitMinor
+        val day = bill?.statementEpochDay?.let(LocalDate::ofEpochDay)
+        if (day == null) flow { emit(CardSummary(limit, a.currentBalanceMinor, bill, null)) }
+        else {
+            val from = day.plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
+            dao.monthlyForAccount(id, from, Long.MAX_VALUE / 2, Periods.offsetMillis(from)).map { rows ->
+                CardSummary(limit, a.currentBalanceMinor, bill, rows.sumOf { it.spent })
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val months = range.flatMapLatest { r ->
@@ -107,6 +136,12 @@ class AccountDetailViewModel @Inject constructor(handle: SavedStateHandle, accou
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 }
 
+/** A credit card's headroom and statement figures; [unbilledMinor] is null without a statement date. */
+data class CardSummary(val limitMinor: Long?, val availableMinor: Long?, val statement: StatementEntity?, val unbilledMinor: Long?)
+
+private val com.hisaab.shared.db.AccountWithActivity.isCreditCard: Boolean
+    get() = kind == com.hisaab.parser.model.AccountKind.CARD && (accountType == com.hisaab.shared.db.AccountType.CREDIT_CARD || accountType == null)
+
 /** One account: its balance, and spending and income month by month as two lines. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,6 +149,7 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
     val a by vm.account.collectAsStateWithLifecycle()
     val months by vm.months.collectAsStateWithLifecycle()
     val range by vm.range.collectAsStateWithLifecycle()
+    val card by vm.card.collectAsStateWithLifecycle()
     val acc = a
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
@@ -136,6 +172,8 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
                     Text(acc.currentBalanceMinor?.let { Money.format(it) } ?: "—", style = MaterialTheme.typography.headlineMedium)
                 }
             }
+
+            card?.let { CardSummaryGrid(it) }
 
             val now = LocalDate.now(Periods.zone).year
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -249,5 +287,53 @@ private fun TwoLineChart(months: List<MonthTotal>, spentColor: Color, incomeColo
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp),
             )
         }
+    }
+}
+
+/** Limit, headroom, billed (red), unbilled (amber) and utilisation for a credit card. */
+@Composable
+private fun CardSummaryGrid(c: CardSummary) {
+    val st = c.statement
+    val billed = st?.totalDueMinor?.takeIf { it > 0 }
+    val limit = c.limitMinor
+    val avail = c.availableMinor
+    fun money(v: Long?) = v?.let { Money.format(it, showPaise = false) } ?: "—"
+    val due = st?.dueEpochDay?.let { LocalDate.ofEpochDay(it).format(java.time.format.DateTimeFormatter.ofPattern("d MMM")) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            CardStat(t("Total limit"), money(limit), MaterialTheme.colorScheme.onSurface, null, Modifier.weight(1f))
+            CardStat(t("Limit left"), money(avail), Hx.pos, null, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            CardStat(
+                t("Billed to pay"), if (billed != null) money(billed) else t("No dues"), if (billed != null) Hx.neg else Hx.text2,
+                if (billed != null) listOfNotNull(
+                    due?.let { t("Due {date}", "date" to it) },
+                    st?.minDueMinor?.let { t("Min {amount}", "amount" to money(it)) },
+                ).joinToString(" · ").ifBlank { null } else null,
+                Modifier.weight(1f),
+            )
+            CardStat(t("Unbilled"), money(c.unbilledMinor), Hx.warn, null, Modifier.weight(1f))
+        }
+        if (limit != null && limit > 0 && avail != null) {
+            val used = ((limit - avail).toFloat() / limit).coerceIn(0f, 1f)
+            HCard(padding = 14.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(t("Limit used"), Modifier.weight(1f), fontSize = 12.sp, color = Hx.text2)
+                    Text("${(used * 100).toInt()}%", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (used >= 0.8f) Hx.neg else Hx.accent)
+                }
+                Spacer(Modifier.height(8.dp))
+                SplitBar(listOf(used to if (used >= 0.8f) Hx.neg else Hx.accent), height = 6.dp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CardStat(label: String, value: String, color: Color, note: String?, modifier: Modifier) {
+    HCard(modifier, padding = 14.dp) {
+        Text(label, fontSize = 12.sp, color = Hx.text2)
+        Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
+        note?.let { Text(it, fontSize = 11.sp, color = Hx.text2, maxLines = 1) }
     }
 }

@@ -57,13 +57,18 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
             return Result.failure(workDataOf(KEY_ERROR to "permission"))
         }
         val full = inputData.getBoolean(KEY_FULL, false)
-        val since = if (full) {
-            System.currentTimeMillis() - TimeUnit.DAYS.toMillis(mailSettings.read().lookbackDays.toLong())
-        } else {
-            settings.smsCursor()
+        val recentDays = inputData.getInt(KEY_RECENT_DAYS, 0)
+        val stored = if (full) 0L else settings.smsCursor()
+        val since = when {
+            full -> System.currentTimeMillis() - TimeUnit.DAYS.toMillis(mailSettings.read().lookbackDays.toLong())
+            // The refresh button: also look back over the last few days, so a message the live receiver or an
+            // earlier scan missed is picked up. Already-known messages are skipped, so this stays quick.
+            recentDays > 0 -> minOf(stored, System.currentTimeMillis() - TimeUnit.DAYS.toMillis(recentDays.toLong()))
+            else -> stored
         }
         val start = System.currentTimeMillis()
-        var cursor = since
+        // A look-back never moves the saved position backwards.
+        var cursor = maxOf(since, stored)
         var bankMessages = 0
         var parsed = 0
         var report = IngestReport.EMPTY
@@ -117,6 +122,8 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
         private val PARALLELISM = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
         private const val MIN_SLICE = 50
         const val KEY_FULL = "full"
+        /** Days to look back on a refresh, on top of everything since the last scan. */
+        const val KEY_RECENT_DAYS = "recent_days"
         const val KEY_SCANNED = "scanned"
         /** All SMS examined, bank or not (output only). */
         const val KEY_CHECKED = "sms_checked"

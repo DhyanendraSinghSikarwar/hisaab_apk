@@ -146,7 +146,10 @@ data class Loan(
 object Loans {
     private fun date(t: TransactionEntity, zone: ZoneId): LocalDate = Instant.ofEpochMilli(t.timestamp).atZone(zone).toLocalDate()
 
-    private fun isPayment(t: TransactionEntity) = !t.needsReview && t.type != TransactionType.CREDIT && t.currency == "INR"
+    /** A debit that may be a loan payment. Investments and anything filed under the user's own category never are. */
+    private fun isPayment(t: TransactionEntity) =
+        !t.needsReview && t.type != TransactionType.CREDIT && t.currency == "INR" &&
+            t.category != Category.INVESTMENT && t.customCategoryId == null
 
     /** The merchant key a detected EMI series is grouped by. */
     fun keyOf(t: TransactionEntity): String? = (t.merchant ?: t.upiId)?.trim()?.lowercase()?.takeIf { it.length >= 2 }
@@ -154,9 +157,14 @@ object Loans {
     /**
      * Every loan account, plus EMI series (category EMI & Loans, two or more months, paid in the last 75 days)
      * not already claimed by an account. A payment belongs to a loan account when it was booked on it, or when
-     * it is an EMI whose merchant names the account (its number, nickname or lender).
+     * it is an EMI whose merchant names the account (its number, nickname or lender). Payments are judged by their
+     * current category, so one the user moved out of EMI & Loans is never a loan payment. EMI series whose
+     * [keyOf] is in [dismissed] ("Not a loan") are left out.
      */
-    fun build(accounts: List<AccountWithActivity>, payments: List<TransactionEntity>, today: LocalDate, zone: ZoneId): List<Loan> {
+    fun build(
+        accounts: List<AccountWithActivity>, payments: List<TransactionEntity>, today: LocalDate, zone: ZoneId,
+        dismissed: Set<String> = emptySet(),
+    ): List<Loan> {
         val loanAccs = accounts.filter { it.isLoan && !it.hidden }
         val pays = payments.filter(::isPayment)
         val loanIds = loanAccs.map { it.id }.toSet()
@@ -175,7 +183,7 @@ object Loans {
             )
         }
         val detected = pays.filter { it.category == Category.EMI_LOAN && it.id !in claimed && it.accountId !in loanIds }
-            .groupBy { keyOf(it) }.filterKeys { it != null }
+            .groupBy { keyOf(it) }.filterKeys { it != null && it !in dismissed }
             .mapNotNull { (k, group) ->
                 val months = group.map { YearMonth.from(date(it, zone)) }.distinct()
                 val last = group.maxOf { date(it, zone) }

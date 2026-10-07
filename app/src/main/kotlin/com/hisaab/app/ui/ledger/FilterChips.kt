@@ -51,13 +51,13 @@ class FilterViewModel @Inject constructor(val store: ViewFilterStore) : ViewMode
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BookPeriodChips(modifier: Modifier = Modifier, vm: FilterViewModel = hiltViewModel()) {
+fun BookPeriodChips(modifier: Modifier = Modifier, showBook: Boolean = true, vm: FilterViewModel = hiltViewModel()) {
     val f by vm.store.filter.collectAsStateWithLifecycle()
     var sheet by remember { mutableStateOf(false) }
     var custom by remember { mutableStateOf(false) }
     var books by remember { mutableStateOf(false) }
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Pill(t(f.book.label) + " ▾", leading = Icons.Filled.Work) { books = true }
+        if (showBook) Pill(t(f.book.label) + " ▾", leading = Icons.Filled.Work) { books = true }
         Pill(t(f.label) + " ▾", leading = Icons.Filled.CalendarMonth) { sheet = true }
     }
     if (books) {

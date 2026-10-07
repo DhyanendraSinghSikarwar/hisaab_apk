@@ -35,13 +35,15 @@ data class LoansSnapshot(
 class LoanSource @Inject constructor(
     transactions: TransactionDao,
     accounts: AccountDao,
+    dismissals: LoanDismissals,
     @ApplicationScope scope: CoroutineScope,
 ) {
     val snapshot: StateFlow<LoansSnapshot> = combine(
         accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())),
         transactions.observeLoanPayments(),
-    ) { accs, pays ->
-        LoansSnapshot(Loans.build(accs, pays, LocalDate.now(Periods.zone), Periods.zone), accs.associateBy { it.id }, loaded = true)
+        dismissals.payees,
+    ) { accs, pays, dismissed ->
+        LoansSnapshot(Loans.build(accs, pays, LocalDate.now(Periods.zone), Periods.zone, dismissed), accs.associateBy { it.id }, loaded = true)
     }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(10_000), LoansSnapshot())
 }
 

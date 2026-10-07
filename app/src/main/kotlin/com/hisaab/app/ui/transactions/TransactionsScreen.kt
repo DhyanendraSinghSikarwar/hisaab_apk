@@ -150,7 +150,7 @@ fun TransactionsRoute(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                BookPeriodChips()
+                BookPeriodChips(showBook = false)
                 scope.accountId?.let { id ->
                     val a = accounts.firstOrNull { it.id == id }
                     Pill(a?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: t("One account"), on = true, leading = Icons.Filled.Close) { vm.clearAccount() }

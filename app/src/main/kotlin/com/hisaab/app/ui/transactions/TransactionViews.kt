@@ -35,12 +35,16 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -142,18 +146,33 @@ private fun FilterChip(text: String, on: Boolean, onClick: () -> Unit, leading: 
     }
 }
 
-/** One horizontally scrolling row of chips. */
+/** A dropdown chip: "Label ▾", or the current choice in accent style, opening a small menu of [options]. */
 @Composable
-private fun ChipRow(content: @Composable () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
-    ) { content() }
+private fun DropChip(
+    label: String, value: String?, options: List<DropOption>, onPick: (Int) -> Unit, modifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        FilterChip((value ?: label) + " ▾", value != null, { open = true }, leading)
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEachIndexed { i, o ->
+                DropdownMenuItem(
+                    text = { Text(o.text, fontWeight = if (o.chosen) FontWeight.SemiBold else FontWeight.Normal, color = if (o.chosen) Hx.accent else MaterialTheme.colorScheme.onSurface) },
+                    leadingIcon = o.leading,
+                    trailingIcon = if (o.chosen) ({ Icon(Icons.Filled.Check, null, tint = Hx.accent, modifier = Modifier.size(16.dp)) }) else null,
+                    onClick = { open = false; onPick(i) },
+                )
+            }
+        }
+    }
 }
 
+private class DropOption(val text: String, val chosen: Boolean, val leading: (@Composable () -> Unit)? = null)
+
 /**
- * The filters under the search box: type, bank or card issuer (with logos) and source, one scrolling row each.
- * Chips combine; tapping a chosen chip clears its row. "Clear" resets all three when any is set.
+ * The filters under the search box: one line of three dropdown chips (type, bank or card issuer with logos, source).
+ * Chips combine (AND); a chip shows its choice when set, and a clear button appears when any is.
  */
 @Composable
 internal fun TxFilters(
@@ -162,36 +181,35 @@ internal fun TxFilters(
     modifier: Modifier = Modifier,
 ) {
     val active = kind != TxKind.ALL || bank != null || source != null
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        ChipRow {
-            TxKind.CHIPS.forEach { k -> FilterChip(t(k.label), kind == k, { onKind(if (kind == k) TxKind.ALL else k) }) }
-            if (kind == TxKind.REVIEW) {
-                FilterChip("${t(TxKind.REVIEW.label)} · $reviewCount", true, { onKind(TxKind.ALL) }) {
-                    Icon(Icons.Filled.Warning, null, tint = Hx.warn, modifier = Modifier.size(15.dp))
-                }
+    // A bank chosen in an earlier period stays selectable so it can be cleared.
+    val bankOptions = if (bank != null && banks.none { it.key == bank }) listOf(BankOption(bank, bank.removeSuffix(" Bank"), bank, 0)) + banks else banks
+    val kinds = TxKind.CHIPS + if (kind == TxKind.REVIEW) listOf(TxKind.REVIEW) else emptyList()
+    val sources = sourceChips
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DropChip(
+            t("Type"), if (kind == TxKind.ALL) null else t(kind.label),
+            kinds.map { DropOption(t(it.label), kind == it) }, { onKind(kinds[it]) },
+        )
+        DropChip(
+            t("Bank"), bankOptions.firstOrNull { it.key == bank }?.short,
+            listOf(DropOption(t("All banks"), bank == null)) + bankOptions.map { o ->
+                DropOption(o.short, bank == o.key, { BrandMark(Brands.forBank(o.bankName), size = 18.dp) })
+            },
+            { onBank(if (it == 0) null else bankOptions[it - 1].key) },
+            leading = bankOptions.firstOrNull { it.key == bank }?.let { o -> { BrandMark(Brands.forBank(o.bankName), size = 18.dp) } },
+        )
+        DropChip(
+            t("Source"), source?.let { t(it.label) },
+            listOf(DropOption(t("All sources"), source == null)) + sources.map { DropOption(t(it.label), source == it) },
+            { onSource(if (it == 0) null else sources[it - 1]) },
+        )
+        if (active) {
+            IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Clear, t("Clear filters"), tint = Hx.accent, modifier = Modifier.size(18.dp))
             }
-            if (active) {
-                Text(
-                    t("Clear"), color = Hx.accent, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onClear).padding(horizontal = 8.dp, vertical = 6.dp),
-                )
-            }
-        }
-        // A bank chosen in an earlier period stays visible so it can be cleared.
-        val options = if (bank != null && banks.none { it.key == bank }) listOf(BankOption(bank, bank.removeSuffix(" Bank"), bank, 0)) + banks else banks
-        if (options.isNotEmpty()) {
-            ChipRow {
-                FilterChip(t("All banks"), bank == null, { onBank(null) })
-                options.forEach { o ->
-                    FilterChip(o.short, bank == o.key, { onBank(if (bank == o.key) null else o.key) }) {
-                        BrandMark(Brands.forBank(o.bankName), size = 18.dp)
-                    }
-                }
-            }
-        }
-        ChipRow {
-            FilterChip(t("All sources"), source == null, { onSource(null) })
-            sourceChips.forEach { s -> FilterChip(t(s.label), source == s, { onSource(if (source == s) null else s) }) }
         }
     }
 }

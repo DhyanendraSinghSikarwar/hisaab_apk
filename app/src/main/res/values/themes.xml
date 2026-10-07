@@ -9,7 +9,8 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
     <style name="Theme.Hisaab.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/brand</item>
+        <item name="windowSplashScreenBackground">@color/window_light</item>
+        <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_mark</item>
         <item name="postSplashScreenTheme">@style/Theme.Hisaab</item>
     </style>

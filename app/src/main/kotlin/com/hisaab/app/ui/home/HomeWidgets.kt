@@ -104,20 +104,17 @@ fun WidgetCard(
         modifier = modifier.fillMaxWidth().alpha(if (edit?.hidden == true) 0.35f else 1f)
             .shadow(
                 if (dark) 0.dp else 10.dp, shape,
-                ambientColor = Hx.accent.copy(alpha = if (hero) 0.12f else 0.06f), spotColor = Hx.accent.copy(alpha = if (hero) 0.18f else 0.10f),
+                ambientColor = Hx.accent.copy(alpha = 0.06f), spotColor = Hx.accent.copy(alpha = 0.10f),
             ),
-        shape = shape, color = Hx.surface, contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, if (hero) Hx.accent.copy(alpha = 0.45f) else Hx.border),
+        shape = shape, color = if (hero) Hx.surface2 else Hx.surface, contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, Hx.border),
     ) {
         Column(Modifier.animateContentSize()) {
-            if (hero) Box(Modifier.fillMaxWidth().height(3.dp).background(Hx.accent))
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = if (edit != null) 8.dp else 12.dp, top = if (hero) 9.dp else 12.dp, bottom = 8.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = if (edit != null) 8.dp else 12.dp, top = 12.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (hero) {
-                    Text(title.uppercase(), Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.7.sp, color = Hx.accent)
-                } else CardTitle(title, Modifier.weight(1f))
+                CardTitle(title, Modifier.weight(1f))
                 if (edit != null) {
                     EditButton(Icons.Filled.KeyboardArrowUp, t("Move up"), edit.canUp, edit.onUp)
                     EditButton(Icons.Filled.KeyboardArrowDown, t("Move down"), edit.canDown, edit.onDown)
@@ -172,7 +169,7 @@ fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit
         Row(verticalAlignment = Alignment.CenterVertically) {
             com.hisaab.app.ui.components.AnimatedAmount(
                 nw.netMinor, Modifier.weight(1f, fill = false), style = androidx.compose.ui.text.TextStyle(fontSize = 28.sp),
-                color = Hx.accent, fontWeight = FontWeight.Bold, format = ::signedMoney,
+                color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, format = ::signedMoney,
             )
             w.netWorthBefore?.let { before ->
                 val diff = nw.netMinor - before
@@ -196,7 +193,6 @@ fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit
             LabelValue(t("Assets"), Money.format(nw.assetsMinor, showPaise = false), Hx.pos, Modifier.weight(1f))
             LabelValue(t("Liabilities"), Money.format(nw.liabilitiesMinor, showPaise = false), if (nw.liabilitiesMinor > 0) Hx.neg else Hx.text2)
         }
-        com.hisaab.app.ui.invest.CardLimits(nw)
     }
 }
 
@@ -441,6 +437,50 @@ fun BudgetsWidget(w: HomeWidgets, onOpenBudgets: () -> Unit, edit: WidgetEdit?) 
                     Text(t(b.look.name), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 6.dp))
                     Text(t("{spent} of {limit}", "spent" to Money.compact(b.spent), "limit" to Money.compact(b.limit)), fontSize = 11.sp, color = Hx.text2, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Credit cards
+
+/** One row per credit card: the billed amount still to pay (red), unbilled spends (amber) and the limit left. */
+@Composable
+fun CreditCardsWidget(w: HomeWidgets, onOpenCard: (Long) -> Unit, edit: WidgetEdit?) {
+    val cards = w.netWorth.cards
+    WidgetCard(t("Credit cards"), edit = edit) {
+        if (cards.isEmpty()) {
+            Hint(t("No credit cards yet."))
+            return@WidgetCard
+        }
+        Column {
+            cards.forEach { c ->
+                val billed = c.billedMinor?.takeIf { it > 0 }
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpenCard(c.id) }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AccountAvatar(c.name, com.hisaab.parser.model.AccountKind.CARD, null, size = 36.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            c.name + (c.last4.takeIf { it.isNotBlank() }?.let { " ••$it" } ?: ""), fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        c.availableMinor?.let {
+                            Text(t("Limit left {amount}", "amount" to Money.format(it, showPaise = false)), fontSize = 11.sp, color = Hx.text2, maxLines = 1)
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (billed != null) Text(Money.format(billed, showPaise = false), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Hx.neg, maxLines = 1)
+                        else Text(t("No dues"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.text2, maxLines = 1)
+                        c.unbilledMinor?.takeIf { it > 0 }?.let {
+                            Text(t("Unbilled {amount}", "amount" to Money.format(it, showPaise = false)), fontSize = 11.sp, color = Hx.warn, maxLines = 1)
+                        }
+                    }
                 }
             }
         }

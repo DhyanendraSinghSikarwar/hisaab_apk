@@ -51,7 +51,9 @@ object HoldingMatch {
     private fun family(k: HoldingKind): Set<String> = when (k) {
         HoldingKind.MUTUAL_FUND -> setOf("fund")
         HoldingKind.ETF -> setOf("fund", "stock")
-        HoldingKind.STOCK, HoldingKind.BOND, HoldingKind.GOLD -> setOf("stock")
+        HoldingKind.STOCK, HoldingKind.BOND -> setOf("stock")
+        // Gold is a fund of funds in one statement and an exchange-traded unit in another.
+        HoldingKind.GOLD -> setOf("stock", "fund")
         else -> setOf(k.name)
     }
 

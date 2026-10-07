@@ -368,6 +368,7 @@ fun WorthBreakdown(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean 
     val dim = if (onHero) Color.White.copy(alpha = 0.75f) else Hx.text2
     val strong = if (onHero) Color.White else MaterialTheme.colorScheme.onSurface
     val pinBg = if (onHero) Color.White.copy(alpha = 0.12f) else Hx.surface2
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (breakdownOpen) 180f else 0f, androidx.compose.animation.core.tween(150), label = "breakdown-chevron")
     Column(modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
@@ -378,9 +379,24 @@ fun WorthBreakdown(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean 
                 if (f > 0f) Box(Modifier.weight(f.coerceAtLeast(0.004f)).height(10.dp).background(c))
             }
         }
-        Spacer(Modifier.height(10.dp))
+        // Pins are folded by default; the toggle under the bar shows them. Remembered for the session.
+        Row(
+            Modifier.padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).clickable { breakdownOpen = !breakdownOpen }.padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(t("Breakdown"), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = dim)
+            Icon(
+                Icons.Filled.KeyboardArrowDown, if (breakdownOpen) t("Collapse") else t("Expand"), tint = dim,
+                modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = turn },
+            )
+        }
+        AnimatedVisibility(
+            breakdownOpen,
+            enter = fadeIn(androidx.compose.animation.core.tween(150)) + expandVertically(androidx.compose.animation.core.tween(150)),
+            exit = fadeOut(androidx.compose.animation.core.tween(150)) + shrinkVertically(androidx.compose.animation.core.tween(150)),
+        ) {
         // Pins: one rounded chip per segment, wrapping under the bar.
-        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             segs.forEach { (p, c) ->
                 Row(
                     Modifier.clip(RoundedCornerShape(50)).background(pinBg)
@@ -399,8 +415,12 @@ fun WorthBreakdown(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean 
                 }
             }
         }
+        }
     }
 }
+
+/** Whether the net-worth pins are shown; lives for the session. */
+private var breakdownOpen by androidx.compose.runtime.mutableStateOf(false)
 
 /**
  * Every credit card's available limit (and total limit when a statement gave it), with Billed (the latest statement's
@@ -554,24 +574,8 @@ private fun LineRow(line: PortfolioLine, onClick: () -> Unit) {
 @Composable
 internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Unit, onOpenLoan: (Long) -> Unit = {}, modifier: Modifier = Modifier) {
     val today = LocalDate.now()
-    val loans = remember(accounts) { accounts.filter { it.isLoan && !it.hidden } }
     Column(modifier) {
-    if (loans.isNotEmpty()) {
-        // Liabilities: each loan opens its tracker.
-        HCard(Modifier.padding(bottom = CardGap), title = t("Loans · {n}", "n" to loans.size)) {
-            loans.forEachIndexed { i, a ->
-                if (i > 0) HorizontalDivider(color = Hx.border.copy(alpha = 0.6f))
-                HRow(
-                    title = a.displayName, subtitle = listOfNotNull(t("Loan"), a.last4.takeIf { it.isNotBlank() }?.let { "••$it" }).joinToString(" · "),
-                    leading = { com.hisaab.app.ui.components.AccountAvatar(a.bankName, a.kind, a.accountType, size = 36.dp) },
-                    onClick = { onOpenLoan(a.id) },
-                ) {
-                    Text(a.currentBalanceMinor?.let { "−" + Money.format(abs(it), showPaise = false) } ?: "—", fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold, color = Hx.neg)
-                }
-            }
-        }
-    }
+    PortfolioLoansCard(accounts, onOpenLoan, Modifier.padding(bottom = CardGap))
     val due = remember(accounts, today) {
         val end = today.plusDays(365)
         accounts.filter { it.accountType in setOf(AccountType.FD, AccountType.RD, AccountType.PPF) }

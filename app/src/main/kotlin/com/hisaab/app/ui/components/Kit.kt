@@ -169,8 +169,11 @@ fun CollapsibleCard(
         }
         androidx.compose.animation.AnimatedVisibility(
             open,
-            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+            // Short tweens: the default springs take noticeably longer to settle on long lists.
+            enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(170)) +
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(120)),
+            exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(130)) +
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(80)),
         ) {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), content = content)
         }

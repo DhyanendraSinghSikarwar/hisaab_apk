@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Check
@@ -201,6 +202,7 @@ fun ProfileRoute(
     onBack: () -> Unit,
     @Suppress("UNUSED_PARAMETER") onOpenSettings: () -> Unit = {},
     @Suppress("UNUSED_PARAMETER") onOpenDataSources: () -> Unit = {},
+    onOpenSupport: () -> Unit = {},
     vm: ProfileViewModel = hiltViewModel(),
 ) {
     val profile by vm.profile.collectAsStateWithLifecycle()
@@ -229,12 +231,22 @@ fun ProfileRoute(
         TopAppBar(
             colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(t("Profile")) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
+            actions = {
+                if (com.hisaab.app.ui.more.SupportConfig.available(LocalContext.current)) {
+                    IconButton(onClick = onOpenSupport) { Icon(Icons.Filled.Favorite, t("Support"), tint = Hx.accent) }
+                }
+            },
         )
     }) { inner ->
         Column(
             Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Image(androidx.compose.ui.res.painterResource(com.hisaab.app.R.drawable.artha_mark), "DhanKosh", Modifier.size(34.dp))
+                Spacer(Modifier.size(10.dp))
+                Text("DhanKosh", fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp)
+            }
             ProfileHeader(
                 name = name, photoPath = p.photoPath,
                 subtitle = listOfNotNull(

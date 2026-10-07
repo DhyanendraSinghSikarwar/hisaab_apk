@@ -234,7 +234,7 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
 
 private val SECTION_TITLES = mapOf(
     "LOCKED" to "Locked", "CREDIT_CARD" to "Credit card statements", "BANK" to "Bank statements",
-    "INVESTMENT" to "Investment statements", "OTHER" to "Other statements",
+    "INVESTMENT" to "Holdings statements", "OTHER" to "Other statements",
 )
 
 /** What the import picker offers: PDFs, Excel workbooks (.xls, .xlsx) and CSV files. */

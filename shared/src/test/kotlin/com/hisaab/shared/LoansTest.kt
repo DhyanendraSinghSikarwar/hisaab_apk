@@ -102,6 +102,19 @@ class LoansTest {
         assertNull(car.remainingEmis)
     }
 
+    @Test
+    fun `investments and dismissed payees are never detected as loans`() {
+        val today = LocalDate.of(2026, 10, 20)
+        val txs = listOf(
+            tx(LocalDate.of(2026, 9, 10), 500_000, accountId = 1, merchant = "Tata Mutual Fund", category = Category.INVESTMENT),
+            tx(LocalDate.of(2026, 10, 10), 500_000, accountId = 1, merchant = "Tata Mutual Fund", category = Category.INVESTMENT),
+            tx(LocalDate.of(2026, 9, 11), 900_000, accountId = 1, merchant = "Acme Finance"),
+            tx(LocalDate.of(2026, 10, 11), 900_000, accountId = 1, merchant = "Acme Finance"),
+        )
+        assertEquals(listOf("eacme finance"), Loans.build(emptyList(), txs, today, zone).map { it.key })
+        assertTrue(Loans.build(emptyList(), txs, today, zone, dismissed = setOf("acme finance")).isEmpty())
+    }
+
     private fun tx(date: LocalDate, amount: Long, accountId: Long, merchant: String? = null, category: Category = Category.EMI_LOAN) =
         TransactionEntity(
             id = ++n, amountMinor = amount, currency = "INR", type = TransactionType.DEBIT, bankName = "HDFC Bank", accountLast4 = "1234",

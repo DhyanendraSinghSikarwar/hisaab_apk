@@ -21,22 +21,24 @@ internal object HoldingTable {
     private enum class Col(val pct: Boolean = false) { UNITS, AVG_PRICE, PRICE, INVESTED, VALUE, RETURNS, PCT(true) }
 
     private val LABELS: List<Pair<Col, Regex>> = listOf(
-        Col.INVESTED to rx("""invested\s+(?:value|amount|amt)|amount\s+invested|investment\s+(?:value|amount|cost)|total\s+investment|cost\s+value|purchase\s+value|total\s+cost|buy\s+value|\binvested\b|\bcost\b"""),
-        Col.VALUE to rx("""current\s+(?:market\s+)?(?:value|valuation|val\b)|market\s+value|present\s+value|closing\s+value|\bvaluation\b|\bvalue\b"""),
+        Col.INVESTED to rx("""invested\s+(?:value|amount|amt)|amount\s+invested|investment\s+(?:value|amount|cost)|total\s+investments?|cost\s+value|purchase\s+value|total\s+cost|buy\s+value|\binvested\b|\bcost\b"""),
+        Col.VALUE to rx("""current\s+(?:market\s+|portfolio\s+)?(?:value|valuation|val\b|amount|amt)|cur\.?\s*val\b\.?|market\s+(?:value|val\b)|present\s+value|closing\s+value|\bvaluation\b|\bvalue\b|\bcurrent\b"""),
         Col.AVG_PRICE to rx("""avg\.?\s+(?:buy\s+)?(?:nav|price|cost)|average\s+(?:buy\s+)?(?:nav|price|cost)|buy\s+(?:nav|price)|purchase\s+(?:nav|price)"""),
         Col.PRICE to rx("""(?:current|latest|closing|market)\s+(?:nav|price)|\bNAV\b|\bLTP\b"""),
         Col.UNITS to rx("""\b(?:balance\s+|closing\s+)?units?\b|\bquantity\b|\bqty\b"""),
-        Col.PCT to rx("""\bXIRR\b|\bCAGR\b|returns?\s*\(\s*%\s*\)|returns?\s*%|%\s*returns?|abs(?:olute)?\.?\s+returns?|gain\s*\(?%\)?"""),
+        Col.PCT to rx("""(?:profit|P\s*&\s*L|gains?)(?:\s*/\s*\(?loss\)?)?\s*\(?%\)?|\bXIRR\b|\bCAGR\b|returns?\s*\(\s*%\s*\)|returns?\s*%|%\s*returns?|abs(?:olute)?\.?\s+returns?|gain\s*\(?%\)?"""),
         Col.RETURNS to rx(
             """unreali[sz]ed\s+(?:P\s*&\s*L|gains?(?:\s*/\s*\(?loss\)?)?|profit(?:\s*/\s*\(?loss\)?)?)|\breturns?\b|\bgains?(?:\s*/\s*\(?loss\)?)?|\bP\s*&\s*L\b|\bprofit(?:\s*/\s*\(?loss\)?)?|unreali[sz]ed""",
         ),
     )
-    private val NAME_HEAD = rx("""\b(?:scheme|fund|security|instrument|stock|company|holding|name)\b""")
+    private val NAME_HEAD = rx("""\b(?:scheme|fund|security|instrument|stock|company|holding|name|symbol|isin|scrip|script)\b""")
     private val FUND_HEAD = rx("""\b(?:scheme|fund|folio|NAV|AMC)\b""")
     private val TOTAL = rx("""^(?:grand\s+|sub\s*-?\s*)?total\b|\btotal\s*:|\bportfolio\s+(?:value|total)\b""")
     private val FUND_WORDS = rx("""\b(?:fund|scheme|plan|growth|IDCW|ETF|FoF|index|dividend)\b""")
     private val ETF_NAME = rx("""\bETF\b|\bBEES\b""")
     private val NAME_END = rx("""^(.*?\b(?:Growth|IDCW|Dividend|Bonus)(?:\s+(?:Option|Plan|Payout|Reinvestment))?)\b""")
+    private val ISIN = Regex("""\b[A-Z]{2}[A-Z0-9]{9}\d\b""")
+    private val COMMODITY = rx("""\bcommodit(?:y|ies)\b|\b(?:gold|silver)\b""")
     private val CELLS = Regex("""\s{2,}""")
 
     private val NUMERIC = Regex("""^[+-]?\(?[+-]?(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?\)?$""")
@@ -72,16 +74,21 @@ internal object HoldingTable {
             }
             val c = cols ?: continue
             val fx = rate ?: continue
-            if (hasIsin(line)) continue
+            var isin: String? = null
+            var row = line
+            if (hasIsin(line)) {
+                isin = ISIN.find(line)?.value ?: continue
+                row = line.replace(isin, " ")
+            }
             if (TOTAL.containsMatchIn(line.trim())) { pending = null; continue }
-            val (namePart, toks) = split(line)
+            val (namePart, toks) = split(row)
             if (toks.count { it.value != null } < 2) {
                 // A name on its own line, its figures on the next.
                 pending = if (namePart.any { it.isLetter() } && namePart.length < 120) namePart else null
                 continue
             }
             val fig = align(toks, c) ?: continue
-            var name = name(line, namePart)
+            var name = name(row, namePart)
             if (pending != null && (name.none { it.isLetter() } || name.split(' ').size <= 2)) name = HoldingLines.cleanName("$pending $name")
             pending = null
             if (name.length < 3 || TOTAL.containsMatchIn(name)) continue
@@ -90,6 +97,7 @@ internal object HoldingTable {
             val invested = fig[Col.INVESTED]?.takeIf { it > 0 }?.times(fx) ?: fig[Col.RETURNS]?.let { value - it * fx }?.takeIf { it > 0 }
             val units = fig[Col.UNITS]?.takeIf { it > 0 }
             val kind = when {
+                COMMODITY.containsMatchIn(line) -> HoldingKind.GOLD
                 ETF_NAME.containsMatchIn(name) -> HoldingKind.ETF
                 fundTable || FUND_WORDS.containsMatchIn(name) -> HoldingKind.MUTUAL_FUND
                 else -> HoldingKind.STOCK
@@ -97,6 +105,7 @@ internal object HoldingTable {
             val id = when {
                 fx != 1.0 && kind != HoldingKind.MUTUAL_FUND ->
                     "US:" + (name.split(' ').first().takeIf { TICKER.matches(it) } ?: MfOrderParser.normaliseScheme(name).uppercase(Locale.ROOT))
+                isin != null -> isin
                 kind == HoldingKind.STOCK -> "STOCK:" + MfOrderParser.normaliseScheme(name).uppercase(Locale.ROOT)
                 else -> MfOrderParser.identifierFor(name)
             }
@@ -114,7 +123,7 @@ internal object HoldingTable {
     private fun header(line: String): List<Col>? {
         if (!NAME_HEAD.containsMatchIn(line) && !line.contains("units", ignoreCase = true)) return null
         val cols = scan(line, LABELS).map { it.first }
-        if (Col.INVESTED !in cols || Col.VALUE !in cols) return null
+        if (Col.VALUE !in cols || (Col.INVESTED !in cols && Col.UNITS !in cols)) return null
         // A header has words, not figures.
         if (line.split(Regex("""\s+""")).count { NUMERIC.matches(it.trim(',')) && it.contains('.') } > 0) return null
         return cols

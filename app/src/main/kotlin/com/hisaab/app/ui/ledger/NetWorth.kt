@@ -1,6 +1,9 @@
 package com.hisaab.app.ui.ledger
 
+import com.hisaab.app.settings.LiabilityKind
 import com.hisaab.app.settings.LocalListsStore
+import com.hisaab.app.settings.NetWorthFilter
+import com.hisaab.app.settings.NetWorthPrefs
 import com.hisaab.app.settings.WorthPoint
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.parser.model.AccountKind
@@ -112,7 +115,7 @@ data class NetWorth(
     }
 }
 
-private data class WorthInputs(val accounts: List<AccountWithActivity>, val holdings: List<HoldingEntity>, val statements: List<StatementEntity>)
+private data class WorthInputs(val accounts: List<AccountWithActivity>, val holdings: List<HoldingEntity>, val statements: List<StatementEntity>, val filter: NetWorthFilter = NetWorthFilter())
 
 /**
  * Net worth from what the app knows: bank balances, deposits, holdings, less loans and what is due on cards
@@ -127,11 +130,20 @@ class NetWorthSource @Inject constructor(
     transactions: TransactionDao,
     filters: ViewFilterStore,
     private val lists: LocalListsStore,
+    prefs: NetWorthPrefs,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val inputs = combine(accounts.observeWithActivity(0L), holdings.observeAll(), statements.observeAll()) { a, h, s -> WorthInputs(a, h, s) }
+    private val inputs = combine(accounts.observeWithActivity(0L), holdings.observeAll(), statements.observeAll(), prefs.filter) { a, h, s, f -> WorthInputs(a, h, s, f) }
         .shareIn(scope, SharingStarted.WhileSubscribed(10_000), replay = 1)
+
+    /** Accounts whose balance counts toward net worth (bank balances and deposits), for the per-account switches. */
+    val eligibleAccounts: kotlinx.coroutines.flow.Flow<List<AccountWithActivity>> = inputs.map { i ->
+        i.accounts.filter { !it.hidden && isCounted(it) && (it.currentBalanceMinor ?: 0L) > 0 }
+    }.distinctUntilChanged()
+
+    private fun isCounted(a: AccountWithActivity) =
+        (a.kind == AccountKind.ACCOUNT && a.accountType?.liquid != false) || a.accountType == AccountType.FD || a.accountType == AccountType.RD
 
     init {
         // Save today's all-books figure whenever it changes.
@@ -166,11 +178,12 @@ class NetWorthSource @Inject constructor(
     private fun compute(i: WorthInputs, b: Book): NetWorth {
         val visible = i.accounts.filter { !it.hidden && inBook(it.usage, b) }
         val hs = if (b == Book.BUSINESS) emptyList() else i.holdings
-        val banks = visible.filter { it.kind == AccountKind.ACCOUNT && it.accountType?.liquid != false && (it.currentBalanceMinor ?: 0L) > 0 }
+        val f = i.filter
+        val banks = visible.filter { f.countsAccount(it.id) && it.kind == AccountKind.ACCOUNT && it.accountType?.liquid != false && (it.currentBalanceMinor ?: 0L) > 0 }
         val cash = banks.sumOf { it.currentBalanceMinor ?: 0L }
-        val deposits = visible.filter { it.accountType == AccountType.FD || it.accountType == AccountType.RD }.sumOf { it.currentBalanceMinor ?: 0L }
-        val ppf = visible.filter { it.accountType == AccountType.PPF }.sumOf { it.currentBalanceMinor ?: 0L }
-        val loanAccs = visible.filter { it.accountType == AccountType.LOAN }
+        val deposits = visible.filter { f.countsAccount(it.id) && (it.accountType == AccountType.FD || it.accountType == AccountType.RD) }.sumOf { it.currentBalanceMinor ?: 0L }
+        val ppf = visible.filter { f.countsAccount(it.id) && it.accountType == AccountType.PPF }.sumOf { it.currentBalanceMinor ?: 0L }
+        val loanAccs = visible.filter { it.accountType == AccountType.LOAN && f.countsLiability(LiabilityKind.LOANS) }
         val loans = loanAccs.sumOf { kotlin.math.abs(it.currentBalanceMinor ?: 0L) }
         // Latest statement per card, kept when the card (or, for an unknown card, the personal book) is in view.
         val latest = i.statements.filter { it.last4 != null }.groupBy { it.bankName to it.last4 }.values
@@ -179,21 +192,22 @@ class NetWorthSource @Inject constructor(
             val card = cardFor(st, i.accounts)
             (card == null || !card.hidden) && inBook(card?.usage ?: AccountUsage.PERSONAL, b)
         }
-        val cardDue = dues.sumOf { it.totalDueMinor ?: 0L }
+        val cardDue = if (f.countsLiability(LiabilityKind.CARD_DUES)) dues.sumOf { it.totalDueMinor ?: 0L } else 0L
 
-        val holdingByClass = hs.groupBy { AssetClass.of(it.kind) }.mapValues { (_, l) -> l.sumOf { it.valueMinor ?: 0L } }
+        val holdingByClass = hs.filter { f.countsClass(AssetClass.of(it.kind).name) }.groupBy { AssetClass.of(it.kind) }.mapValues { (_, l) -> l.sumOf { it.valueMinor ?: 0L } }
         val byClass = holdingByClass.toMutableMap()
         byClass[AssetClass.CASH] = (byClass[AssetClass.CASH] ?: 0L) + cash
         byClass[AssetClass.DEBT] = (byClass[AssetClass.DEBT] ?: 0L) + deposits
         byClass[AssetClass.RETIREMENT] = (byClass[AssetClass.RETIREMENT] ?: 0L) + ppf
 
+        byClass.keys.removeAll { !f.countsClass(it.name) }
         val assetParts = buildList {
             banks.forEach { add(WorthPart("bank-${it.id}", it.label, it.currentBalanceMinor ?: 0L, false, PartKind.BANK, AssetClass.CASH)) }
             if (deposits > 0) add(WorthPart("deposits", "Deposits", deposits, false, PartKind.DEPOSIT, AssetClass.DEBT))
             val classes = holdingByClass.toMutableMap()
             if (ppf > 0) classes[AssetClass.RETIREMENT] = (classes[AssetClass.RETIREMENT] ?: 0L) + ppf
             classes.filterValues { it > 0 }.forEach { (c, v) -> add(WorthPart("class-${c.name}", c.label, v, false, PartKind.HOLDING, c)) }
-        }.filter { it.amountMinor > 0 }.sortedByDescending { it.amountMinor }
+        }.filter { it.amountMinor > 0 && f.countsClass(it.assetClass?.name ?: "") }.sortedByDescending { it.amountMinor }
         val liabilityParts = buildList {
             loanAccs.forEach { a ->
                 val v = kotlin.math.abs(a.currentBalanceMinor ?: 0L)
@@ -226,9 +240,10 @@ class NetWorthSource @Inject constructor(
         // Recorded figures are for all books; a single book is estimated from its own accounts only.
         val real = if (n.book == Book.ALL) recorded.filter { !it.day.isAfter(today) } else emptyList()
         val anchor = real.firstOrNull() ?: todayPoint
-        val assetIds = n.accounts.filter { (it.kind == AccountKind.ACCOUNT && it.accountType?.liquid != false) || it.isDebitCard }.map { it.id }.toSet()
-        val liabIds = n.accounts.filter(::isCreditCard).map { it.id }.toSet()
-        val estimated = WorthHistory.estimate(anchor, txs, assetIds, liabIds, n.holdings)
+        val f = i.filter
+        val assetIds = n.accounts.filter { f.countsAccount(it.id) && f.countsClass(AssetClass.CASH.name) }.filter { (it.kind == AccountKind.ACCOUNT && it.accountType?.liquid != false) || it.isDebitCard }.map { it.id }.toSet()
+        val liabIds = if (f.countsLiability(LiabilityKind.CARD_DUES)) n.accounts.filter(::isCreditCard).map { it.id }.toSet() else emptySet()
+        val estimated = WorthHistory.estimate(anchor, txs, assetIds, liabIds, n.holdings.filter { f.countsClass(AssetClass.of(it.kind).name) })
         val tail = if (real.isEmpty()) listOf(todayPoint) else real.dropLastWhile { it.day == today } + todayPoint
         return n.copy(history = estimated + tail, estimatedBefore = if (estimated.isEmpty()) null else anchor.day, cards = withUnbilled(n.cards, txs))
     }

@@ -103,7 +103,7 @@ fun HomeHeader(
 }
 
 /** One thing that needs the user: a review, a locked statement, an update. */
-data class HomeNotice(val title: String, val detail: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val onOpen: () -> Unit)
+data class HomeNotice(val title: String, val detail: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val onOpen: () -> Unit, val whatsNew: Boolean = false)
 
 /** The bell's sheet: each notice opens what it is about. */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -128,6 +128,7 @@ fun NotificationsSheet(notices: List<HomeNotice>, onDismiss: () -> Unit) {
                         Text(n.title, style = MaterialTheme.typography.bodyLarge)
                         Text(n.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    if (n.whatsNew) com.hisaab.app.ui.more.WhatsNewButton()
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

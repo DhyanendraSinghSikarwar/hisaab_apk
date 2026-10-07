@@ -120,18 +120,11 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Spacer(Modifier.height(72.dp))
-                // The DhanKosh mark on a soft tile, as on the launcher icon.
-                Box(
-                    Modifier.size(104.dp).background(
-                        Brush.linearGradient(listOf(Color(0xFFF7FAF8), Color(0xFFE9EEF6))), RoundedCornerShape(30.dp),
-                    ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    androidx.compose.foundation.Image(
-                        androidx.compose.ui.res.painterResource(com.hisaab.app.R.drawable.artha_mark), "DhanKosh",
-                        modifier = Modifier.size(72.dp),
-                    )
-                }
+                // The shield alone, no tile behind it.
+                androidx.compose.foundation.Image(
+                    androidx.compose.ui.res.painterResource(com.hisaab.app.R.drawable.artha_mark), "DhanKosh",
+                    modifier = Modifier.size(96.dp),
+                )
                 Spacer(Modifier.height(20.dp))
                 Text("DhanKosh", style = MaterialTheme.typography.displaySmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Text(t("Know your money."), style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant, textAlign = TextAlign.Center)

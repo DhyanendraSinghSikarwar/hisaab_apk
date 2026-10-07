@@ -134,3 +134,21 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] NPS from CRA SMS/emails/Statement of Transaction: value, contributions as invested, PRAN ••1234 · Tier I in Portfolio
 - [x] Renamed to DhanKosh (label, all text, language packs, release title/APK); default palette named DhanKosh
 - 2.5.0 and 2.6.0 shipped together as 2.6.0: built, all tests pass (DB v14), not yet run on a device
+
+## 2.7.0 (requested 2026-10-07)
+- [x] Home sync button also re-reads the last 14 days of SMS (not just mail)
+- [x] News: no Today/Week/Month filter
+- [x] Holdings statements from Groww/other platforms (Excel/CSV upload or email attachment): same scheme in several folios summed; check against the sheet's totals
+- [x] Icon: transparent around the shield (no grey/white tile)
+- [x] Home net worth card: neutral grey surface
+- [x] Transactions: no Book chip; the three filters on one line (Type ▾ Bank ▾ Source ▾)
+- [x] Portfolio sections collapse faster
+- [x] Home: separate Credit cards card (billed amount to pay in red) → card detail (limit, left, billed, unbilled); removed from net worth card
+- [x] Customise: choose which money counts in net worth
+- [x] What's-new ⓘ for updates (More › About & updates; bundled notes + release body)
+- [x] Profile: app logo; Support (donate) icon → in-app page with QR / UPI id (details pending from user) - fill SupportConfig
+- [x] Net worth pins collapsible, hidden by default
+- [x] Tata investment shown as loan: fix detection; Portfolio loans section styled like Equity etc.
+- [x] Loans: add / remove loans
+- [x] Holdings sheets (Groww/INDmoney/Coin/ET Money/broker CSV, xlsx/csv/email): per-scheme folio sums, summary totals check, GOLD kind, 'Holdings statement' label
+- Built + all tests pass (DB v14), not yet run on a device. Pending from user: UPI ID or QR image for the Support page (SupportConfig.UPI_ID / assets/support_qr.webp)

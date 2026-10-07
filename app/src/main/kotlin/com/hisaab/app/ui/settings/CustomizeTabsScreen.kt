@@ -57,6 +57,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -71,6 +72,15 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.hisaab.app.settings.LiabilityKind
+import com.hisaab.app.settings.NetWorthFilter
+import com.hisaab.app.settings.NetWorthPrefs
+import com.hisaab.app.ui.components.BrandMark
+import com.hisaab.app.ui.components.Brands
+import com.hisaab.app.ui.format.Money
+import com.hisaab.app.ui.ledger.AssetClass
+import com.hisaab.app.ui.ledger.NetWorthSource
+import com.hisaab.shared.db.AccountWithActivity
 import com.hisaab.app.ui.components.HCard
 import com.hisaab.app.ui.components.Segmented
 import com.hisaab.app.ui.more.MoreScaffold
@@ -82,7 +92,19 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class CustomizeTabsViewModel @Inject constructor(private val store: TabLayoutStore, private val app: AppSettingsStore) : ViewModel() {
+class CustomizeTabsViewModel @Inject constructor(
+    private val store: TabLayoutStore,
+    private val app: AppSettingsStore,
+    private val worthPrefs: NetWorthPrefs,
+    worth: NetWorthSource,
+) : ViewModel() {
+    val worthFilter = worthPrefs.filter.stateIn(viewModelScope, SharingStarted.Eagerly, NetWorthFilter())
+    val worthAccounts = worth.eligibleAccounts.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    fun setClass(c: AssetClass, on: Boolean) = viewModelScope.launch { worthPrefs.setClassIncluded(c.name, on) }
+    fun setLiability(k: LiabilityKind, on: Boolean) = viewModelScope.launch { worthPrefs.setLiabilityIncluded(k, on) }
+    fun setAccount(id: Long, on: Boolean) = viewModelScope.launch { worthPrefs.setAccountIncluded(id, on) }
+    fun includeAll() = viewModelScope.launch { worthPrefs.includeAll() }
+
     fun setPalette(palette: ThemePalette) = viewModelScope.launch { app.setPalette(palette) }
     fun setPureBlack(value: Boolean) = viewModelScope.launch { app.setPureBlack(value) }
     val layout = store.settings.stateIn(viewModelScope, SharingStarted.Eagerly, TabLayout())
@@ -121,6 +143,8 @@ fun CustomizeTabsRoute(onBack: () -> Unit, vm: CustomizeTabsViewModel = hiltView
                 }
             }
 
+            NetWorthCard(vm)
+
             HCard(title = t("Tab sections"), action = t("Reset"), onAction = { vm.reset(tab) }) {
                 Segmented(TabLayouts.TABS.map { t(it.second) }, TabLayouts.TABS.indexOfFirst { it.first == tab }, onSelect = { tab = TabLayouts.TABS[it].first })
                 val labels = TabLayouts.DEFAULTS.getValue(tab).associate { it.key to it.label }
@@ -140,6 +164,60 @@ fun CustomizeTabsRoute(onBack: () -> Unit, vm: CustomizeTabsViewModel = hiltView
             }
         }
     }
+}
+
+@Composable
+private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, leading: (@Composable () -> Unit)? = null, detail: String? = null) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (leading != null) { leading(); Spacer(Modifier.width(10.dp)) }
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = if (checked) MaterialTheme.colorScheme.onSurface else Hx.text2)
+            if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = Hx.text2)
+        }
+        Switch(checked, onChange)
+    }
+}
+
+/** Which money counts in net worth: asset classes, liabilities and individual accounts. All counted by default. */
+@Composable
+private fun NetWorthCard(vm: CustomizeTabsViewModel) {
+    val f by vm.worthFilter.collectAsStateWithLifecycle()
+    val accounts by vm.worthAccounts.collectAsStateWithLifecycle()
+    var open by rememberSaveable { mutableStateOf(false) }
+    HCard(title = t("Net worth"), action = if (f.isDefault) null else t("Include all"), onAction = { vm.includeAll() }) {
+        Text(t("What counts in your net worth"), style = MaterialTheme.typography.bodyMedium, color = Hx.text2)
+        Text(t("Assets"), style = MaterialTheme.typography.labelLarge, color = Hx.text2, modifier = Modifier.padding(top = 10.dp))
+        AssetClass.entries.forEach { c ->
+            SwitchRow(t(if (c == AssetClass.CASH) "Cash (bank balances)" else c.label), f.countsClass(c.name), { vm.setClass(c, it) })
+        }
+        Text(t("Liabilities"), style = MaterialTheme.typography.labelLarge, color = Hx.text2, modifier = Modifier.padding(top = 10.dp))
+        LiabilityKind.entries.forEach { k -> SwitchRow(t(k.label), f.countsLiability(k), { vm.setLiability(k, it) }) }
+        if (accounts.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 10.dp).clickable { open = !open }.padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(t("Individual accounts"), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = Hx.text2)
+                Icon(if (open) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, t(if (open) "Collapse" else "Expand"), tint = Hx.text2)
+            }
+            AnimatedVisibility(open) {
+                Column {
+                    accounts.forEach { a -> AccountSwitch(a, f.countsAccount(a.id)) { vm.setAccount(a.id, it) } }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountSwitch(a: AccountWithActivity, counted: Boolean, onChange: (Boolean) -> Unit) {
+    val name = a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName
+    SwitchRow(
+        label = name + if (a.last4.isNotBlank()) " ••${a.last4}" else "",
+        checked = counted, onChange = onChange,
+        leading = { BrandMark(Brands.forBank(a.bankName), size = 32.dp) },
+        detail = Money.format(a.currentBalanceMinor ?: 0L),
+    )
 }
 
 /** A row of palette swatches: each shows its surface, its hero gradient, and its name; the chosen one is ringed and ticked. */

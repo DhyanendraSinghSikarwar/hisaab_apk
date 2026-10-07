@@ -142,6 +142,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                     contentPadding = bottom,
                     onOpenProfile = { nav.navigate("profile") },
                     onOpenCategoryKey = { nav.navigate("category/$it") },
+                    onOpenAccount = { nav.navigate("account/$it") },
                 )
             }
             composable(
@@ -258,13 +259,14 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                     onOpenLoan = { id -> nav.navigate("loan/$id") { popUpTo(entry.destination.id) { inclusive = true } } },
                 )
             }
+            composable("support") { com.hisaab.app.ui.more.SupportRoute(onBack = nav::popBackStack) }
             composable("language") { com.hisaab.app.ui.more.LanguageRoute(onBack = nav::popBackStack) }
             composable("news") { com.hisaab.app.ui.news.NewsRoute(onBack = nav::popBackStack) }
             composable("forex") { com.hisaab.app.ui.settings.ForexRatesRoute(onBack = nav::popBackStack) }
             composable("customize") { com.hisaab.app.ui.settings.CustomizeTabsRoute(onBack = nav::popBackStack) }
             composable("profile") { com.hisaab.app.ui.profile.ProfileRoute(
                     onBack = nav::popBackStack, onOpenSettings = { nav.navigate(SETTINGS_ROUTE) },
-                    onOpenDataSources = { nav.navigate("sources") },
+                    onOpenDataSources = { nav.navigate("sources") }, onOpenSupport = { nav.navigate("support") },
                 )
             }
         }

@@ -293,6 +293,11 @@ class StatementProcessor @Inject constructor(
 
     private suspend fun messages(text: String, meta: StatementMeta, id: Long, keptPath: String?, lockedPath: String?): List<IncomingMessage> {
         val r = parser.parse(text, meta.sender, meta.receivedAt)
+        r.holdingsCheck?.takeIf { it.mismatch }?.let {
+            java.util.logging.Logger.getLogger("StatementProcessor").warning(
+                "Holdings differ from the statement's totals: value ${it.rowsValueMinor} vs ${it.statedValueMinor}, invested ${it.rowsInvestedMinor} vs ${it.statedInvestedMinor} (paise)",
+            )
+        }
         if (r.holdings.isNotEmpty()) {
             holdings.record(r.holdings, "STATEMENT")
             saveHoldings(meta.key, r.holdings)

@@ -37,6 +37,8 @@ data class StatementResult(
     val summary: StatementSummary = StatementSummary(),
     /** FD, RD or PPF accounts the statement or advice describes (see [LoanStatus.deposit]); their rows are not transactions. */
     val deposits: List<LoanStatus> = emptyList(),
+    /** A holdings sheet's stated totals against its rows' sums; null when the sheet states none. */
+    val holdingsCheck: HoldingsCheck? = null,
 )
 
 enum class StatementKind(val label: String) { CREDIT_CARD("Credit card"), BANK("Bank account"), INVESTMENT("Investments"), OTHER("Other") }
@@ -85,6 +87,7 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         return StatementResult(
             bank, last4, if (isCard) AccountKind.CARD else AccountKind.ACCOUNT, rows.map { it.first }, holdings, rows.map { it.second },
             statementKind = kind, summary = summary(lines),
+            holdingsCheck = if (holdings.isEmpty() && rows.isNotEmpty()) null else HoldingsCheckReader.check(lines, holdings),
         )
     }
 
@@ -393,7 +396,7 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         val NAV_ON = rx("""\bNAV\s+on\s+[^:]{4,20}:\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
         val MARKET_VALUE = rx("""(?:market\s+value|valuation)\s+on\s+[^:]{4,20}:\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
         val COST = rx("""(?:total\s+)?cost\s+value\s*(?:\(\s*(?:INR|Rs\.?|₹)\s*\))?\s*:?\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
-        val AS_ON = rx("""\b(?:holdings?|statement|valuation|portfolio|balances?)\b.{0,40}?\bas\s+(?:on|of|at)\s*:?\s*(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{1,2}[\s-][A-Za-z]{3}[a-z]*[\s,-]+\d{4})""")
+        val AS_ON = rx("""\b(?:holdings?|statement|valuation|portfolio|balances?)\b.{0,40}?\bas\s+(?:on|of|at)\s*:?\s*(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}[\s-][A-Za-z]{3}[a-z]*[\s,-]+\d{4})""")
         val TABLE_WORDS = rx("""\b(?:ISIN|scheme\s+name|folio|security|closing\s+bal|NAV|valuation|market\s+(?:price|value)|units?)\b""")
         val ETF_NAME = rx("""\bETF\b|\bBEES\b""")
         val BOND_NAME = rx("""\b(?:bond|debenture|NCD|SGB)\b""")
@@ -408,7 +411,7 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         private fun fmt(p: String): DateTimeFormatter = DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern(p).toFormatter(Locale.ENGLISH)
         val DATE_FORMATS = listOf(
             "d/M/uuuu", "d-M-uuuu", "d.M.uuuu", "d/M/uu", "d-M-uu", "d.M.uu",
-            "d MMM uuuu", "d-MMM-uuuu", "d MMM uu", "d-MMM-uu", "d MMM, uuuu", "d MMMM uuuu",
+            "d MMM uuuu", "d-MMM-uuuu", "d MMM uu", "d-MMM-uu", "d MMM, uuuu", "d MMMM uuuu", "uuuu-M-d",
         ).map(::fmt)
     }
 }

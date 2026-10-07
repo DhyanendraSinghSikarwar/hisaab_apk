@@ -16,7 +16,8 @@ object SpreadsheetLines {
     fun toText(rows: List<List<String>>): String = toLines(rows).joinToString("\n")
 
     fun toLines(rows: List<List<String>>): List<String> {
-        val headerIndex = rows.indexOfFirst { isHeader(it) }
+        // A holdings sheet (Scheme Name, Units, Invested Value, Current Value...) keeps its cells as written: its columns are not bank amounts.
+        val headerIndex = if (rows.any { isHoldingsHeader(it) }) -1 else rows.indexOfFirst { isHeader(it) }
         val header = rows.getOrNull(headerIndex).orEmpty().map { it.trim().lowercase() }
         val roles = header.map(::roleOf)
         val out = ArrayList<String>(rows.size)
@@ -40,6 +41,15 @@ object SpreadsheetLines {
     private val AMOUNT_HEAD = Regex("""\b(?:amount|amt|transaction amount|inr|value)\b""")
     private val BALANCE_HEAD = Regex("""\bbalance\b|\bbal\b""")
     private val HEADER_WORDS = Regex("""\b(?:date|narration|description|particulars|details|remarks|withdrawal|deposit|debit|credit|amount|balance|chq|cheque|ref)\b""")
+
+    private val HOLDING_NAME_HEAD = Regex("""^(?:scheme(?:\s+name)?|fund(?:\s+name)?|instrument|symbol|security(?:\s+name)?|stock(?:\s+name)?|company(?:\s+name)?)\b""")
+    private val HOLDING_FIGURE_HEAD = Regex("""\b(?:current\s+(?:value|amount)|cur\.?\s*val|market\s+value|invested|units|qty|quantity|ltp)""")
+
+    /** A holdings table's header: a scheme / instrument name column beside a value, invested or units column. */
+    fun isHoldingsHeader(row: List<String>): Boolean {
+        val cells = row.map { it.trim().lowercase() }
+        return cells.any { HOLDING_NAME_HEAD.containsMatchIn(it) && it.length < 30 } && cells.count { HOLDING_FIGURE_HEAD.containsMatchIn(it) && it.length < 30 } >= 2
+    }
 
     private fun isHeader(row: List<String>): Boolean = row.count { HEADER_WORDS.containsMatchIn(it.lowercase()) && it.length < 40 } >= 3
 

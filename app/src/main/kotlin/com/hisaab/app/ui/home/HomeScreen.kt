@@ -106,6 +106,7 @@ fun HomeRoute(
     contentPadding: PaddingValues,
     onOpenProfile: () -> Unit = {},
     onOpenCategoryKey: (String) -> Unit = {},
+    onOpenAccount: ((Long) -> Unit)? = null,
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -133,7 +134,7 @@ fun HomeRoute(
         onOpenReview = onOpenReview, onOpenBudgets = onOpenBudgets, contentPadding = contentPadding,
         onToggleHide = vm::toggleHideAmounts, onAdd = onAdd, onAddRecurring = { addingRecurring = true },
         onOpenInvestments = onOpenInvestments, onOpenStatements = onOpenStatements, onOpenBills = onOpenBills, onOpenAnalytics = onOpenAnalytics,
-        onOpenCategory = { onOpenCategory(it, month) }, onOpenCategoryKey = { onOpenCategoryKey("$it?month=$month") },
+        onOpenCategory = { onOpenCategory(it, month) }, onOpenCategoryKey = { onOpenCategoryKey("$it?month=$month") }, onOpenAccount = { onOpenAccount?.invoke(it) ?: onOpenAccounts() },
         updateVersion = (update as? com.hisaab.app.update.UpdateState.Available)?.release?.version, onOpenSettings = onOpenSettings,
         syncing = syncing, sync = sync, onSync = vm::syncAll, photoPath = profile?.first?.photoPath, onOpenProfile = onOpenProfile,
         onDismissInsight = vm::dismissInsight,
@@ -165,6 +166,7 @@ fun HomeScreen(
     onOpenAnalytics: () -> Unit = {},
     onOpenCategory: (Category) -> Unit = {},
     onOpenCategoryKey: (String) -> Unit = {},
+    onOpenAccount: (Long) -> Unit = {},
     updateVersion: String? = null,
     onOpenSettings: () -> Unit = {},
     syncing: Boolean = false,
@@ -181,7 +183,7 @@ fun HomeScreen(
         state.lockedStatements.forEach { st ->
             add(HomeNotice(t("Statement needs a password"), st.bankName ?: st.sender.substringBefore('<').trim(), Icons.Filled.Lock, onOpenStatements))
         }
-        updateVersion?.let { add(HomeNotice(t("DhanKosh {version} is available", "version" to it), t("Install the update"), Icons.Filled.SystemUpdate, onOpenSettings)) }
+        updateVersion?.let { add(HomeNotice(t("DhanKosh {version} is available", "version" to it), t("Install the update"), Icons.Filled.SystemUpdate, onOpenSettings, whatsNew = true)) }
     }
     if (showNotices) NotificationsSheet(notices, onDismiss = { showNotices = false })
     val listState = rememberLazyListState()
@@ -215,6 +217,7 @@ fun HomeScreen(
                 Box(Modifier.animateItem().enterOnce(index).padding(horizontal = 14.dp)) {
                     when (key) {
                         "networth" -> NetWorthWidget(widgets, onOpenInvestments, edit)
+                        "cards" -> CreditCardsWidget(widgets, onOpenAccount, edit)
                         "cashflow" -> CashFlowWidget(widgets, onOpenAnalytics, edit)
                         "safe" -> SafeWidget(widgets, onOpenBudgets, edit)
                         "upcoming" -> UpcomingWidget(widgets, onOpenBills, edit)

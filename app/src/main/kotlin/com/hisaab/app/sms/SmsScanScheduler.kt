@@ -20,6 +20,16 @@ object SmsScanScheduler {
         WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, if (full) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, request)
     }
 
+    /** The refresh button: everything since the last scan plus the last [days] days, started even if a scan is queued. */
+    fun scanRecent(context: Context, days: Int = 14) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) return
+        val request = OneTimeWorkRequestBuilder<OptimizedSmsReaderWorker>()
+            .setInputData(workDataOf(OptimizedSmsReaderWorker.KEY_RECENT_DAYS to days))
+            .addTag(WORK_NAME)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+    }
+
     /** Catches up on SMS that arrived while the app was not running, or with [full], rescans the look-back window. */
     fun scanIfPermitted(context: Context, full: Boolean = false) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) scan(context, full)

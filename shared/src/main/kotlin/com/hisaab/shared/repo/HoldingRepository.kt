@@ -24,14 +24,17 @@ class HoldingRepository @Inject constructor(private val dao: HoldingDao) {
     suspend fun record(snapshots: List<HoldingSnapshot>, source: String): Int {
         var changed = 0
         val now = System.currentTimeMillis()
+        // Holdings this batch already wrote: another scheme of the batch with a similar name never replaces them
+        // (one statement's rows are different holdings; the same scheme in two folios arrives summed, see HoldingTable).
+        val written = HashSet<Long>()
         for (s in snapshots) {
             val all = dao.observeAll().first()
             if (HoldingMatch.isAggregate(s.identifier) &&
                 HoldingMatch.aggregateClass(s.identifier) in HoldingMatch.aggregatesCovered(all.map(::keyOf))
             ) continue
-            val existing = all.firstOrNull { it.identifier == s.identifier } ?: match(all, HoldingMatch.Key(s.kind, s.identifier, s.name))
+            val existing = all.firstOrNull { it.identifier == s.identifier } ?: match(all.filter { it.id !in written }, HoldingMatch.Key(s.kind, s.identifier, s.name))
             if (existing == null) {
-                dao.insert(
+                written += dao.insert(
                     HoldingEntity(kind = s.kind, name = s.name, identifier = HoldingMatch.normalisedId(s.identifier), units = s.units,
                         valueMinor = s.valueMinor, investedMinor = s.investedMinor, asOf = s.asOf,
                         source = source, note = null, updatedAt = now),
@@ -39,6 +42,7 @@ class HoldingRepository @Inject constructor(private val dao: HoldingDao) {
                 changed++
                 continue
             }
+            written += existing.id
             // The better identifier, unless another row already has it.
             val id = HoldingMatch.preferredId(existing.identifier, s.identifier)
                 .takeIf { it == existing.identifier || all.none { h -> h.identifier == it } } ?: existing.identifier

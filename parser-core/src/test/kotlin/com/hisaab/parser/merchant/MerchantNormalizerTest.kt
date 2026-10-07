@@ -29,6 +29,9 @@ class MerchantNormalizerTest {
             "IRCTC|IRCTC|TRAVEL",
             "SHARMA MEDICALS|Sharma Medicals|HEALTH",
             "COCA COLA STORE|Coca Cola Store|OTHER",
+            "TATA MUTUAL FUND SIP|Tata Mutual Fund|INVESTMENT",
+            "TATA AIA LIFE|Tata AIA|INSURANCE",
+            "TATA CAPITAL FINANCIAL SERVICES|Tata Capital|EMI_LOAN",
         ],
     )
     fun `names are cleaned and categorised`(raw: String, name: String, category: Category) {

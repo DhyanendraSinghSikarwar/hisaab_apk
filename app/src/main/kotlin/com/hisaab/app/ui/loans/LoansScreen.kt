@@ -1,5 +1,6 @@
 package com.hisaab.app.ui.loans
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -22,12 +23,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PostAdd
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -87,6 +94,8 @@ import com.hisaab.shared.db.AccountDao
 import com.hisaab.shared.db.AccountEntity
 import com.hisaab.shared.db.AccountType
 import com.hisaab.shared.db.AccountWithActivity
+import com.hisaab.shared.db.TransactionDao
+import com.hisaab.shared.insight.Loans
 import com.hisaab.shared.insight.Amortization
 import com.hisaab.shared.insight.Loan
 import com.hisaab.shared.insight.LoanTerms
@@ -125,8 +134,44 @@ private fun LoanAvatar(loan: Loan, size: androidx.compose.ui.unit.Dp = 40.dp) {
 // ---------------------------------------------------------------------------------------------
 
 @HiltViewModel
-class LoansViewModel @Inject constructor(source: LoanSource) : ViewModel() {
+class LoansViewModel @Inject constructor(
+    source: LoanSource,
+    private val accounts: AccountDao,
+    private val transactions: TransactionDao,
+    private val dismissals: LoanDismissals,
+) : ViewModel() {
     val snapshot: StateFlow<LoansSnapshot> = source.snapshot
+
+    /**
+     * Removes a loan. A loan account is deleted; its payments stay (as plain EMI payments) unless [deletePayments].
+     * A detected EMI is remembered as "Not a loan" so it never comes back. Either way its payees are dismissed.
+     */
+    fun remove(loan: Loan, deletePayments: Boolean) = viewModelScope.launch {
+        loan.accountId?.let { accounts.delete(it) }
+        if (loan.detected) dismissals.dismiss(loan.key.drop(1))
+        else loan.payments.mapNotNull(Loans::keyOf).distinct().forEach { dismissals.dismiss(it) }
+        if (deletePayments) transactions.deleteAll(loan.payments.map { it.id })
+    }
+
+    /** Creates a loan account for a loan the user types in; terms are saved when enough is known to draw a schedule. */
+    fun add(lender: String, last4: String, emiDay: Int?, terms: LoanTerms?) = viewModelScope.launch {
+        val name = lender.trim()
+        val digits = last4.filter(Char::isDigit).takeLast(4)
+        val existing = accounts.find(name, digits)
+        val id = existing?.id ?: accounts.insert(
+            AccountEntity(bankName = name, last4 = digits, kind = AccountKind.ACCOUNT, createdAt = System.currentTimeMillis(), accountType = AccountType.LOAN),
+        )
+        if (existing != null && existing.accountType != AccountType.LOAN) accounts.setType(id, AccountType.LOAN, null)
+        if (terms != null) {
+            val start = terms.startDay ?: emiDay?.let { d ->
+                // The next time that day comes round.
+                val today = LocalDate.now(Periods.zone)
+                val here = today.withDayOfMonth(minOf(d, today.lengthOfMonth()))
+                if (!here.isBefore(today)) here else Amortization.dueOn(today.withDayOfMonth(1).plusMonths(1).withDayOfMonth(d.coerceAtMost(28)), 1)
+            }
+            accounts.setLoanTerms(id, terms.principalMinor, terms.rateBps, terms.tenureMonths, start?.toEpochDay())
+        }
+    }
 }
 
 /** Every loan: the total still owed, then one card per loan with its EMI, next date and how much is repaid. */
@@ -134,9 +179,19 @@ class LoansViewModel @Inject constructor(source: LoanSource) : ViewModel() {
 @Composable
 fun LoansRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit, vm: LoansViewModel = hiltViewModel()) {
     val s by vm.snapshot.collectAsStateWithLifecycle()
+    var editing by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
+    var removing by remember { mutableStateOf<Loan?>(null) }
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(colors = clearTopBar(), title = { Text(t("Loans")) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } })
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
+            actions = {
+                IconButton(onClick = { editing = !editing }) {
+                    if (editing) Icon(Icons.Filled.Check, t("Done")) else Icon(Icons.Filled.Edit, t("Edit loans"))
+                }
+            })
+    }, floatingActionButton = {
+        if (editing) FloatingActionButton(onClick = { adding = true }, containerColor = Hx.accent, contentColor = Color.White) { Icon(Icons.Filled.Add, t("Add loan")) }
     }) { inner ->
         val accounts = s.loans.filter { !it.detected }
         val detected = s.loans.filter { it.detected }
@@ -156,16 +211,54 @@ fun LoansRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit, vm: LoansViewMo
                 return@LazyColumn
             }
             if (s.loans.isNotEmpty()) item(key = "hero") { LoansHero(s) }
-            items(accounts, key = { it.key }) { l -> LoanCard(l, Modifier.animateItem().enterOnce(0)) { onOpenLoan(l.key) } }
+            items(accounts, key = { it.key }) { l ->
+                LoanCard(l, Modifier.animateItem().enterOnce(0), editing = editing, onRemove = { removing = l }) { onOpenLoan(l.key) }
+            }
             if (detected.isNotEmpty()) {
                 item(key = "detected-h") {
                     Text(t("Detected EMIs"), style = MaterialTheme.typography.titleSmall, color = Hx.text2,
                         modifier = Modifier.padding(top = 8.dp, start = 4.dp))
                 }
-                items(detected, key = { it.key }) { l -> LoanCard(l, Modifier.animateItem()) { onOpenLoan(l.key) } }
+                items(detected, key = { it.key }) { l ->
+                    LoanCard(l, Modifier.animateItem(), editing = editing, onRemove = { removing = l }) { onOpenLoan(l.key) }
+                }
             }
         }
     }
+    if (adding) AddLoanSheet(onDismiss = { adding = false }) { lender, last4, day, terms ->
+        vm.add(lender, last4, day, terms); adding = false
+    }
+    removing?.let { l ->
+        RemoveLoanDialog(l, onDismiss = { removing = null }) { deletePayments -> vm.remove(l, deletePayments); removing = null }
+    }
+}
+
+/** Confirms removing a loan: the loan account (or "Not a loan" for a detected EMI), and optionally its payments. */
+@Composable
+private fun RemoveLoanDialog(l: Loan, onDismiss: () -> Unit, onConfirm: (deletePayments: Boolean) -> Unit) {
+    var payments by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (l.detected) t("Not a loan") else t("Remove loan")) },
+        text = {
+            Column {
+                Text(
+                    if (l.detected) t("{name} will no longer be detected as a loan.", "name" to l.name) else t("Remove {name} from your loans?", "name" to l.name),
+                    fontSize = 14.sp,
+                )
+                if (l.payments.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp).clickable { payments = !payments }, verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(payments, { payments = it })
+                        Text(t("Also delete {n} payments", "n" to l.payments.size), fontSize = 13.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(payments) }) { Text(if (l.detected) t("Not a loan") else t("Remove"), color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t("Cancel")) } },
+    )
 }
 
 @Composable
@@ -192,7 +285,7 @@ private fun HeroFigure(label: String, value: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun LoanCard(l: Loan, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun LoanCard(l: Loan, modifier: Modifier = Modifier, editing: Boolean = false, onRemove: () -> Unit = {}, onClick: () -> Unit) {
     HCard(modifier, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LoanAvatar(l)
@@ -212,6 +305,7 @@ private fun LoanCard(l: Loan, modifier: Modifier = Modifier, onClick: () -> Unit
                 Text(rupees(l.outstandingMinor), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Text(t("outstanding"), fontSize = 11.sp, color = Hx.text2)
             }
+            if (editing) IconButton(onClick = onRemove) { Icon(Icons.Filled.Delete, t("Remove loan"), tint = Hx.neg) }
         }
         l.progress?.let { p ->
             Spacer(Modifier.height(12.dp))
@@ -557,6 +651,78 @@ private fun TermsSheet(l: Loan, onDismiss: () -> Unit, onSave: (LoanTerms?) -> U
                     onClick = { onSave(LoanTerms(p!!, Math.round(r!! * 100).toInt(), n!!, start)) },
                     enabled = complete,
                 ) { Text(com.hisaab.app.i18n.t("Save")) }
+            }
+        }
+    }
+}
+
+/** Adds a loan by hand: lender, optional last digits, EMI and day, and optionally amount, rate, tenure and first EMI. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddLoanSheet(onDismiss: () -> Unit, onSave: (String, String, Int?, LoanTerms?) -> Unit) {
+    var lender by remember { mutableStateOf("") }
+    var last4 by remember { mutableStateOf("") }
+    var emi by remember { mutableStateOf("") }
+    var day by remember { mutableStateOf("") }
+    var principal by remember { mutableStateOf("") }
+    var rate by remember { mutableStateOf("") }
+    var tenure by remember { mutableStateOf("") }
+    var start by remember { mutableStateOf<LocalDate?>(null) }
+    val e = Money.parseInput(emi)?.takeIf { it > 0 }
+    val d = day.toIntOrNull()?.takeIf { it in 1..31 }
+    val p = Money.parseInput(principal)?.takeIf { it > 0 }
+    val r = rate.trim().toDoubleOrNull()?.takeIf { it in 0.0..60.0 }
+    val n = tenure.trim().toIntOrNull()?.takeIf { it in 1..600 }
+    val valid = lender.isNotBlank() && (emi.isBlank() || e != null) && (day.isBlank() || d != null) &&
+        (principal.isBlank() || p != null) && (rate.isBlank() || r != null) && (tenure.isBlank() || n != null)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(t("Add loan"), style = MaterialTheme.typography.titleLarge)
+            OutlinedTextField(lender, { lender = it }, Modifier.fillMaxWidth(), label = { Text(t("Lender")) }, singleLine = true)
+            OutlinedTextField(
+                last4, { last4 = it.filter(Char::isDigit).take(4) }, Modifier.fillMaxWidth(), label = { Text(t("Loan number, last digits (optional)")) },
+                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    emi, { emi = it }, Modifier.weight(1f), label = { Text(t("EMI")) }, prefix = { Text("₹") }, singleLine = true,
+                    isError = emi.isNotBlank() && e == null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                OutlinedTextField(
+                    day, { day = it.filter(Char::isDigit).take(2) }, Modifier.weight(1f), label = { Text(t("EMI day")) }, singleLine = true,
+                    isError = day.isNotBlank() && d == null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            }
+            OutlinedTextField(
+                principal, { principal = it }, Modifier.fillMaxWidth(), label = { Text(t("Loan amount (optional)")) }, prefix = { Text("₹") },
+                singleLine = true, isError = principal.isNotBlank() && p == null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    rate, { rate = it.filter { c -> c.isDigit() || c == '.' }.take(6) }, Modifier.weight(1f), label = { Text(t("Interest rate")) },
+                    suffix = { Text(t("% p.a.")) }, singleLine = true, isError = rate.isNotBlank() && r == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                OutlinedTextField(
+                    tenure, { tenure = it.filter(Char::isDigit).take(3) }, Modifier.weight(1f), label = { Text(t("Tenure")) },
+                    suffix = { Text(t("months")) }, singleLine = true, isError = tenure.isNotBlank() && n == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            }
+            DateField(t("First EMI"), start) { start = it }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                TextButton(onClick = onDismiss) { Text(t("Cancel")) }
+                Button(
+                    enabled = valid,
+                    onClick = {
+                        // With a tenure, an EMI alone is enough for a schedule (no interest assumed).
+                        val terms = n?.let { LoanTerms(p ?: ((e ?: 0L) * it), Math.round((r ?: 0.0) * 100).toInt(), it, start) }?.takeIf { it.principalMinor > 0 }
+                        onSave(lender, last4, d, terms)
+                    },
+                ) { Text(t("Save")) }
             }
         }
     }

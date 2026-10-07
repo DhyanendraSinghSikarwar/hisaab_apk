@@ -213,9 +213,9 @@ class HomeViewModel @Inject constructor(
 
     private fun WorkInfo.State.isActive() = this == WorkInfo.State.RUNNING || this == WorkInfo.State.ENQUEUED
 
-    /** The refresh button: new SMS, every connected inbox, and a fresh look at budgets and upcoming payments. */
+    /** The refresh button: new and recent SMS, every connected inbox, and a fresh look at budgets and upcoming payments. */
     fun syncAll() = viewModelScope.launch {
-        SmsScanScheduler.scanIfPermitted(context)
+        SmsScanScheduler.scanRecent(context)
         val mail = mailSettings.read()
         if (mail.connected && mail.enabled) com.hisaab.email.sync.GmailScheduler.syncNow(context)
         runCatching { alerts.checkBudgets(); alerts.checkUpcoming() }
