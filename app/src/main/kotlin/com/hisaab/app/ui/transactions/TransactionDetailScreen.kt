@@ -101,7 +101,7 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
             AlertDialog(
                 onDismissRequest = { confirmDelete = false },
                 title = { Text("Delete this transaction?") },
-                text = { Text("It is removed from Hisaab and won't come back on a rescan. The message itself is not touched.") },
+                text = { Text("It is removed from Artha and won't come back on a rescan. The message itself is not touched.") },
                 confirmButton = { TextButton(onClick = { confirmDelete = false; vm.delete(onBack) }) { Text("Delete") } },
                 dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
             )

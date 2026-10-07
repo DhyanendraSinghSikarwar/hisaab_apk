@@ -70,3 +70,34 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] Icons: one rounded-square shape; brands without a logo use their own two-colour gradient
 - Home Edit pill removed (reading of "edit button top right"); widget layout stays in More › Customise
 - Built + all tests pass; not yet run on a device
+
+## 2.3.0 (requested 2026-10-06)
+- [x] Home net worth: credit cards collapsible (collapsed by default); drop "not counted in net worth" and "available"
+- [x] Bogus accounts ••6810 (user's mobile) at Axis/SBI: parser must not take a mobile number/VPA as account; clean existing
+- [x] NEFT/IMPS to someone else: their account not added as mine, not counted as income; clean existing
+- [x] Tax centre: no footer text; important notes behind ⓘ buttons
+- [x] Samsung Wallet/Pay and WhatsApp Pay notifications
+- [x] Analysis › Spending: "When you spend" last
+- [x] Statements (and other pushed screens) clear of the system navigation bar
+- [x] Portfolio: news icon (replaces statements) → Market news page (Moneycontrol RSS: Markets, Latest, Business, Stocks); tap opens browser
+- [x] Profile: no settings gear; Data sources: no Statements section
+- Built + all tests pass; one-time clean-up of wrong accounts runs on first launch; not yet run on a device
+
+## 2.4.0 (requested 2026-10-06)
+- [x] Profile: aesthetic redesign; crop/adjust photo before saving; gradient background from the photo's colours
+- [x] Security & backup: text size options (must fit on screen)
+- [x] More › Language: approach confirmed (download on demand, 7 languages)
+- [x] Text size (Security & backup): Small / Default / Large / XL, capped so layouts fit
+- [~] Language: More › Language; English built in; Hindi, Bengali, Telugu, Marathi, Tamil, Gujarati, Kannada download on demand from repo lang/<code>.json, delete anytime. Infra done; text extraction + translations pending
+- [x] Loan tracker: loan detail (EMI, paid, left, payoff), loan terms, EMIs in bills, More › Loans (DB v14)
+- Rule: everything aesthetic and professional
+- [x] Profile: photo-colour gradient hero, crop/zoom/rotate before saving, cleaner cards
+- [x] Hero-inspired themes (neutral names): Midnight Knight, Arc Red, Star Shield, Thunder, Gamma, Vibranium; pure-black dark mode toggle
+- [x] Micro-animations: tab spring + sliding indicator, count-up hero figures, staggered cards, shimmer, haptic ticks
+- [x] Film-inspired themes (Cinema group): Iron Throne, Middle Realm, Nitro, Neo Matrix, Interstellar Dust, Spice Dune
+- [x] Transaction rows: clean merchant (no Pay*/Raz*), time · category › sub-category · method; amounts coloured (income green, card amber, bank/UPI red, investment accent, transfer grey)
+- [x] Two soft palettes: Rose Quartz, Lavender Bloom
+- [x] Loan tracker (DB v14): loan detail, terms + amortisation, EMIs in Bills, More › Loans, Portfolio loans list
+- [x] Renamed to Artha (label, all visible text, welcome screen, release title/APK name); new logo as launcher icon and splash. Package id stays com.hisaab.app so updates keep data
+- [x] Themes: Rose Quartz, Lavender Bloom; Hero and Cinema groups; pure-black toggle; tab spring, count-up, shimmer, haptics
+- 2.4.0 built + all tests pass (DB v14); language text extraction and translations next

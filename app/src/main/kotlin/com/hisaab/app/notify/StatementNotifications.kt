@@ -38,7 +38,7 @@ class StatementNotifications @Inject constructor(@ApplicationContext private val
         val n = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_statement)
             .setContentTitle("$who statement detected")
-            .setContentText("It's password protected. Tap to enter the password so Hisaab can read it.")
+            .setContentText("It's password protected. Tap to enter the password so Artha can read it.")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 "${statement.fileName} is password protected. Tap to enter its password. It's read and kept only on this phone.",
             ))

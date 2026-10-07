@@ -10,7 +10,7 @@
     </style>
     <style name="Theme.Hisaab.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/brand</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_mark</item>
         <item name="postSplashScreenTheme">@style/Theme.Hisaab</item>
     </style>
 </resources>

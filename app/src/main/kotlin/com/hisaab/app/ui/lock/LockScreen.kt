@@ -21,7 +21,7 @@ fun LockScreen(onUnlock: () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)) {
             Icon(Icons.Filled.Lock, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("Hisaab is locked", style = MaterialTheme.typography.titleLarge)
+            Text("Artha is locked", style = MaterialTheme.typography.titleLarge)
             Button(onClick = onUnlock) { Text("Unlock") }
         }
     }

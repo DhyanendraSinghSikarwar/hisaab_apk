@@ -44,31 +44,31 @@ fun InfoButton(title: String, vararg paragraphs: String, modifier: Modifier = Mo
 /** The explanations, in one place so the same question gets the same answer everywhere. */
 object Info {
     val SMS = arrayOf(
-        "Hisaab reads SMS only from banks, card issuers, EPFO and NPS. Messages from people and other apps are skipped without being read.",
+        "Artha reads SMS only from banks, card issuers, EPFO and NPS. Messages from people and other apps are skipped without being read.",
         "Bank SMS become transactions. OTPs, offers, reminders and failed payments are ignored.",
         "Everything stays on this phone.",
     )
     val EMAIL = arrayOf(
-        "Connecting your email lets Hisaab read bank alert emails and the statement PDFs attached to them (card, bank, CAS, INDmoney and broker statements).",
+        "Connecting your email lets Artha read bank alert emails and the statement PDFs attached to them (card, bank, CAS, INDmoney and broker statements).",
         "It reads only mail from the bank and investment senders in the filter, and only to your phone. Nothing is uploaded.",
-        "To prove the address is yours, Hisaab mails you a 6-digit code from your own account.",
+        "To prove the address is yours, Artha mails you a 6-digit code from your own account.",
     )
     val APP_PASSWORD = arrayOf(
-        "An app password is a separate 16-character password your email provider makes for one app. Your normal password won't work, and Hisaab never sees it.",
+        "An app password is a separate 16-character password your email provider makes for one app. Your normal password won't work, and Artha never sees it.",
         "Gmail: turn on 2-Step Verification, then create one at myaccount.google.com/apppasswords. You can delete it there at any time.",
         "It's stored encrypted with a key that never leaves this phone.",
     )
     val FETCH_HISTORY = arrayOf(
-        "How far back Hisaab reads your SMS inbox and your email. A longer period finds more history but takes longer the first time.",
+        "How far back Artha reads your SMS inbox and your email. A longer period finds more history but takes longer the first time.",
         "Changing it rescans for the new period. Transactions already found stay.",
     )
     val PAYMENT_APPS = arrayOf(
         "Many banks don't send an SMS for small UPI payments, but GPay, PhonePe, Paytm and others always show a notification.",
-        "With this on, Hisaab reads notifications from known payment and bank apps only, and keeps only completed payments. Every other app's notifications are ignored.",
+        "With this on, Artha reads notifications from known payment and bank apps only, and keeps only completed payments. Every other app's notifications are ignored.",
         "If the bank's SMS or email for the same payment comes later, the two are merged, not counted twice.",
     )
     val STATEMENT_PASSWORDS = arrayOf(
-        "Most statements are password protected. Save a password once and Hisaab tries it on every new statement.",
+        "Most statements are password protected. Save a password once and Artha tries it on every new statement.",
         "Card statements often use the first 4 letters of your name + DDMM of birth (e.g. RAHU0105). CAS uses your PAN in capitals. Bank statements often use your customer ID or date of birth.",
         "Passwords are encrypted on this phone and never sent anywhere.",
     )
@@ -83,17 +83,17 @@ object Info {
     )
     val CARD_LINK = arrayOf(
         "A debit card spends your bank account's money. Linking it makes its spends and ATM withdrawals count against that account, and the balance in its SMS updates the account.",
-        "Hisaab suggests a link when the balance in the card's SMS matches one of your accounts.",
+        "Artha suggests a link when the balance in the card's SMS matches one of your accounts.",
     )
     val DUPLICATES = arrayOf(
-        "Hisaab merges an SMS, an email and a statement row for the same payment automatically when it's sure.",
+        "Artha merges an SMS, an email and a statement row for the same payment automatically when it's sure.",
         "When it isn't sure (same amount and account, no reference number), it asks you here. Compare shows both side by side with their original messages.",
     )
     val MANUAL_BALANCE = arrayOf(
         "Optional. If your bank's SMS don't include the balance, type it here once.",
-        "Hisaab moves it on with every transaction after that, and a newer balance from a bank message replaces it.",
+        "Artha moves it on with every transaction after that, and a newer balance from a bank message replaces it.",
     )
     val APP_LOCK = arrayOf(
-        "Asks for your fingerprint, face or screen lock each time Hisaab opens, so someone holding your unlocked phone can't see your finances.",
+        "Asks for your fingerprint, face or screen lock each time Artha opens, so someone holding your unlocked phone can't see your finances.",
     )
 }

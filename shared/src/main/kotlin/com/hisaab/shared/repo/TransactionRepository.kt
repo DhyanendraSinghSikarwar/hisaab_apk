@@ -35,6 +35,19 @@ data class IncomingMessage(
     val subject: String? = null,
 )
 
+/** What [TransactionRepository.reparseStored] did: fixes found, transactions changed, accounts deleted. */
+data class ReparseReport(val found: Int, val changed: Int, val accountsDeleted: Int)
+
+private class ReparseFix(
+    val id: Long,
+    val oldLast4: String?,
+    val oldType: TransactionType,
+    /** The reading whose account to move to (its last4 may be null: no account), or null to keep the account. */
+    val account: ParsedTransaction?,
+    /** The reading whose type and category to take, or null to keep them. */
+    val typed: ParsedTransaction?,
+)
+
 enum class IngestOutcome { INSERTED, MERGED, FLAGGED_FOR_REVIEW, ALREADY_PROCESSED }
 
 data class IngestReport(val inserted: Int, val merged: Int, val flagged: Int, val skipped: Int) {
@@ -371,6 +384,100 @@ class TransactionRepository @Inject constructor(
     suspend fun alreadyProcessedEmails(ids: List<String>): Set<String> =
         ids.chunked(SQLITE_MAX_ARGS).flatMap { processedDao.existing(it) }.toSet()
 
+    /**
+     * One-off repair after parser fixes: re-parses every stored SMS/email transaction from its source text and,
+     * where the new reading differs, moves it to the right account (a masked mobile number or the payee's account
+     * was taken as the user's) and turns a "credited to beneficiary" CREDIT into the DEBIT it is. A category the
+     * user chose is kept; only the parser's income guess is replaced. Accounts left empty by the move, and an
+     * account numbered like the user's mobile ([mobileLast4]) beside a real one at the same bank, are deleted
+     * when the user never touched them. Parsing happens outside the write transaction; all writes in one.
+     */
+    suspend fun reparseStored(mobileLast4: String?): ReparseReport {
+        val fixes = ArrayList<ReparseFix>()
+        var after = 0L
+        while (true) {
+            val page = txDao.pageAfter(after, REPARSE_PAGE)
+            if (page.isEmpty()) break
+            after = page.last().id
+            val sources = sourceDao.forTransactions(page.map { it.id }).groupBy { it.transactionId }
+            for (t in page) reparseFix(t, sources[t.id].orEmpty())?.let(fixes::add)
+        }
+        var changed = 0
+        var deleted = 0
+        write {
+            val manual = rules.manualRules()
+            val emptied = HashSet<Long>()
+            for (f in fixes) {
+                val t = txDao.getById(f.id) ?: continue
+                // Changed since it was read: leave it.
+                if (t.accountLast4 != f.oldLast4 || t.type != f.oldType) continue
+                var next = t
+                f.account?.let { p ->
+                    val newId = ensureAccount(p)
+                    t.accountId?.let(emptied::add)
+                    next = next.copy(accountLast4 = p.accountLast4, accountKind = p.accountKind, accountId = newId)
+                    if (newId != null) {
+                        val balance = p.balanceMinor.takeIf { p.accountKind == AccountKind.ACCOUNT || p.isDebitCard }
+                        if (balance != null || p.availableLimitMinor != null) accountDao.updateBalance(newId, balance, p.availableLimitMinor, p.transactionTime)
+                    }
+                }
+                f.typed?.let { p ->
+                    next = next.copy(type = p.type)
+                    val ownCategory = t.subcategory != null || t.customCategoryId != null ||
+                        (t.category != Category.INCOME && t.category != Category.SALARY)
+                    if (!ownCategory) next = next.copy(category = ruleFor(p, manual)?.category ?: p.category)
+                }
+                if (next != t) { txDao.update(next); changed++ }
+            }
+
+            val accounts = accountDao.all()
+            val phoneLike = if (mobileLast4 == null) emptyList() else accounts.filter { it.last4 == mobileLast4 }
+            val gone = HashSet<Long>()
+            for (id in emptied + phoneLike.map { it.id }) {
+                val a = accountDao.getById(id) ?: continue
+                if (!a.untouched() || accountDao.referenceCount(a.id) > 0) continue
+                val siblings = accounts.filter {
+                    it.id != a.id && it.id !in gone && it.bankName == a.bankName && it.kind == a.kind && !it.hidden && it.last4 != mobileLast4
+                }
+                var count = txDao.countForAccount(a.id)
+                if (a.last4 == mobileLast4 && count > 0 && siblings.size == 1) {
+                    // Numbered like the user's phone, at a bank where the user has one real account: it is that account.
+                    txDao.moveAccount(a.id, siblings.single().id, siblings.single().last4)
+                    count = 0
+                }
+                val removable = count == 0 && (a.id in emptied || (a.last4 == mobileLast4 && siblings.isNotEmpty()))
+                if (removable) { accountDao.delete(a.id); gone += a.id; deleted++ }
+            }
+        }
+        return ReparseReport(fixes.size, changed, deleted)
+    }
+
+    /** What re-parsing [t]'s own SMS/email text says should change, or null when nothing should. */
+    private fun reparseFix(t: TransactionEntity, sources: List<TransactionSourceEntity>): ReparseFix? {
+        val parses = sources.mapNotNull { s ->
+            val raw = s.rawText ?: return@mapNotNull null
+            // "#..." ids are derived rows (an MF order read from an email), not a plain parse of the text.
+            if ('#' in s.sourceMessageId) return@mapNotNull null
+            val source = when (s.source) { "SMS" -> Source.SMS; "EMAIL" -> Source.EMAIL; else -> return@mapNotNull null }
+            runCatching { registry.parse(raw, s.sender, s.receivedAt, source) }.getOrNull()
+                ?.takeIf { it.amountMinor == t.amountMinor && it.bankName == t.bankName }
+        }
+        if (parses.isEmpty()) return null
+        // The account is wrong only when no message of the transaction still reads it.
+        val account = if (t.accountLast4 != null && parses.none { it.accountLast4 == t.accountLast4 }) {
+            parses.firstOrNull { it.accountLast4 != null } ?: parses.first()
+        } else null
+        // Only the beneficiary mistake is undone: a CREDIT that every message now reads as money out.
+        val typed = if (t.type == TransactionType.CREDIT && parses.none { it.type == TransactionType.CREDIT }) {
+            parses.firstOrNull { it.type == TransactionType.DEBIT || it.type == TransactionType.INVESTMENT }
+        } else null
+        if (account == null && typed == null) return null
+        return ReparseFix(t.id, t.accountLast4, t.type, account, typed)
+    }
+
+    private fun AccountEntity.untouched() = nickname == null && colorArgb == null && manualBalanceMinor == null &&
+        !hidden && usage == com.hisaab.shared.db.AccountUsage.PERSONAL && maturityDay == null && forexMarkupBps == null && linkedAccountId == null
+
     private suspend fun write(block: suspend () -> Unit) {
         db.useWriterConnection { it.immediateTransaction { block() } }
     }
@@ -379,5 +486,6 @@ class TransactionRepository @Inject constructor(
         const val RAW_TEXT_CAP = 20_000
         const val CSV = "CSV"
         const val SQLITE_MAX_ARGS = 900
+        const val REPARSE_PAGE = 400
     }
 }

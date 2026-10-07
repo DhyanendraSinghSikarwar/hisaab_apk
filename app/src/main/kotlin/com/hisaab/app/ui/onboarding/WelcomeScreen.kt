@@ -119,13 +119,21 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Spacer(Modifier.height(72.dp))
+                // The Artha mark on a soft tile, as on the launcher icon.
                 Box(
-                    Modifier.size(84.dp).background(Brush.linearGradient(listOf(BackdropColors.emerald, BackdropColors.sapphire)), RoundedCornerShape(26.dp)),
+                    Modifier.size(104.dp).background(
+                        Brush.linearGradient(listOf(Color(0xFFFFF7E6), Color(0xFFD9F2EA))), RoundedCornerShape(30.dp),
+                    ),
                     contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Filled.CurrencyRupee, null, tint = Color.White, modifier = Modifier.size(44.dp)) }
+                ) {
+                    androidx.compose.foundation.Image(
+                        androidx.compose.ui.res.painterResource(com.hisaab.app.R.drawable.artha_mark), "Artha",
+                        modifier = Modifier.size(72.dp),
+                    )
+                }
                 Spacer(Modifier.height(20.dp))
-                Text("Hisaab", style = MaterialTheme.typography.displaySmall)
-                Text("Every rupee, tracked privately.", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant, textAlign = TextAlign.Center)
+                Text("Artha", style = MaterialTheme.typography.displaySmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text("Know your money.", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(40.dp))
 
                 OutlinedTextField(

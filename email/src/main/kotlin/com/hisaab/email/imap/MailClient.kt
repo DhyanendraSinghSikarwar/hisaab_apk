@@ -75,7 +75,7 @@ class JavaMailClient @Inject constructor() : MailClient {
             put("mail.smtp.connectiontimeout", TIMEOUT); put("mail.smtp.timeout", TIMEOUT); put("mail.smtp.writetimeout", TIMEOUT)
         }
         val message = MimeMessage(Session.getInstance(props)).apply {
-            setFrom(InternetAddress(login.email, "Hisaab"))
+            setFrom(InternetAddress(login.email, "Artha"))
             setRecipients(Message.RecipientType.TO, InternetAddress.parse(login.email))
             setSubject(subject, "UTF-8")
             setText(body, "UTF-8")

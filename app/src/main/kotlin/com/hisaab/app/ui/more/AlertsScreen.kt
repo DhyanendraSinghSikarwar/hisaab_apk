@@ -29,7 +29,7 @@ import com.hisaab.app.ui.settings.SettingsViewModel
 
 private val BUDGET_LEVELS = listOf(80, 90, 95)
 
-/** What Hisaab tells you about, and when. */
+/** What Artha tells you about, and when. */
 @Composable
 fun AlertsRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -42,7 +42,7 @@ fun AlertsRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
         LazyColumn(contentPadding = listPadding(inner), verticalArrangement = Arrangement.spacedBy(CardGap)) {
             if (!allowed) item("blocked") {
                 HCard {
-                    HRow("Notifications are off", "Android is blocking alerts from Hisaab") {
+                    HRow("Notifications are off", "Android is blocking alerts from Artha") {
                         Button(onClick = {
                             AppLockGate.skipNextLock()
                             context.startActivity(

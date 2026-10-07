@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.Elderly
 import androidx.compose.material.icons.filled.Lock
@@ -138,11 +139,13 @@ fun InvestmentsRoute(
     onBack: (() -> Unit)? = null,
     /** Opens Accounts on a tab: 0 accounts, 1 cards, 2 deposits & loans. */
     onOpenAccounts: (Int) -> Unit = {},
+    onOpenNews: () -> Unit = {},
+    /** Opens a loan account in the loan tracker. */
+    onOpenLoan: (Long) -> Unit = {},
     vm: InvestmentsViewModel = hiltViewModel(),
 ) {
     val nw by vm.netWorth.collectAsStateWithLifecycle()
     val sections by vm.sections.collectAsStateWithLifecycle()
-    val locked by vm.lockedStatements.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<HoldingEntity?>(null) }
     var adding by remember { mutableStateOf(false) }
     // The asset class picked on the allocation donut; filters the holdings.
@@ -158,12 +161,8 @@ fun InvestmentsRoute(
                 title = { Text("Portfolio") },
                 navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
                 actions = {
-                    // Statements, with a red dot while one is waiting for its password.
-                    IconButton(onClick = onOpenStatements) {
-                        BadgedBox(badge = { if (locked > 0) Badge() }) {
-                            Icon(Icons.AutoMirrored.Filled.ReceiptLong, "Statements")
-                        }
-                    }
+                    // Market headlines. Statements live in More and behind Home's bell.
+                    IconButton(onClick = onOpenNews) { Icon(Icons.Filled.Newspaper, "Market news") }
                 },
             )
         },
@@ -193,7 +192,7 @@ fun InvestmentsRoute(
                     "networth" -> item(key = "networth") { NetWorthCard(nw, range, onRange = { range = it }, modifier = Modifier.animateItem()) }
                     "holdings" -> holdingsSection(model, filter, onClearFilter = { filterName = null },
                         onEdit = { editing = it }, onOpenAccounts = onOpenAccounts)
-                    "maturity" -> item(key = "maturity") { MaturityCard(nw.accounts, onOpen = { onOpenAccounts(2) }, modifier = Modifier.animateItem()) }
+                    "maturity" -> item(key = "maturity") { MaturityCard(nw.accounts, onOpen = { onOpenAccounts(2) }, onOpenLoan = onOpenLoan, modifier = Modifier.animateItem()) }
                     else -> Unit
                 }
             }

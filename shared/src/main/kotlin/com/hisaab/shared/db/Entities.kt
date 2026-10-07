@@ -128,6 +128,11 @@ data class AccountEntity(
     @ColumnInfo(defaultValue = "NULL") val maturityAction: MaturityAction? = null,
     /** A card's charge on spends in other currencies, in basis points (3.5% = 350). */
     @ColumnInfo(defaultValue = "NULL") val forexMarkupBps: Int? = null,
+    /** A loan's terms, set by the user: amount borrowed (paise), rate in basis points p.a., tenure, first EMI (epoch day). */
+    @ColumnInfo(defaultValue = "NULL") val loanPrincipalMinor: Long? = null,
+    @ColumnInfo(defaultValue = "NULL") val loanRateBps: Int? = null,
+    @ColumnInfo(defaultValue = "NULL") val loanTenureMonths: Int? = null,
+    @ColumnInfo(defaultValue = "NULL") val loanStartDay: Long? = null,
 )
 
 /** What happens to a deposit on its maturity date. Paid out: it leaves the lists. Renewed: it stays. */
@@ -257,7 +262,13 @@ data class AccountWithActivity(
     val maturityDay: Long? = null,
     val maturityAction: MaturityAction? = null,
     val forexMarkupBps: Int? = null,
+    val loanPrincipalMinor: Long? = null,
+    val loanRateBps: Int? = null,
+    val loanTenureMonths: Int? = null,
+    val loanStartDay: Long? = null,
 ) {
+    val isLoan: Boolean get() = accountType == AccountType.LOAN
+
     val isDebitCard: Boolean get() = kind == AccountKind.CARD && accountType == AccountType.DEBIT_CARD
 
     /** Counts towards the Home balance: a bank account that is not a deposit, PPF or loan. */

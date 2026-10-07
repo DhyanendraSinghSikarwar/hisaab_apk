@@ -137,7 +137,7 @@ fun SubcategorySheet(
             item(key = "new") { Tile(Icons.Filled.Add, "New sub-category", MaterialTheme.colorScheme.primary, selected = false) { creating = true } }
             item(key = "hint", span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    "Hisaab places well-known merchants on its own (Swiggy and Zomato go to Food delivery). Pick one to override it.",
+                    "Artha places well-known merchants on its own (Swiggy and Zomato go to Food delivery). Pick one to override it.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp),
                 )

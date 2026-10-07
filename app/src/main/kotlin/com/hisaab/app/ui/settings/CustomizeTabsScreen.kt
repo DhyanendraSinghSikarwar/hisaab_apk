@@ -33,9 +33,11 @@ import com.hisaab.app.settings.TabLayoutStore
 import com.hisaab.app.settings.TabLayouts
 import com.hisaab.app.settings.ThemeMode
 import com.hisaab.app.settings.ThemePalette
+import com.hisaab.app.settings.PaletteGroup
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.ui.components.pressScale
 import com.hisaab.app.ui.theme.LocalDarkTheme
+import com.hisaab.app.ui.theme.pureBlack
 import com.hisaab.app.ui.theme.spec
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -81,6 +83,7 @@ import javax.inject.Inject
 @HiltViewModel
 class CustomizeTabsViewModel @Inject constructor(private val store: TabLayoutStore, private val app: AppSettingsStore) : ViewModel() {
     fun setPalette(palette: ThemePalette) = viewModelScope.launch { app.setPalette(palette) }
+    fun setPureBlack(value: Boolean) = viewModelScope.launch { app.setPureBlack(value) }
     val layout = store.settings.stateIn(viewModelScope, SharingStarted.Eagerly, TabLayout())
     fun move(tab: String, key: String, by: Int) = viewModelScope.launch { store.move(tab, key, by) }
     fun setVisible(tab: String, key: String, visible: Boolean) = viewModelScope.launch { store.setVisible(tab, key, visible) }
@@ -105,8 +108,16 @@ fun CustomizeTabsRoute(onBack: () -> Unit, vm: CustomizeTabsViewModel = hiltView
                     modes.indexOf(s.app?.theme ?: ThemeMode.SYSTEM),
                     onSelect = { settings.setTheme(modes[it]) },
                 )
-                Text("Palette", style = MaterialTheme.typography.labelLarge, color = Hx.text2, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
-                PalettePicker(s.app?.palette ?: ThemePalette.CLASSIC, onPick = { vm.setPalette(it) })
+                val pureBlack = s.app?.pureBlack ?: false
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Pure black in dark mode", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    Switch(pureBlack, { vm.setPureBlack(it) })
+                }
+                val selected = s.app?.palette ?: ThemePalette.CLASSIC
+                PaletteGroup.entries.forEach { group ->
+                    Text(group.label, style = MaterialTheme.typography.labelLarge, color = Hx.text2, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                    PalettePicker(ThemePalette.entries.filter { it.group == group }, selected, pureBlack, onPick = { vm.setPalette(it) })
+                }
             }
 
             HCard(title = "Tab sections", action = "Reset", onAction = { vm.reset(tab) }) {
@@ -132,18 +143,18 @@ fun CustomizeTabsRoute(onBack: () -> Unit, vm: CustomizeTabsViewModel = hiltView
 
 /** A row of palette swatches: each shows its surface, its hero gradient, and its name; the chosen one is ringed and ticked. */
 @Composable
-private fun PalettePicker(selected: ThemePalette, onPick: (ThemePalette) -> Unit) {
+private fun PalettePicker(palettes: List<ThemePalette>, selected: ThemePalette, pureBlack: Boolean, onPick: (ThemePalette) -> Unit) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        ThemePalette.entries.forEach { p -> PaletteSwatch(p, p == selected) { onPick(p) } }
+        palettes.forEach { p -> PaletteSwatch(p, p == selected, pureBlack) { onPick(p) } }
     }
 }
 
 @Composable
-private fun PaletteSwatch(palette: ThemePalette, selected: Boolean, onClick: () -> Unit) {
-    val spec = palette.spec
+private fun PaletteSwatch(palette: ThemePalette, selected: Boolean, pureBlack: Boolean, onClick: () -> Unit) {
+    val spec = remember(palette, pureBlack) { if (pureBlack) palette.spec.pureBlack() else palette.spec }
     val dark = LocalDarkTheme.current
     val scheme = if (dark) spec.dark else spec.light
     val hero = if (dark) spec.heroDark else spec.heroLight
@@ -154,7 +165,7 @@ private fun PaletteSwatch(palette: ThemePalette, selected: Boolean, onClick: () 
     val label by animateColorAsState(if (selected) MaterialTheme.colorScheme.onSurface else Hx.text2, label = "label")
     val press = remember { MutableInteractionSource() }
     Column(
-        Modifier.width(64.dp).pressScale(press, 0.94f).clip(MaterialTheme.shapes.small)
+        Modifier.width(72.dp).pressScale(press, 0.94f).clip(MaterialTheme.shapes.small)
             .clickable(press, LocalIndication.current, role = Role.RadioButton, onClick = onClick)
             .semantics { this.selected = selected }
             .padding(vertical = 6.dp),
@@ -173,7 +184,8 @@ private fun PaletteSwatch(palette: ThemePalette, selected: Boolean, onClick: () 
             }
         }
         Text(
-            palette.label, color = label, fontSize = 11.sp, maxLines = 1,
+            palette.label, color = label, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             modifier = Modifier.padding(top = 6.dp),
         )

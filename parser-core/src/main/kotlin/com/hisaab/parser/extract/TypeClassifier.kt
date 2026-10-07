@@ -23,6 +23,18 @@ object TypeClassifier {
             """\btowards\s+(?:your\s+)?(?:[A-Za-z]+\s+){0,3}credit\s+card\b|\b(?:credit\s+card|cc)\s+(?:bill\s+)?payment\b|\bcard\s+bill\b""",
         "payment", "self", "own account", "between your", "towards", "card bill",
     )
+    /**
+     * Money the user sent to someone else's account. Banks write the payee's side ("credited to Beneficiary
+     * A/c XX9876", "credited to ANIL's account"), which would otherwise read as income.
+     */
+    private val OUTGOING = Guarded(
+        """\bcredited\s+(?:in)?to\s+(?:the\s+)?(?:beneficiary|benef\w*|bene|payee|recipient)\b|""" +
+            """\bcredited\s+(?:in)?to\s+(?:[A-Za-z.]+\s+){0,3}[A-Za-z.]+['’]s\s+(?:a/c|acct|account|bank)\b|""" +
+            """\btransfer\s+of\s+INR\s*[\d,.]+\s+to\s+(?:a/c|acct|account|beneficiary)\b|""" +
+            """\btransfer\b.{0,40}?\bto\s+(?:a/c|acct|account|beneficiary)\b.{0,60}?\bsuccess|""" +
+            """\b(?:sent|transferred|remitted)\s+to\s+(?:a/c|acct|account|beneficiary|benef\w*|payee)\b""",
+        "credited", "transfer", "sent", "remitted",
+    )
     private val INVESTMENT = Guarded(
         """\b(?:mutual\s+fund|MF|SIP|zerodha|groww|upstox|kuvera|iccl|indian\s+clearing|nse\s+clearing|clearing\s+corp|""" +
             """cams|kfin(?:tech)?|smallcase|angel\s+one|paytm\s+money|ppf|nps)\b""",
@@ -33,6 +45,7 @@ object TypeClassifier {
     fun classify(text: String, hint: TransactionType? = null, lower: String = text.lowercase()): TransactionType? {
         if (TRANSFER.containsMatchIn(text, lower)) return TransactionType.TRANSFER
         if (hint != null) return hint
+        if (OUTGOING.containsMatchIn(text, lower)) return TransactionType.DEBIT
         // The earlier verb wins, so the credit search only needs the text before the first debit verb.
         val debit = DEBIT.find(text)?.range?.first
         val creditScope = if (debit == null) text else text.substring(0, minOf(text.length, debit + CREDIT_OVERLAP))

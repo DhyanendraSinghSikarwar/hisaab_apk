@@ -1,5 +1,8 @@
 package com.hisaab.app.ui.invest
 
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -126,7 +129,7 @@ fun StatementDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, 
         val holdingsStatement = st.kind == "INVESTMENT" || (st.holdingCount > 0 && rows.isEmpty())
         LazyColumn(
             Modifier.fillMaxSize().padding(top = inner.calculateTopPadding()).clipToBounds(),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         ) {
             item { Header(st) }
             if (holdingsStatement) {
@@ -139,7 +142,7 @@ fun StatementDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, 
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (rows.isNotEmpty()) {
                         Text(
-                            "${rows.size - matched} added from this statement · $matched matched SMS or email already in Hisaab",
+                            "${rows.size - matched} added from this statement · $matched matched SMS or email already in Artha",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

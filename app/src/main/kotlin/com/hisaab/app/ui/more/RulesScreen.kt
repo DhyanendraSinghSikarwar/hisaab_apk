@@ -151,7 +151,7 @@ fun RulesRoute(onBack: () -> Unit, vm: RulesViewModel = hiltViewModel(), cats: C
                 item("intro") {
                     Text(
                         "Rules file a merchant's payments for you. Yours come first and override automatic categories; " +
-                            "Hisaab also learns one whenever you change a transaction's category.",
+                            "Artha also learns one whenever you change a transaction's category.",
                         style = MaterialTheme.typography.bodyMedium, color = Hx.text2, modifier = Modifier.padding(horizontal = 4.dp),
                     )
                 }

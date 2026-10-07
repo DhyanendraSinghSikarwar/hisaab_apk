@@ -34,6 +34,8 @@ class MainActivity : FragmentActivity() {
     private var unlocked by mutableStateOf(false)
     private var theme by mutableStateOf(ThemeMode.SYSTEM)
     private var palette by mutableStateOf(ThemePalette.CLASSIC)
+    private var textScale by mutableStateOf(1f)
+    private var pureBlack by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
@@ -49,13 +51,15 @@ class MainActivity : FragmentActivity() {
                 lockEnabled = s.appLock
                 theme = s.theme
                 palette = s.palette
+                textScale = s.textScale
+                pureBlack = s.pureBlack
                 com.hisaab.app.ui.format.AmountPrivacy.hidden = s.hideAmounts
                 if (s.appLock && !unlocked) promptUnlock()
             }
         }
 
         setContent {
-            HisaabTheme(theme, palette) {
+            HisaabTheme(theme, palette, textScale, pureBlack) {
                 // The app stays composed under the lock, so unlocking returns to the same screen.
                 if (lockEnabled != null) {
                     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
@@ -88,7 +92,7 @@ class MainActivity : FragmentActivity() {
         })
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Unlock Hisaab")
+                .setTitle("Unlock Artha")
                 .setSubtitle("Your transactions are protected")
                 .setAllowedAuthenticators(BIOMETRIC_WEAK or DEVICE_CREDENTIAL)
                 .build(),

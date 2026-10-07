@@ -138,7 +138,7 @@ internal fun mailboxLabel(g: GmailSettings?, imap: List<String>): String? = when
     else -> null
 }
 
-/** Every source Hisaab reads, and every control for them: SMS, email, payment-app notifications, history window. */
+/** Every source Artha reads, and every control for them: SMS, email, payment-app notifications, history window. */
 @Composable
 fun DataSourcesRoute(
     onBack: () -> Unit,
@@ -186,7 +186,7 @@ fun DataSourcesRoute(
         LazyColumn(contentPadding = listPadding(inner), verticalArrangement = Arrangement.spacedBy(CardGap)) {
             item("intro") {
                 Text(
-                    "Everything Hisaab knows comes from these sources, and it all stays on this phone.",
+                    "Everything Artha knows comes from these sources, and it all stays on this phone.",
                     style = MaterialTheme.typography.bodyMedium, color = Hx.text2, modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
@@ -290,20 +290,6 @@ fun DataSourcesRoute(
                     if (s.appNotifications && !notifAccess) OutlinedButton(onClick = openNotifAccess) { Text("Allow notification access") }
                 }
             }
-            item("statements") {
-                SourceCard(
-                    icon = Icons.AutoMirrored.Filled.ReceiptLong, color = Hx.palette[4], title = "Statements",
-                    status = when {
-                        s.lockedStatements > 0 -> "${s.lockedStatements} locked" to Hx.warn
-                        s.statements > 0 -> "${s.statements} read" to Hx.pos
-                        else -> "None yet" to Hx.text2
-                    },
-                    detail = if (s.statements == 0) "Card, bank and investment PDFs from your email or files."
-                    else "${s.statements} statement${if (s.statements == 1) "" else "s"}" + (s.lastStatementAt?.let { " · latest ${ago(it)}" } ?: ""),
-                ) {
-                    OutlinedButton(onClick = onOpenStatements) { Text("Open statements") }
-                }
-            }
         }
     }
 
@@ -317,7 +303,7 @@ fun DataSourcesRoute(
     }
     if (confirmDisconnect) {
         AlertDialog(onDismissRequest = { confirmDisconnect = false }, title = { Text("Disconnect email?") },
-            text = { Text("Hisaab will stop reading email and delete the stored sign-in. Transactions already found are kept.") },
+            text = { Text("Artha will stop reading email and delete the stored sign-in. Transactions already found are kept.") },
             confirmButton = { TextButton(onClick = { confirmDisconnect = false; settings.disconnectGmail() }) { Text("Disconnect") } },
             dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Cancel") } })
     }

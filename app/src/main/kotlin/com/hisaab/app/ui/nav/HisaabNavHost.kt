@@ -78,11 +78,6 @@ private enum class Tab(val route: String, val label: String, val icon: ImageVect
 private const val SETTINGS_ROUTE = "settings"
 
 @Composable
-private fun TabIcon(tab: Tab, tint: androidx.compose.ui.graphics.Color) {
-    Icon(tab.icon, tab.label, tint = tint, modifier = Modifier.size(26.dp))
-}
-
-@Composable
 fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
     // Sign in first: name plus email or phone. That creates the profile.
     val welcome: com.hisaab.app.ui.onboarding.WelcomeViewModel = androidx.hilt.navigation.compose.hiltViewModel()
@@ -98,37 +93,13 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
     Scaffold(
         bottomBar = {
             if (showBar) {
-                // A flat bar with a hairline on top. Icons only; the chosen one turns accent and sits on a soft pill.
-                val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-                androidx.compose.foundation.layout.Column(Modifier.background(MaterialTheme.colorScheme.surfaceContainer)) {
-                    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    androidx.compose.foundation.layout.Row(
-                        Modifier.navigationBarsPadding().fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceAround,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                    ) {
-                        Tab.entries.forEach { tab ->
-                            val selected = route == tab.route
-                            val bg by androidx.compose.animation.animateColorAsState(
-                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent, label = "tab-bg",
-                            )
-                            val tint by androidx.compose.animation.animateColorAsState(
-                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, label = "tab-tint",
-                            )
-                            androidx.compose.foundation.layout.Box(
-                                Modifier.testTag("tab-${tab.route}")
-                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                                    .background(bg)
-                                    .clickable {
-                                        if (!selected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                        if (tab == Tab.HOME) nav.goHome() else nav.openTab(tab.route)
-                                    }
-                                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                                contentAlignment = androidx.compose.ui.Alignment.Center,
-                            ) { TabIcon(tab, tint) }
-                        }
-                    }
-                }
+                // Icons only; a soft accent pill slides to the chosen tab (see AnimatedTabBar).
+                val tabs = Tab.entries
+                AnimatedTabBar(
+                    items = androidx.compose.runtime.remember { tabs.map { TabBarItem(it.icon, it.label, "tab-${it.route}") } },
+                    selected = tabs.indexOfFirst { it.route == route },
+                    onSelect = { i -> val tab = tabs[i]; if (tab == Tab.HOME) nav.goHome() else nav.openTab(tab.route) },
+                )
             }
         },
     ) { padding ->
@@ -213,7 +184,8 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
             composable("alerts") { com.hisaab.app.ui.more.AlertsRoute(onBack = nav::popBackStack) }
             composable(Tab.INVESTMENTS.route) {
                 InvestmentsRoute(onOpenStatements = { nav.navigate("statements") }, contentPadding = bottom,
-                    onOpenAccounts = { tab -> nav.navigate("accounts?tab=$tab") })
+                    onOpenAccounts = { tab -> nav.navigate("accounts?tab=$tab") }, onOpenNews = { nav.navigate("news") },
+                    onOpenLoan = { nav.navigate("loan/$it") })
             }
             composable("budgets", deepLinks = listOf(navDeepLink { uriPattern = "hisaab://budgets" })) {
                 BudgetsRoute(
@@ -222,7 +194,10 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 )
             }
             composable("bills", deepLinks = listOf(navDeepLink { uriPattern = "hisaab://bills" })) {
-                com.hisaab.app.ui.plan.BillsRoute(onBack = { if (!nav.popBackStack()) nav.goHome() })
+                com.hisaab.app.ui.plan.BillsRoute(
+                    onBack = { if (!nav.popBackStack()) nav.goHome() },
+                    onOpenLoan = { nav.navigate(com.hisaab.app.ui.loans.loanRoute(it)) },
+                )
             }
             composable(SETTINGS_ROUTE) {
                 // About & updates. Data sources, security, alerts and appearance each have their own screen under More.
@@ -236,7 +211,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
             }
             composable("accounts?tab={tab}", arguments = listOf(navArgument("tab") { type = NavType.IntType; defaultValue = 0 })) { entry ->
                 AccountsRoute(onBack = nav::popBackStack, onOpenAccount = { nav.navigate("account/$it") },
-                    initialTab = entry.arguments?.getInt("tab") ?: 0)
+                    initialTab = entry.arguments?.getInt("tab") ?: 0, onOpenLoan = { nav.navigate("loan/$it") })
             }
             composable("review") {
                 ReviewRoute(onBack = nav::popBackStack, onOpen = { nav.navigate("transaction/$it") }, onCompare = { a, b -> nav.navigate("compare/$a/$b") })
@@ -266,6 +241,24 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
             composable("account/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                 com.hisaab.app.ui.accounts.AccountDetailRoute(onBack = nav::popBackStack, onOpenTransactions = { nav.navigate("transactions?accountId=$it") })
             }
+            composable("loans") {
+                com.hisaab.app.ui.loans.LoansRoute(onBack = nav::popBackStack, onOpenLoan = { nav.navigate(com.hisaab.app.ui.loans.loanRoute(it)) })
+            }
+            composable(
+                "loan/{accountId}?emi={emi}",
+                arguments = listOf(
+                    navArgument("accountId") { type = NavType.LongType },
+                    navArgument("emi") { type = NavType.StringType; nullable = true; defaultValue = null },
+                ),
+            ) { entry ->
+                com.hisaab.app.ui.loans.LoanDetailRoute(
+                    onBack = nav::popBackStack, onOpenTransaction = { nav.navigate("transaction/$it") },
+                    // A detected EMI turned into a loan account: replace this screen with the account's.
+                    onOpenLoan = { id -> nav.navigate("loan/$id") { popUpTo(entry.destination.id) { inclusive = true } } },
+                )
+            }
+            composable("language") { com.hisaab.app.ui.more.LanguageRoute(onBack = nav::popBackStack) }
+            composable("news") { com.hisaab.app.ui.news.NewsRoute(onBack = nav::popBackStack) }
             composable("forex") { com.hisaab.app.ui.settings.ForexRatesRoute(onBack = nav::popBackStack) }
             composable("customize") { com.hisaab.app.ui.settings.CustomizeTabsRoute(onBack = nav::popBackStack) }
             composable("profile") { com.hisaab.app.ui.profile.ProfileRoute(

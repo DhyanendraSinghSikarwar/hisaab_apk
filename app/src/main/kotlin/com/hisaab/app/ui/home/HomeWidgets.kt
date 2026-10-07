@@ -171,7 +171,10 @@ fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit
             return@WidgetCard
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(signedMoney(nw.netMinor), fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+            com.hisaab.app.ui.components.AnimatedAmount(
+                nw.netMinor, Modifier.weight(1f, fill = false), style = androidx.compose.ui.text.TextStyle(fontSize = 30.sp),
+                fontWeight = FontWeight.Bold, format = ::signedMoney,
+            )
             w.netWorthBefore?.let { before ->
                 val diff = nw.netMinor - before
                 val text = if (before != 0L) "%s %.1f%%".format(if (diff >= 0) "▲" else "▼", abs(diff) * 100.0 / abs(before))

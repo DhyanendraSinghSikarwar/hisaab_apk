@@ -184,6 +184,14 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY timestamp")
     suspend fun getAll(): List<TransactionEntity>
 
+    /** Every payment that may be an EMI: category EMI & Loans, or anything booked on a loan account. For the loan tracker. */
+    @Query(
+        """SELECT * FROM transactions WHERE type != 'CREDIT' AND needsReview = 0
+           AND (category = 'EMI_LOAN' OR accountId IN (SELECT id FROM accounts WHERE accountType = 'LOAN'))
+           ORDER BY timestamp""",
+    )
+    fun observeLoanPayments(): Flow<List<TransactionEntity>>
+
     /** Everything since [from], for planning (recurring payments, insurance, savings, insights). */
     @Query("SELECT * FROM transactions WHERE timestamp >= :from ORDER BY timestamp")
     fun observeSince(from: Long): Flow<List<TransactionEntity>>
@@ -227,6 +235,17 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions WHERE id IN (:ids)")
     suspend fun deleteAll(ids: List<Long>)
+
+    /** All transactions in id order, a page at a time (for one-off maintenance passes). */
+    @Query("SELECT * FROM transactions WHERE id > :afterId ORDER BY id LIMIT :limit")
+    suspend fun pageAfter(afterId: Long, limit: Int): List<TransactionEntity>
+
+    @Query("SELECT COUNT(*) FROM transactions WHERE accountId = :accountId")
+    suspend fun countForAccount(accountId: Long): Int
+
+    /** Moves every transaction of one account onto another. */
+    @Query("UPDATE transactions SET accountId = :to, accountLast4 = :toLast4 WHERE accountId = :from")
+    suspend fun moveAccount(from: Long, to: Long, toLast4: String)
 }
 
 @Dao
@@ -375,6 +394,13 @@ interface AccountDao {
     @Query("UPDATE accounts SET forexMarkupBps = :bps WHERE id = :id")
     suspend fun setForexMarkup(id: Long, bps: Int?)
 
+    /** Sets, or with nulls clears, a loan's terms. */
+    @Query(
+        """UPDATE accounts SET loanPrincipalMinor = :principal, loanRateBps = :rateBps, loanTenureMonths = :tenure,
+                  loanStartDay = :startDay WHERE id = :id""",
+    )
+    suspend fun setLoanTerms(id: Long, principal: Long?, rateBps: Int?, tenure: Int?, startDay: Long?)
+
     /** Deposits paid out on or before [today] (epoch day) leave the lists; renewed ones stay. */
     @Query("UPDATE accounts SET hidden = 1 WHERE hidden = 0 AND maturityAction = 'CREDIT' AND maturityDay <= :today")
     suspend fun closeMatured(today: Long): Int
@@ -404,6 +430,7 @@ interface AccountDao {
         """SELECT a.id, a.bankName, a.last4, a.kind, a.nickname, a.colorArgb, a.latestBalanceMinor, a.availableLimitMinor,
                   a.balanceUpdatedAt, a.manualBalanceMinor, a.manualBalanceAt, a.accountType, a.cardNetwork, a.linkedAccountId, a.hidden, a.usage,
                   a.maturityDay, a.maturityAction, a.forexMarkupBps,
+                  a.loanPrincipalMinor, a.loanRateBps, a.loanTenureMonths, a.loanStartDay,
                   COALESCE((SELECT SUM(t.inrMinor) FROM transactions t
                             WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id))
                             AND t.type IN ('DEBIT', 'INVESTMENT') AND t.timestamp >= :from AND t.timestamp < :to), 0) AS monthSpent,
@@ -422,6 +449,16 @@ interface AccountDao {
 
     @Query("SELECT * FROM accounts ORDER BY bankName, last4")
     fun observeAll(): Flow<List<AccountEntity>>
+
+    @Query("SELECT * FROM accounts")
+    suspend fun all(): List<AccountEntity>
+
+    /** Cards linked to this account, plus recurring payments set on it. */
+    @Query("SELECT (SELECT COUNT(*) FROM accounts WHERE linkedAccountId = :id) + (SELECT COUNT(*) FROM recurring WHERE accountId = :id)")
+    suspend fun referenceCount(id: Long): Int
+
+    @Query("DELETE FROM accounts WHERE id = :id")
+    suspend fun delete(id: Long)
 }
 
 @Dao

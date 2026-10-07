@@ -273,7 +273,7 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
             OutlinedTextField(s.note, { v -> vm.edit { it.copy(note = v) } }, Modifier.fillMaxWidth(), label = { Text("Note (optional)") })
             Button(onClick = vm::save, Modifier.fillMaxWidth(), enabled = !s.scanning) { Text("Save transaction") }
             Text(
-                "If your bank later sends an SMS or email for the same payment, Hisaab merges the two instead of counting it twice.",
+                "If your bank later sends an SMS or email for the same payment, Artha merges the two instead of counting it twice.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

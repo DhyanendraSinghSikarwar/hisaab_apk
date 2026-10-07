@@ -180,7 +180,7 @@ object TaxMath {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The estimate, worked out only from what Hisaab tracked: bank credits, investment debits, insurance
+// The estimate, worked out only from what Artha tracked: bank credits, investment debits, insurance
 // premiums and EPF passbook updates. Figures typed into the what-if calculator live only in TaxViewModel
 // for the current visit; nothing typed is ever saved.
 // ---------------------------------------------------------------------------------------------
@@ -367,15 +367,6 @@ fun TaxRoute(onBack: () -> Unit, vm: TaxViewModel = hiltViewModel()) {
             item("income") { IncomeCard(s) }
             item("deductions") { DeductionsCard(s) }
             item("breakdown") { Breakdown(s) }
-            item("note") {
-                Text(
-                    "Worked out from what Hisaab tracked this year, for a resident individual under 60. Salary credits are what " +
-                        "reached your bank, after TDS and PF, so your taxable salary is likely higher. It leaves out surcharge, " +
-                        "capital gains, HRA and deductions Hisaab cannot see; use the what-if calculator to try your own figures " +
-                        "(they are not saved). Check with a tax professional before you file.",
-                    style = MaterialTheme.typography.bodySmall, color = Hx.text2, modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
         }
     }
     if (editing && s.loaded) TaxEditSheet(s, onDismiss = { editing = false }, onCalculate = vm::calculate, onReset = vm::backToCalculated)
@@ -407,6 +398,11 @@ private fun Summary(s: TaxState, onShare: () -> Unit) {
             Text(s.fyLabel, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
             if (s.whatIf.any) { Tag("What-if", Hx.accent); Spacer(Modifier.width(6.dp)) }
             Tag("Estimate", Hx.warn)
+            com.hisaab.app.ui.components.InfoButton(
+                "About this estimate",
+                "Worked out from what Artha tracked this year, for a resident individual under 60.",
+                "It leaves out surcharge, capital gains and deductions Artha cannot see. Check with a tax professional before you file.",
+            )
         }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -464,7 +460,12 @@ private fun RegimeTile(label: String, tax: Long, best: Boolean, modifier: Modifi
 
 @Composable
 private fun IncomeCard(s: TaxState) {
-    HCard(title = "Income") {
+    HCard(title = "Income", titleInfo = {
+        com.hisaab.app.ui.components.InfoButton(
+            "Salary", "Salary credits are what reached your bank, after TDS and PF, so your taxable salary is likely higher.",
+            "Use the calculator (top right) to try your gross salary. What-if figures are not saved.",
+        )
+    }) {
         ItemRow("Salary received", s.salarySoFar, if (s.salaryMonths > 0) "${s.salaryMonths} month${if (s.salaryMonths == 1) "" else "s"} so far" else "None found yet")
         if (s.salaryMonths in 1..11) ItemRow("Projected for the year", s.salarySoFar * 12 / s.salaryMonths, "At the same monthly pay")
         s.whatIf.salary?.let { ItemRow("Annual gross salary", it, "Calculated: ${Money.format(s.projectedSalary, showPaise = false)}", edited = true) }

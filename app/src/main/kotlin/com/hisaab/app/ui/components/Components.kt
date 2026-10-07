@@ -92,18 +92,18 @@ fun TransactionRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                tx.merchant ?: tx.category.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+                TxStyle.merchant(tx), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            val account = tx.accountLast4?.let { " ••$it" }.orEmpty()
             Text(
-                "${tx.bankName}$account · ${if (showDate) Periods.dateTime(tx.timestamp) else Periods.time(tx.timestamp)}",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                TxStyle.subtitle(tx, showDate), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
         Spacer(Modifier.width(8.dp))
         Column(horizontalAlignment = Alignment.End) {
-            Text(signedAmount(tx), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = signedAmountColor(tx.type))
+            val (amt, color) = TxStyle.amount(tx)
+            Text(amt, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = color)
             if (tx.needsReview) {
                 Text("Review", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
             }

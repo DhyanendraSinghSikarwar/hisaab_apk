@@ -33,7 +33,7 @@ data class Upcoming(
     /** Known balance of the paying account is below the amount. */
     val short: Boolean,
 ) {
-    enum class Kind { RECURRING, INSURANCE, INCOME }
+    enum class Kind { RECURRING, INSURANCE, INCOME, EMI }
     val daysLeft: Long get() = ChronoUnit.DAYS.between(LocalDate.now(Periods.zone), due)
 }
 
@@ -56,6 +56,7 @@ class PlanSource @Inject constructor(
     accounts: AccountDao,
     holdings: HoldingDao,
     manual: com.hisaab.shared.db.RecurringDao,
+    loans: com.hisaab.app.ui.loans.LoanSource,
     @ApplicationScope scope: CoroutineScope,
 ) {
     private val since = LocalDate.now(Periods.zone).minusDays(400).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
@@ -65,18 +66,24 @@ class PlanSource @Inject constructor(
         accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())),
         holdings.observeAll(),
         manual.observeAll(),
-    ) { txs, accs, held, mine ->
+        loans.snapshot,
+    ) { txs, accs, held, mine, owed ->
         val today = LocalDate.now(Periods.zone)
         val zone = Periods.zone
         val byId = accs.associateBy { it.id }
         fun payingAccount(id: Long?) = id?.let(byId::get)?.let { a -> a.linkedAccountId?.let(byId::get) ?: a }
-        val recurring = Planning.withManual(Planning.recurring(txs, today, zone), mine, today)
+        // Every loan's EMI is a bill, even when the repeats missed it.
+        val recurring = Planning.withLoans(Planning.withManual(Planning.recurring(txs, today, zone), mine, today), owed.loans)
         val policies = Planning.policies(txs, today, zone)
         val upcoming = (
             recurring.map { r ->
                 val a = payingAccount(r.accountId)
-                val bal = a?.takeIf { it.kind == com.hisaab.parser.model.AccountKind.ACCOUNT }?.currentBalanceMinor
-                Upcoming(r.name, r.amountMinor, r.nextDue, if (r.income) Upcoming.Kind.INCOME else Upcoming.Kind.RECURRING, a,
+                val bal = a?.takeIf { it.kind == com.hisaab.parser.model.AccountKind.ACCOUNT && it.accountType?.liquid != false }?.currentBalanceMinor
+                Upcoming(r.name, r.amountMinor, r.nextDue, when {
+                    r.income -> Upcoming.Kind.INCOME
+                    r.loanKey != null || r.category == com.hisaab.parser.model.Category.EMI_LOAN -> Upcoming.Kind.EMI
+                    else -> Upcoming.Kind.RECURRING
+                }, a,
                     !r.income && bal != null && bal < r.amountMinor)
             } + policies.filter { !it.monthly }.map { p ->
                 Upcoming(p.insurer, p.premiumMinor, p.nextDue, Upcoming.Kind.INSURANCE, payingAccount(p.accountId), false)

@@ -96,7 +96,7 @@ fun StatementDetailsFields(dob: LocalDate?, onDob: (LocalDate?) -> Unit, pan: St
             Icon(Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
             Spacer(Modifier.size(8.dp))
             Text(
-                "Banks lock statements with these. Hisaab tries them to open your PDFs. Encrypted on this phone.",
+                "Banks lock statements with these. Artha tries them to open your PDFs. Encrypted on this phone.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

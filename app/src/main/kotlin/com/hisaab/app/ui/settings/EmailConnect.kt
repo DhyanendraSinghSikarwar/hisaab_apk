@@ -94,7 +94,7 @@ class EmailConnectViewModel @Inject constructor(
                 GmailScheduler.syncNow(context)
                 _state.update { it.copy(step = ConnectStep.DONE) }
             }
-            VerificationCode.Result.WRONG -> throw IOException("That code doesn't match. Check the latest email from Hisaab.")
+            VerificationCode.Result.WRONG -> throw IOException("That code doesn't match. Check the latest email from Artha.")
             VerificationCode.Result.EXPIRED -> throw IOException("The code expired. Tap Resend code.")
             VerificationCode.Result.TOO_MANY_ATTEMPTS -> throw IOException("Too many wrong tries. Tap Resend code for a new one.")
             VerificationCode.Result.NONE -> throw IOException("Sign in again to get a code.")
@@ -166,7 +166,7 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, onConn
                 when (s.step) {
                     ConnectStep.ADDRESS -> {
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text("Hisaab reads bank alert emails and statements from your inbox, on this phone only.",
+                            Text("Artha reads bank alert emails and statements from your inbox, on this phone only.",
                                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             com.hisaab.app.ui.components.InfoButton("Connecting email", *com.hisaab.app.ui.components.Info.EMAIL)
                         }
@@ -202,7 +202,7 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, onConn
                         TextButton(onClick = vm::resend, enabled = !s.busy) { Text("Resend code") }
                     }
                     ConnectStep.DONE -> Text(
-                        "${s.email} is verified. Hisaab is fetching bank emails from the look-back period now, then checks every hour.",
+                        "${s.email} is verified. Artha is fetching bank emails from the look-back period now, then checks every hour.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }

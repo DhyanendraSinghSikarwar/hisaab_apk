@@ -41,7 +41,7 @@ abstract class HisaabDatabase : RoomDatabase() {
 
     companion object {
         const val NAME = "hisaab.db"
-        const val VERSION = 13
+        const val VERSION = 14
     }
 }
 
@@ -190,5 +190,15 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+    /** 13 -> 14: a loan's terms (amount, rate, tenure, first EMI) for its payoff schedule. */
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN loanPrincipalMinor INTEGER DEFAULT NULL")
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN loanRateBps INTEGER DEFAULT NULL")
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN loanTenureMonths INTEGER DEFAULT NULL")
+            connection.execSQL("ALTER TABLE accounts ADD COLUMN loanStartDay INTEGER DEFAULT NULL")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
 }

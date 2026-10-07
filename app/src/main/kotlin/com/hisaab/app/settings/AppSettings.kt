@@ -18,11 +18,32 @@ import javax.inject.Singleton
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 /** The colour palette the whole app is drawn in. Colours live in ui/theme; this is only the choice. */
-enum class ThemePalette(val label: String) {
+enum class ThemePalette(val label: String, val group: PaletteGroup = PaletteGroup.CLASSIC) {
     CLASSIC("Classic"), EMERALD("Emerald"), GRAPHITE("Graphite"), INDIGO("Indigo Night"), SAFFRON("Saffron"), OCEAN("Ocean"),
+    ROSE_QUARTZ("Rose Quartz"), LAVENDER_BLOOM("Lavender Bloom"),
+    MIDNIGHT("Midnight Knight", PaletteGroup.HERO), ARC_RED("Arc Red", PaletteGroup.HERO), STAR_SHIELD("Star Shield", PaletteGroup.HERO),
+    THUNDER("Thunder", PaletteGroup.HERO), GAMMA("Gamma", PaletteGroup.HERO), VIBRANIUM("Vibranium", PaletteGroup.HERO),
+    IRON_THRONE("Iron Throne", PaletteGroup.CINEMA), MIDDLE_REALM("Middle Realm", PaletteGroup.CINEMA), NITRO("Nitro", PaletteGroup.CINEMA),
+    NEO_MATRIX("Neo Matrix", PaletteGroup.CINEMA), INTERSTELLAR_DUST("Interstellar Dust", PaletteGroup.CINEMA), SPICE_DUNE("Spice Dune", PaletteGroup.CINEMA),
 }
 
-/** Who uses this copy of Hisaab. Stays on the phone; nothing here is sent anywhere. */
+/** How the palette picker groups the palettes. */
+enum class PaletteGroup(val label: String) { CLASSIC("Classic"), HERO("Hero"), CINEMA("Cinema") }
+
+/**
+ * In-app text size, multiplied onto the phone's own font scale (see HisaabTheme, which caps the result).
+ * Stored as [factor] under "text_scale".
+ */
+enum class TextSize(val label: String, val factor: Float) {
+    SMALL("Small", 0.9f), DEFAULT("Default", 1.0f), LARGE("Large", 1.1f), EXTRA_LARGE("Extra large", 1.2f);
+
+    companion object {
+        /** The size whose factor is nearest [factor]; DEFAULT for anything unexpected. */
+        fun of(factor: Float): TextSize = entries.minByOrNull { kotlin.math.abs(it.factor - factor) }?.takeIf { kotlin.math.abs(it.factor - factor) < 0.05f } ?: DEFAULT
+    }
+}
+
+/** Who uses this copy of Artha. Stays on the phone; nothing here is sent anywhere. */
 data class Profile(
     val name: String? = null,
     val email: String? = null,
@@ -61,7 +82,13 @@ data class AppSettings(
     val checkUpdates: Boolean = true,
     val lastUpdateCheck: Long? = null,
     val palette: ThemePalette = ThemePalette.CLASSIC,
-)
+    /** Dark mode draws on true black (AMOLED), whatever the palette. */
+    val pureBlack: Boolean = false,
+    /** In-app text size factor (0.9, 1.0, 1.1, 1.2). */
+    val textScale: Float = 1f,
+) {
+    val textSize: TextSize get() = TextSize.of(textScale)
+}
 
 private val Context.appStore: DataStore<Preferences> by preferencesDataStore(name = "app_settings")
 
@@ -89,6 +116,8 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
             profilePromptDismissed = p[PROFILE_PROMPT_DISMISSED] ?: false,
             lastUpdateCheck = p[LAST_UPDATE_CHECK],
             palette = p[THEME_PALETTE]?.let { runCatching { ThemePalette.valueOf(it) }.getOrNull() } ?: ThemePalette.CLASSIC,
+            textScale = p[TEXT_SCALE] ?: 1f,
+            pureBlack = p[PURE_BLACK] ?: false,
         )
     }
 
@@ -105,6 +134,8 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
     suspend fun setAppLock(value: Boolean) = store.edit { it[APP_LOCK] = value }
     suspend fun setTheme(mode: ThemeMode) = store.edit { it[THEME] = mode.name }
     suspend fun setPalette(palette: ThemePalette) = store.edit { it[THEME_PALETTE] = palette.name }
+    suspend fun setPureBlack(value: Boolean) = store.edit { it[PURE_BLACK] = value }
+    suspend fun setTextSize(size: TextSize) = store.edit { it[TEXT_SCALE] = size.factor }
     suspend fun setSmsEnabled(value: Boolean) = store.edit { it[SMS_ENABLED] = value }
     suspend fun setSmsPromptDismissed(value: Boolean) = store.edit { it[SMS_PROMPT_DISMISSED] = value }
     suspend fun setAppNotificationsEnabled(value: Boolean) = store.edit { it[APP_NOTIFICATIONS] = value }
@@ -132,6 +163,8 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
         val APP_LOCK = booleanPreferencesKey("app_lock")
         val THEME = stringPreferencesKey("theme")
         val THEME_PALETTE = stringPreferencesKey("theme_palette")
+        val PURE_BLACK = booleanPreferencesKey("pure_black")
+        val TEXT_SCALE = androidx.datastore.preferences.core.floatPreferencesKey("text_scale")
         val SMS_ENABLED = booleanPreferencesKey("sms_enabled")
         val SMS_CURSOR = longPreferencesKey("sms_cursor")
         val LAST_SMS_SCAN = longPreferencesKey("last_sms_scan")

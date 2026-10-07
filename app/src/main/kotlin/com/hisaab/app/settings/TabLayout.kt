@@ -32,7 +32,7 @@ object TabLayouts {
         ),
         ANALYTICS to listOf(
             Section("categories", "Spend by category"), Section("monthly", "Monthly spend"),
-            Section("when", "When you spend"), Section("merchants", "Top merchants"), Section("budgets", "Budgets"),
+            Section("merchants", "Top merchants"), Section("budgets", "Budgets"), Section("when", "When you spend"),
         ),
         PORTFOLIO to listOf(
             Section("value", "Portfolio value"), Section("allocation", "Asset allocation"), Section("networth", "Net worth"),
@@ -110,6 +110,13 @@ class TabLayoutStore @Inject constructor(@ApplicationContext context: Context) {
 
     /** First run of the new Home: budgets start hidden. */
     suspend fun seedHomeOnce() = store.edit { p ->
+        // 2.3: "When you spend" moves to the end of Analysis › Spending, also for a saved order.
+        if (p[WHEN_LAST] != true) {
+            p[WHEN_LAST] = true
+            p[orderKey(TabLayouts.ANALYTICS)]?.split(',')?.filter { it.isNotBlank() }?.let { saved ->
+                p[orderKey(TabLayouts.ANALYTICS)] = (saved.filter { it != "when" } + "when").joinToString(",")
+            }
+        }
         if (p[SEEDED] == true) return@edit
         p[SEEDED] = true
         p.remove(orderKey(TabLayouts.HOME))
@@ -122,5 +129,6 @@ class TabLayoutStore @Inject constructor(@ApplicationContext context: Context) {
     private companion object {
         val HIDDEN = stringSetPreferencesKey("hidden")
         val SEEDED = androidx.datastore.preferences.core.booleanPreferencesKey("home_v2_seeded")
+        val WHEN_LAST = androidx.datastore.preferences.core.booleanPreferencesKey("analytics_when_last")
     }
 }

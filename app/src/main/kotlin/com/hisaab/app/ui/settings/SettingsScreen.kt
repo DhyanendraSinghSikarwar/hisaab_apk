@@ -46,7 +46,7 @@ fun SettingsRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
         LazyColumn(contentPadding = listPadding(inner), verticalArrangement = Arrangement.spacedBy(CardGap)) {
             item("about") {
                 HCard {
-                    Text("Hisaab", fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    Text("Artha", fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                     Text(
                         "Version ${BuildConfig.VERSION_NAME}", fontSize = 13.sp, color = Hx.text2, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
@@ -63,7 +63,7 @@ fun SettingsRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
 private fun UpdateRow(state: UpdateState, onCheck: () -> Unit, onInstall: (Release) -> Unit) {
     val version = BuildConfig.VERSION_NAME
     when (state) {
-        is UpdateState.Available -> HRow("Hisaab ${state.release.version} is available", "You have $version") {
+        is UpdateState.Available -> HRow("Artha ${state.release.version} is available", "You have $version") {
             Button(onClick = { onInstall(state.release) }) { Text("Install") }
         }
         is UpdateState.Downloading -> Column(Modifier.padding(vertical = 10.dp)) {

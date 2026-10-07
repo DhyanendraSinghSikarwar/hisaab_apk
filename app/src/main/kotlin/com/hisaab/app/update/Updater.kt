@@ -35,7 +35,7 @@ sealed interface UpdateState {
 /**
  * Updates from the project's public GitHub Releases. The check sends nothing but a plain request for the
  * latest release; no data about you or your money is included. The downloaded APK is checked against the
- * SHA-256 in the release notes, and Android itself refuses any APK not signed with the Hisaab key.
+ * SHA-256 in the release notes, and Android itself refuses any APK not signed with the Artha key.
  */
 @Singleton
 class Updater @Inject constructor(
@@ -110,7 +110,7 @@ class Updater @Inject constructor(
 
     private fun download(release: Release): File {
         val dir = File(context.cacheDir, "updates").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
-        val out = File(dir, "Hisaab-${release.version}.apk")
+        val out = File(dir, "Artha-${release.version}.apk")
         var url = URL(release.apkUrl)
         var c = url.openConnection() as HttpURLConnection
         // GitHub serves assets through a redirect to its CDN.

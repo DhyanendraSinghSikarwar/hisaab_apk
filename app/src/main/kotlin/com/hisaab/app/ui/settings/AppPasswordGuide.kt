@@ -35,7 +35,7 @@ private fun guideFor(server: MailServer?): Guide = when (server?.provider) {
     "Gmail" -> Guide(
         listOf(
             "Turn on 2-Step Verification for your Google account (one time).",
-            "Open App passwords, type “Hisaab” as the name and tap Create.",
+            "Open App passwords, type “Artha” as the name and tap Create.",
             "Copy the 16-letter password Google shows and paste it below.",
         ),
         "Turn on 2-Step Verification" to "https://myaccount.google.com/signinoptions/twosv",
@@ -51,21 +51,21 @@ private fun guideFor(server: MailServer?): Guide = when (server?.provider) {
     "Yahoo Mail", "AOL Mail" -> Guide(
         listOf(
             "Open Account security and choose Generate app password.",
-            "Type “Hisaab” as the app name and tap Generate.",
+            "Type “Artha” as the app name and tap Generate.",
             "Copy the password and paste it below.",
         ),
     )
     "iCloud Mail" -> Guide(
         listOf(
             "Sign in to your Apple Account and open Sign-In and Security.",
-            "Choose App-Specific Passwords, tap +, and name it “Hisaab”.",
+            "Choose App-Specific Passwords, tap +, and name it “Artha”.",
             "Copy the password and paste it below.",
         ),
     )
     "Zoho Mail" -> Guide(
         listOf(
             "Open Security, then App passwords, and tap Generate new password.",
-            "Name it “Hisaab” and copy the password Zoho shows.",
+            "Name it “Artha” and copy the password Zoho shows.",
             "Paste it below.",
         ),
     )
@@ -94,7 +94,7 @@ fun AppPasswordGuide(server: MailServer?, onOpen: (String) -> Unit) {
                 Text("Get your app password", style = MaterialTheme.typography.titleSmall, color = c.onSecondaryContainer)
             }
             Text(
-                "An app password is a separate password just for Hisaab. Your normal password stays private, and you can revoke this one any time.",
+                "An app password is a separate password just for Artha. Your normal password stays private, and you can revoke this one any time.",
                 style = MaterialTheme.typography.bodySmall, color = c.onSecondaryContainer,
             )
             guide.steps.forEachIndexed { i, step ->

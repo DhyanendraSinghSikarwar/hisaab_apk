@@ -33,6 +33,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,6 +47,7 @@ import com.hisaab.app.settings.WorthPoint
 import com.hisaab.app.ui.charts.ChartSlice
 import com.hisaab.app.ui.charts.DonutChart
 import com.hisaab.app.ui.charts.Sparkline
+import com.hisaab.app.ui.components.CardGap
 import com.hisaab.app.ui.components.CardTitle
 import com.hisaab.app.ui.components.Delta
 import com.hisaab.app.ui.components.HCard
@@ -166,7 +172,10 @@ private val shortDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM
 internal fun ValueCard(m: PortfolioModel, modifier: Modifier = Modifier) {
     HeroCard(modifier) {
         Text("PORTFOLIO VALUE", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.7.sp, color = Color.White.copy(alpha = 0.8f))
-        Text(Money.format(m.valueMinor, showPaise = false), fontSize = 32.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+        com.hisaab.app.ui.components.AnimatedAmount(
+            m.valueMinor, Modifier.padding(top = 4.dp), style = androidx.compose.ui.text.TextStyle(fontSize = 32.sp),
+            fontWeight = FontWeight.Bold, format = { Money.format(it, showPaise = false) },
+        )
         Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (m.investedMinor > 0) {
                 Delta("${if (m.gainMinor >= 0) "▲" else "▼"} ${Money.compact(abs(m.gainMinor))} overall", good = m.gainMinor >= 0)
@@ -264,7 +273,7 @@ internal fun NetWorthCard(nw: NetWorth, range: Int, onRange: (Int) -> Unit, modi
         Segmented(RANGES.map { it.first }, range, onRange)
         Spacer(Modifier.height(12.dp))
         when {
-            nw.history.size < 2 -> Note("Your net worth chart builds a point each day you open Hisaab, and earlier months are estimated from transactions.")
+            nw.history.size < 2 -> Note("Your net worth chart builds a point each day you open Artha, and earlier months are estimated from transactions.")
             points.size < 2 -> Note("Not enough history for this range yet. Try a longer one.")
             else -> {
                 val first = points.first()
@@ -373,12 +382,26 @@ fun CardLimits(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean = fa
     val strong = if (onHero) Color.White else MaterialTheme.colorScheme.onSurface
     val warn = Hx.warn
     val accent = Hx.accent
+    var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, label = "cards-chevron")
     Column(modifier.fillMaxWidth().padding(top = 14.dp)) {
         HorizontalDivider(color = if (onHero) Color.White.copy(alpha = 0.2f) else Hx.border.copy(alpha = 0.6f))
-        Text(
-            "Credit cards · not counted in net worth", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.4.sp,
-            color = dim, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
-        )
+        // Folded by default: a tap on the header shows each card and its limit.
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { open = !open }.padding(top = 10.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Credit cards · ${nw.cards.size}", Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.4.sp, color = dim,
+            )
+            Icon(
+                Icons.Filled.KeyboardArrowDown, if (open) "Collapse" else "Expand", tint = dim,
+                modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = turn },
+            )
+        }
+        AnimatedVisibility(open, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+        Column {
         nw.cards.forEach { c ->
             Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -388,7 +411,7 @@ fun CardLimits(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean = fa
                 Spacer(Modifier.width(8.dp))
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        c.availableMinor?.let { "${Money.format(it, showPaise = false)} available" } ?: "Limit unknown",
+                        c.availableMinor?.let { Money.format(it, showPaise = false) } ?: "Limit unknown",
                         fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = strong, maxLines = 1,
                     )
                     c.limitMinor?.let { lim -> Text("of ${Money.format(lim, showPaise = false)}", fontSize = 11.sp, color = dim, maxLines = 1) }
@@ -401,6 +424,8 @@ fun CardLimits(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean = fa
                 val tone = when { onHero -> Color(0xFFFFB3AB); used >= 0.8f -> warn; else -> accent }
                 SplitBar(listOf(used to tone), Modifier.padding(bottom = 4.dp), height = 4.dp)
             }
+        }
+        }
         }
     }
 }
@@ -487,15 +512,33 @@ private fun LineRow(line: PortfolioLine, onClick: () -> Unit) {
 // ---- 5. Maturity calendar ----
 
 @Composable
-internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Unit, onOpenLoan: (Long) -> Unit = {}, modifier: Modifier = Modifier) {
     val today = LocalDate.now()
+    val loans = remember(accounts) { accounts.filter { it.isLoan && !it.hidden } }
+    Column(modifier) {
+    if (loans.isNotEmpty()) {
+        // Liabilities: each loan opens its tracker.
+        HCard(Modifier.padding(bottom = CardGap), title = "Loans · ${loans.size}") {
+            loans.forEachIndexed { i, a ->
+                if (i > 0) HorizontalDivider(color = Hx.border.copy(alpha = 0.6f))
+                HRow(
+                    title = a.displayName, subtitle = listOfNotNull("Loan", a.last4.takeIf { it.isNotBlank() }?.let { "••$it" }).joinToString(" · "),
+                    leading = { com.hisaab.app.ui.components.AccountAvatar(a.bankName, a.kind, a.accountType, size = 36.dp) },
+                    onClick = { onOpenLoan(a.id) },
+                ) {
+                    Text(a.currentBalanceMinor?.let { "−" + Money.format(abs(it), showPaise = false) } ?: "—", fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold, color = Hx.neg)
+                }
+            }
+        }
+    }
     val due = remember(accounts, today) {
         val end = today.plusDays(365)
         accounts.filter { it.accountType in setOf(AccountType.FD, AccountType.RD, AccountType.PPF) }
             .mapNotNull { a -> a.maturityDay?.let { LocalDate.ofEpochDay(it) }?.takeIf { !it.isBefore(today) && !it.isAfter(end) }?.let { a to it } }
             .sortedBy { it.second }
     }
-    CollapsibleCard("Maturity calendar · 12 months", modifier, trailing = if (due.isEmpty()) null else "${due.size}", initiallyExpanded = false) {
+    CollapsibleCard("Maturity calendar · 12 months", Modifier, trailing = if (due.isEmpty()) null else "${due.size}", initiallyExpanded = false) {
         if (due.isEmpty()) {
             Note("No deposits mature in the next 12 months.")
             return@CollapsibleCard
@@ -524,5 +567,6 @@ internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Uni
             Text("Bar shows months remaining out of 12.", Modifier.weight(1f), fontSize = 11.sp, color = Hx.text2, style = MaterialTheme.typography.bodySmall)
             Pill("Deposits ›", onClick = onOpen)
         }
+    }
     }
 }

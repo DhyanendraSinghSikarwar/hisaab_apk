@@ -35,8 +35,8 @@ class MailConnector @Inject constructor(
         val c = code.issue(login.email)
         client.sendToSelf(
             login,
-            subject = "Hisaab verification code: $c",
-            body = "Your Hisaab verification code is $c\n\n" +
+            subject = "Artha verification code: $c",
+            body = "Your Artha verification code is $c\n\n" +
                 "Type it into the app to finish connecting ${login.email}. It expires in 10 minutes.\n\n" +
                 "If you did not ask for this, change your app password and ignore this email.",
         )

@@ -253,7 +253,7 @@ class HomeViewModel @Inject constructor(
             DueItem(u, when {
                 u.kind == Upcoming.Kind.INCOME -> DueTone.INCOME
                 cat == Category.INVESTMENT -> DueTone.INVEST
-                cat == Category.EMI_LOAN || u.kind == Upcoming.Kind.INSURANCE -> DueTone.EMI
+                cat == Category.EMI_LOAN || u.kind == Upcoming.Kind.EMI || u.kind == Upcoming.Kind.INSURANCE -> DueTone.EMI
                 card -> DueTone.CARD
                 else -> DueTone.OTHER
             })

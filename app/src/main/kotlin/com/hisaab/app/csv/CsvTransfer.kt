@@ -50,7 +50,7 @@ object CsvTransfer {
             val header = r.readNext()?.map { it.trim().lowercase() } ?: return ImportResult(emptyList(), 0)
             fun idx(name: String) = header.indexOf(name)
             val iDate = idx("date"); val iAmount = idx("amount"); val iType = idx("type")
-            require(iDate >= 0 && iAmount >= 0 && iType >= 0) { "Not a Hisaab export: needs date, amount and type columns" }
+            require(iDate >= 0 && iAmount >= 0 && iType >= 0) { "Not a Artha export: needs date, amount and type columns" }
             while (true) {
                 val line = r.readNext() ?: break
                 fun col(name: String) = idx(name).takeIf { it >= 0 && it < line.size }?.let { line[it].trim() }?.takeIf { it.isNotEmpty() }

@@ -1,3 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Artha: a soft cream-to-mint wash behind the mark, as in the brand artwork. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#1B6E4F" />
+    <gradient android:angle="315" android:startColor="#FFF7E6" android:centerColor="#FDF6EA" android:endColor="#D9F2EA" android:type="linear" />
 </shape>

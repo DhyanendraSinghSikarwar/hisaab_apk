@@ -266,7 +266,7 @@ private fun BulkDialogs(
         AlertDialog(
             onDismissRequest = onDismissDelete,
             title = { Text("Delete $count transactions?") },
-            text = { Text("They are removed from Hisaab and won't come back on a rescan. The SMS and emails themselves are not touched.") },
+            text = { Text("They are removed from Artha and won't come back on a rescan. The SMS and emails themselves are not touched.") },
             confirmButton = { TextButton(onClick = onDelete) { Text("Delete", fontWeight = FontWeight.SemiBold) } },
             dismissButton = { TextButton(onClick = onDismissDelete) { Text("Cancel") } },
         )

@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -63,6 +65,7 @@ import com.hisaab.app.settings.AppSettings
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.ui.components.CardGap
 import com.hisaab.app.ui.components.HCard
+import com.hisaab.app.ui.components.enterOnce
 import com.hisaab.app.ui.components.Segmented
 import com.hisaab.app.ui.components.SmsPermissionState
 import com.hisaab.app.ui.format.Money
@@ -109,6 +112,7 @@ data class MoreState(
     val app: AppSettings? = null,
     val mail: GmailSettings? = null,
     val imapEmails: List<String> = emptyList(),
+    val loans: com.hisaab.app.ui.loans.LoansSnapshot = com.hisaab.app.ui.loans.LoansSnapshot(),
 )
 
 private data class MoneyBits(val budgetsActive: Int, val budgetsNear: Int, val accounts: Int)
@@ -122,6 +126,7 @@ class MoreViewModel @Inject constructor(
     rules: MerchantRuleDao,
     statements: StatementDao,
     plan: PlanSource,
+    loans: com.hisaab.app.ui.loans.LoanSource,
     tax: TaxSource,
     app: AppSettingsStore,
     gmail: GmailSettingsStore,
@@ -146,14 +151,14 @@ class MoreViewModel @Inject constructor(
         Housekeeping(r.size, st.size, st.count { it.status == StatementEntity.LOCKED })
     }
 
-    private val mail = combine(gmail.settings, mailAccounts.emails) { g, e -> g to e }
+    private val mail = combine(gmail.settings, mailAccounts.emails, loans.snapshot) { g, e, l -> Triple(g, e, l) }
 
     val state: StateFlow<MoreState> = combine(money, plan.snapshot, tax.state, house, combine(app.settings, mail) { a, m -> a to m }) { m, p, t, h, am ->
         MoreState(
             budgetsActive = m.budgetsActive, budgetsNear = m.budgetsNear, plan = p, tax = t,
             accounts = m.accounts,
             rules = h.rules, statements = h.statements, lockedStatements = h.locked,
-            app = am.first, mail = am.second.first, imapEmails = am.second.second,
+            app = am.first, mail = am.second.first, imapEmails = am.second.second, loans = am.second.third,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MoreState())
 
@@ -211,6 +216,18 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
                     Icons.AutoMirrored.Filled.ReceiptLong, p[1],
                 )
             },
+            run {
+                val l = s.loans
+                Entry(
+                    "loans", "Loans",
+                    when {
+                        !l.loaded -> "Looking for loans…"
+                        l.active.isEmpty() -> "From loan messages and EMI debits"
+                        else -> "${plural(l.active.size, "loan")} · ${Money.format(l.monthlyEmiMinor, showPaise = false)} EMI/month"
+                    },
+                    Icons.Filled.Payments, p[5],
+                )
+            },
             Entry(
                 "tax", "Tax centre",
                 if (s.tax.loaded && s.tax.hasIncome) {
@@ -261,8 +278,14 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
             ),
             Entry(
                 "security", "Security & backup",
-                if (app == null) "App lock and backup" else "App lock ${if (app.appLock) "on" else "off"} · amounts ${if (app.hideAmounts) "hidden" else "shown"}",
+                if (app == null) "App lock and backup" else "App lock ${if (app.appLock) "on" else "off"} · amounts ${if (app.hideAmounts) "hidden" else "shown"}" +
+                    if (app.textSize != com.hisaab.app.settings.TextSize.DEFAULT) " · text ${app.textSize.label.lowercase()}" else "",
                 Icons.Filled.Lock, p[3],
+            ),
+            Entry(
+                "language", "Language",
+                com.hisaab.app.i18n.I18n.language.let { if (it == com.hisaab.app.i18n.Language.ENGLISH) "English" else "${it.native} · ${it.english}" },
+                Icons.Filled.Translate, p[5],
             ),
             Entry("forex", "Forex rates", "Rates used for foreign spends", Icons.Filled.CurrencyExchange, p[6]),
             Entry("settings", "About & updates", "Version ${com.hisaab.app.BuildConfig.VERSION_NAME}", Icons.Filled.Info, p[2]),
@@ -313,7 +336,7 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
 @Composable
 private fun BookCard(book: Book, onSelect: (Book) -> Unit) {
     val options = listOf(Book.PERSONAL, Book.BUSINESS, Book.ALL)
-    HCard(padding = 14.dp) {
+    HCard(Modifier.enterOnce(0), padding = 14.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(Hx.palette[5].copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.BusinessCenter, null, tint = Hx.palette[5], modifier = Modifier.size(20.dp))
@@ -334,10 +357,8 @@ private fun BookCard(book: Book, onSelect: (Book) -> Unit) {
 @Composable
 private fun EntryCard(e: Entry, index: Int, onClick: () -> Unit) {
     // Cards rise into place one after another the first time the list is shown.
-    val appear = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { delay(index * 25L); appear.animateTo(1f, tween(260)) }
     HCard(
-        modifier = Modifier.graphicsLayer { alpha = appear.value; translationY = (1f - appear.value) * 16.dp.toPx() },
+        modifier = Modifier.enterOnce(index + 1),
         onClick = onClick, padding = 14.dp,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

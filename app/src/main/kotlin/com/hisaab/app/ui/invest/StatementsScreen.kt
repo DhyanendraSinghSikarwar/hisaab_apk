@@ -1,5 +1,8 @@
 package com.hisaab.app.ui.invest
 
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsets
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -189,7 +192,7 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
                 }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             }
-            LazyColumn(Modifier.fillMaxSize().clipToBounds(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+            LazyColumn(Modifier.fillMaxSize().clipToBounds(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (statements.isEmpty()) {
                     item { Text("Statements", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }

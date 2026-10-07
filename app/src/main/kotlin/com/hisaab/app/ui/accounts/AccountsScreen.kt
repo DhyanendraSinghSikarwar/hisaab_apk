@@ -1,5 +1,8 @@
 package com.hisaab.app.ui.accounts
 
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -205,7 +208,12 @@ class AccountsViewModel @Inject constructor(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, initialTab: Int = 0, vm: AccountsViewModel = hiltViewModel()) {
+fun AccountsRoute(
+    onBack: () -> Unit, onOpenAccount: (Long) -> Unit, initialTab: Int = 0,
+    /** A loan opens the loan tracker rather than the account chart. */
+    onOpenLoan: (Long) -> Unit = onOpenAccount,
+    vm: AccountsViewModel = hiltViewModel(),
+) {
     val s by vm.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(initialTab.coerceIn(0, 2)) }
     var editing by remember { mutableStateOf<AccountWithActivity?>(null) }
@@ -230,7 +238,7 @@ fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, initialTab:
         val list = when (tab) { 0 -> s.accounts; 1 -> s.cards; else -> s.deposits }
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = inner.calculateTopPadding() + 12.dp, start = 16.dp, end = 16.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(top = inner.calculateTopPadding() + 12.dp, start = 16.dp, end = 16.dp, bottom = 96.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (tab == 0 && s.accounts.isNotEmpty()) item { BalanceSummary(s.accounts) }
@@ -250,7 +258,7 @@ fun AccountsRoute(onBack: () -> Unit, onOpenAccount: (Long) -> Unit, initialTab:
                 }
             }
             items(list, key = { it.id }) { a ->
-                AccountCard(a, linked = a.linkedAccountId?.let(s.byId::get), onClick = { onOpenAccount(a.id) }, onEdit = { editing = a },
+                AccountCard(a, linked = a.linkedAccountId?.let(s.byId::get), onClick = { if (a.accountType == AccountType.LOAN) onOpenLoan(a.id) else onOpenAccount(a.id) }, onEdit = { editing = a },
                     modifier = Modifier.animateItem())
             }
             val hiddenHere = s.hidden.filter {
@@ -368,7 +376,7 @@ private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, on
                 Text(title(a), style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 val kindLabel = a.accountType?.label ?: if (a.kind == AccountKind.CARD) "Card" else "Bank account"
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("$kindLabel · ••${a.last4}", style = MaterialTheme.typography.bodySmall, color = KindColors.of(a.kind, a.accountType))
+                    Text(kindLabel + (a.last4.takeIf { it.isNotBlank() }?.let { " · ••$it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = KindColors.of(a.kind, a.accountType))
                     a.cardNetwork?.let { n -> Spacer(Modifier.width(6.dp)); BrandMark(Brands.forNetwork(n), size = 20.dp) }
                     if (a.usage == com.hisaab.shared.db.AccountUsage.BUSINESS) {
                         Spacer(Modifier.width(6.dp))
@@ -461,6 +469,10 @@ private fun EditSheet(a: AccountWithActivity, accounts: List<AccountWithActivity
             }
             if (!isCard && type?.liquid == false) {
                 Text("Not counted in your Home balance.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (type == AccountType.LOAN) {
+                Text("Amount, rate and tenure are set on the loan itself: tap it in the list.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (type == AccountType.FD || type == AccountType.RD) {
                 Label("On maturity")

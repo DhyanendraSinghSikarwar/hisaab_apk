@@ -59,6 +59,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.material3.LocalTextStyle
+import com.hisaab.app.ui.format.Money
 
 /** A flat card with a hairline border and an optional small-caps title with an action on the right. */
 @Composable
@@ -70,6 +80,7 @@ fun HCard(
     onClick: (() -> Unit)? = null,
     padding: Dp = 16.dp,
     container: Color = Hx.surface,
+    titleInfo: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val dark = com.hisaab.app.ui.theme.LocalDarkTheme.current
@@ -87,10 +98,11 @@ fun HCard(
         Column(Modifier.padding(padding).smoothContentSize()) {
             if (title != null) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CardTitle(title, Modifier.weight(1f))
+                    CardTitle(title, Modifier.weight(1f, fill = titleInfo == null))
+                    if (titleInfo != null) { titleInfo(); Spacer(Modifier.weight(1f)) }
                     if (action != null) {
                         Text(
-                            action, color = Hx.accent, style = MaterialTheme.typography.labelLarge,
+                            action, color = Hx.accent, style = MaterialTheme.typography.labelLarge, maxLines = 1,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = onAction != null) { onAction?.invoke() }.padding(4.dp),
                         )
                     }
@@ -148,7 +160,7 @@ fun CollapsibleCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CardTitle(title, Modifier.weight(1f))
-            if (trailing != null) Text(trailing, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(end = 8.dp))
+            if (trailing != null) Text(trailing, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 8.dp))
             Icon(
                 androidx.compose.material.icons.Icons.Filled.KeyboardArrowDown, if (open) "Collapse" else "Expand",
                 tint = Hx.text2, modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
@@ -177,8 +189,8 @@ fun CardTitle(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun Kpi(label: String, value: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface) {
     Column(modifier) {
-        Text(label, fontSize = 11.sp, color = Hx.text2, fontWeight = FontWeight.Medium, maxLines = 1)
-        Text(value, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+        Text(label, fontSize = 11.sp, color = Hx.text2, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
     }
 }
 
@@ -195,7 +207,7 @@ fun Delta(text: String, good: Boolean, modifier: Modifier = Modifier) {
     val c = if (good) Hx.pos else Hx.neg
     Text(
         text, modifier.clip(CircleShape).background(c.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 2.dp),
-        color = c, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+        color = c, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
     )
 }
 
@@ -204,7 +216,7 @@ fun Delta(text: String, good: Boolean, modifier: Modifier = Modifier) {
 fun Tag(text: String, color: Color, modifier: Modifier = Modifier) {
     Text(
         text, modifier.clip(CircleShape).background(color.copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 2.dp),
-        color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+        color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
     )
 }
 
@@ -214,14 +226,15 @@ fun Pill(text: String, on: Boolean = false, modifier: Modifier = Modifier, leadi
     val bg = if (on) Hx.accent else Hx.surface2
     val fg = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
     val press = remember { MutableInteractionSource() }
+    val haptics = LocalHapticFeedback.current
     Row(
         modifier.pressScale(press, 0.95f).clip(CircleShape).background(bg).border(1.dp, if (on) Hx.accent else Hx.border, CircleShape)
-            .clickable(press, LocalIndication.current, onClick = onClick)
+            .clickable(press, LocalIndication.current) { if (!on) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() }
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (leading != null) { Icon(leading, null, tint = fg, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(5.dp)) }
-        Text(text, color = fg, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        Text(text, color = fg, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -239,6 +252,7 @@ fun RoundIcon(icon: ImageVector, description: String, modifier: Modifier = Modif
 /** A segmented control: equal buttons in a tray; the chosen one is lifted. */
 @Composable
 fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val haptics = LocalHapticFeedback.current
     Row(
         modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Hx.surface2).border(1.dp, Hx.border, RoundedCornerShape(12.dp)).padding(3.dp),
     ) {
@@ -246,10 +260,10 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
             val on = i == selected
             Box(
                 Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(if (on) Hx.surface else Color.Transparent)
-                    .clickable { onSelect(i) }.padding(vertical = 8.dp),
+                    .clickable { if (!on) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onSelect(i) }.padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(o, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (on) MaterialTheme.colorScheme.onSurface else Hx.text2, maxLines = 1)
+                Text(o, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (on) MaterialTheme.colorScheme.onSurface else Hx.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -315,7 +329,7 @@ fun LegendItem(color: Color, name: String, value: String?, selected: Boolean = f
     ) {
         LegendDot(color); Spacer(Modifier.width(6.dp))
         Text(name, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (value != null) Text(value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (value != null) Text(value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 
@@ -370,5 +384,57 @@ fun Modifier.enterOnce(index: Int = 0): Modifier {
         val p = progress.value
         alpha = p
         translationY = (1f - p) * 14.dp.toPx()
+    }
+}
+
+/**
+ * An amount that counts to its new value with a short tween whenever [minor] changes (and up from zero the
+ * first time it is shown on a screen). Formatted with [Money.format]; paise are shown only if the final value
+ * has them, so the width never jitters. Shows the value directly when motion is off or amounts are hidden.
+ */
+@Composable
+fun AnimatedAmount(
+    minor: Long,
+    modifier: Modifier = Modifier,
+    currency: String = "INR",
+    style: TextStyle = LocalTextStyle.current,
+    color: Color = Color.Unspecified,
+    fontWeight: FontWeight? = null,
+    format: (Long) -> String = { Money.format(it, currency, showPaise = minor % 100 != 0L) },
+) {
+    val still = LocalReduceMotion.current || com.hisaab.app.ui.format.AmountPrivacy.hidden
+    var from by rememberSaveable { mutableStateOf(0L) }
+    var to by rememberSaveable { mutableStateOf(0L) }
+    val progress = remember { Animatable(1f) }
+    LaunchedEffect(minor, still) {
+        if (still || minor == to) { from = minor; to = minor; progress.snapTo(1f); return@LaunchedEffect }
+        // Start from wherever the number is now, so a change mid-count carries on smoothly.
+        from = from + ((to - from) * progress.value).toLong()
+        to = minor
+        progress.snapTo(0f)
+        progress.animateTo(1f, tween(durationMillis = 650, easing = FastOutSlowInEasing))
+        from = minor
+    }
+    val shown = if (still) minor else from + ((to - from) * progress.value).toLong()
+    Text(format(shown), modifier, color = color, style = style, fontWeight = fontWeight, maxLines = 1)
+}
+
+/**
+ * A skeleton placeholder for loading content: a [shape]-clipped block in the card tint with a soft highlight
+ * sweeping across. Drawn in the draw phase only; static when motion is off.
+ * Use on a sized box: `Box(Modifier.fillMaxWidth().height(18.dp).shimmer())`.
+ */
+@Composable
+fun Modifier.shimmer(shape: Shape = RoundedCornerShape(8.dp)): Modifier {
+    val base = Hx.surface2
+    if (LocalReduceMotion.current) return clip(shape).background(base)
+    val highlight = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
+    val t = rememberInfiniteTransition(label = "shimmer")
+        .animateFloat(0f, 1f, infiniteRepeatable(tween(durationMillis = 1200, easing = LinearEasing)), label = "shimmer-x")
+    return clip(shape).drawBehind {
+        drawRect(base)
+        val band = size.width * 0.6f
+        val x = -band + t.value * (size.width + band * 2f) - band / 2f
+        drawRect(Brush.linearGradient(listOf(Color.Transparent, highlight, Color.Transparent), Offset(x, 0f), Offset(x + band, size.height)))
     }
 }

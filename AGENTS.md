@@ -1,4 +1,4 @@
-# AGENTS.md
+# AGENTS.md (Artha, formerly Hisaab)
 
 Guide for coding agents working on Hisaab. Keep answers and edits short.
 

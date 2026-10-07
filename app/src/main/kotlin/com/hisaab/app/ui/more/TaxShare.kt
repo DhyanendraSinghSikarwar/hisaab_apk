@@ -138,7 +138,7 @@ private fun shareFile(context: Context, file: File, format: TaxShareFormat, s: T
         type = format.mime
         putExtra(Intent.EXTRA_STREAM, uri)
         putExtra(Intent.EXTRA_SUBJECT, "Tax estimate · ${s.fyLong}")
-        putExtra(Intent.EXTRA_TEXT, "Tax estimate · ${s.fyLong}, made with Hisaab")
+        putExtra(Intent.EXTRA_TEXT, "Tax estimate · ${s.fyLong}, made with Artha")
         clipData = ClipData.newRawUri(file.name, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }

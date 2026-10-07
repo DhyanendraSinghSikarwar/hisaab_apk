@@ -130,7 +130,7 @@ class CategoryActionReceiver : BroadcastReceiver() {
                 val n = NotificationCompat.Builder(context, NewTransactionNotifier.CHANNEL)
                     .setSmallIcon(R.drawable.ic_stat_statement)
                     .setContentTitle("Saved as ${category.label}")
-                    .setContentText("Hisaab will use it for this merchant from now on.")
+                    .setContentText("Artha will use it for this merchant from now on.")
                     .setTimeoutAfter(4_000)
                     .setAutoCancel(true)
                     .build()

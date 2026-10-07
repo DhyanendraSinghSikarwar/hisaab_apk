@@ -1,5 +1,8 @@
 package com.hisaab.app.ui.plan
 
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Add
@@ -93,7 +96,7 @@ val InsuranceKind.tint: Color
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BillsRoute(onBack: () -> Unit, vm: BillsViewModel = hiltViewModel()) {
+fun BillsRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit = {}, vm: BillsViewModel = hiltViewModel()) {
     val p by vm.plan.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<Recurring?>(null) }
     var adding by remember { mutableStateOf(false) }
@@ -111,12 +114,12 @@ fun BillsRoute(onBack: () -> Unit, vm: BillsViewModel = hiltViewModel()) {
     }) { inner ->
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, start = 16.dp, end = 16.dp, bottom = 32.dp),
+            contentPadding = PaddingValues(top = inner.calculateTopPadding() + 8.dp, start = 16.dp, end = 16.dp, bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             val soon = p.upcoming.filter { it.daysLeft in 0..30 }
             item { Summary(soon.sumOf { it.amountMinor }, soon.size, p.recurring.sumOf { it.amountMinor }) }
-            item { BillsCalendar(p.recurring, p.policies, p.upcoming, onEdit = { editing = it }) }
+            item { BillsCalendar(p.recurring, p.policies, p.upcoming, onEdit = { r -> r.loanKey?.let(onOpenLoan) ?: run { editing = r } }) }
             if (p.loaded && p.recurring.isEmpty() && p.policies.isEmpty()) {
                 item { EmptyState(Icons.Filled.EventRepeat, "Nothing found yet", "Repeats appear after two months of payments.") }
             }
@@ -168,7 +171,7 @@ fun UpcomingRow(u: Upcoming, modifier: Modifier = Modifier) {
                 Text(u.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1)
                 val whenText = when (u.daysLeft) { 0L -> "Today"; 1L -> "Tomorrow"; else -> "In ${u.daysLeft} days" }
                 val from = u.account?.let { " · ${it.nickname ?: it.bankName} ••${it.last4}" }.orEmpty()
-                Text(whenText + (if (u.kind == Upcoming.Kind.INSURANCE) " · renewal" else "") + from,
+                Text(whenText + (when (u.kind) { Upcoming.Kind.INSURANCE -> " · renewal"; Upcoming.Kind.EMI -> " · EMI"; else -> "" }) + from,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 if (u.short) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
@@ -233,8 +236,8 @@ private fun ordinal(n: Int): String = n.toString() + when {
     else -> "th"
 }
 
-/** What a calendar day carries: a payment going out, income coming in, or an insurance premium. */
-private enum class Mark { PAYMENT, INCOME, INSURANCE }
+/** What a calendar day carries: a payment going out, income coming in, an insurance premium, or a loan EMI. */
+private enum class Mark { PAYMENT, INCOME, INSURANCE, EMI }
 
 private data class DayEvent(val date: LocalDate, val name: String, val amountMinor: Long, val mark: Mark, val short: Boolean, val recurring: Recurring? = null)
 
@@ -244,7 +247,12 @@ private fun eventsIn(month: java.time.YearMonth, recurring: List<Recurring>, pol
     val out = ArrayList<DayEvent>()
     for (r in recurring) {
         val date = if (r.yearly) r.nextDue.takeIf { it.monthValue == month.monthValue }?.let { day(it.dayOfMonth) } else day(r.dayOfMonth)
-        if (date != null) out += DayEvent(date, r.name, r.amountMinor, if (r.income) Mark.INCOME else Mark.PAYMENT, (r.name to date) in shortOn, r)
+        val mark = when {
+            r.income -> Mark.INCOME
+            r.loanKey != null || r.category == com.hisaab.parser.model.Category.EMI_LOAN -> Mark.EMI
+            else -> Mark.PAYMENT
+        }
+        if (date != null) out += DayEvent(date, r.name, r.amountMinor, mark, (r.name to date) in shortOn, r)
     }
     for (pol in policies) {
         val date = if (pol.monthly) day(pol.nextDue.dayOfMonth) else pol.nextDue.takeIf { it.monthValue == month.monthValue }?.let { day(it.dayOfMonth) }
@@ -263,7 +271,10 @@ private fun BillsCalendar(recurring: List<Recurring>, policies: List<com.hisaab.
     val events = remember(ym, recurring, policies, upcoming) { eventsIn(ym, recurring, policies, upcoming) }
     val byDay = events.groupBy { it.date }
     val c = MaterialTheme.colorScheme
-    val colors = mapOf(Mark.PAYMENT to c.primary, Mark.INCOME to com.hisaab.app.ui.theme.MoneyColors.credit, Mark.INSURANCE to c.tertiary)
+    val colors = mapOf(
+        Mark.PAYMENT to c.primary, Mark.INCOME to com.hisaab.app.ui.theme.MoneyColors.credit, Mark.INSURANCE to c.tertiary,
+        Mark.EMI to com.hisaab.app.ui.theme.Hx.palette[4],
+    )
     Card(shape = RoundedCornerShape(24.dp)) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -309,7 +320,7 @@ private fun BillsCalendar(recurring: List<Recurring>, policies: List<com.hisaab.
                 }
             }
             Row(Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                listOf(Mark.PAYMENT to "Payment", Mark.INCOME to "Income", Mark.INSURANCE to "Insurance").forEach { (m, label) ->
+                listOf(Mark.PAYMENT to "Payment", Mark.EMI to "EMI", Mark.INCOME to "Income", Mark.INSURANCE to "Insurance").forEach { (m, label) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(8.dp).background(colors.getValue(m), CircleShape))
                         Text(label, style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))

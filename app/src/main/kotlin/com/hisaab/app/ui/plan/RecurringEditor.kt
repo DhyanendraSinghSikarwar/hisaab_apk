@@ -63,7 +63,7 @@ class RecurringEditorViewModel @Inject constructor(private val dao: RecurringDao
 
 /**
  * Add or edit a recurring payment or income. [existing] edits one the user added; [prefill] starts from one
- * Hisaab detected, so it can be corrected and saved.
+ * Artha detected, so it can be corrected and saved.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

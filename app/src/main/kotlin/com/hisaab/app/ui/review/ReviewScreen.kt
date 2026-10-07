@@ -1,5 +1,8 @@
 package com.hisaab.app.ui.review
 
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -109,7 +112,7 @@ fun ReviewRoute(onBack: () -> Unit, onOpen: (Long) -> Unit, onCompare: (Long, Lo
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
             )
-            LazyColumn(Modifier.fillMaxSize().clipToBounds(), contentPadding = PaddingValues(top = 4.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
+            LazyColumn(Modifier.fillMaxSize().clipToBounds(), contentPadding = PaddingValues(top = 4.dp, start = 16.dp, end = 16.dp, bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(pairs, key = { it.flagged.id }) { p ->
                     Card(Modifier.fillMaxWidth()) {

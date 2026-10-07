@@ -42,7 +42,7 @@ import com.hisaab.app.ui.theme.Hx
 import java.math.BigDecimal
 
 // ---------------------------------------------------------------------------------------------
-// What-if figures: amounts typed into the calculator to replace what Hisaab worked out, held only in
+// What-if figures: amounts typed into the calculator to replace what Artha worked out, held only in
 // TaxViewModel for the current visit and never saved. All amounts are paise; null means "use the
 // calculated value".
 // ---------------------------------------------------------------------------------------------
@@ -69,7 +69,7 @@ data class TaxWhatIf(
 // The what-if calculator sheet.
 // ---------------------------------------------------------------------------------------------
 
-/** One editable figure: what Hisaab calculated, and a note on how it is used. */
+/** One editable figure: what Artha calculated, and a note on how it is used. */
 private class Field(val label: String, val calculated: Long, val note: String?, initial: Long?) {
     var text by mutableStateOf(initial?.let(::toInput) ?: "")
     /** Blank means "use the calculated value". */
@@ -115,7 +115,7 @@ internal fun TaxEditSheet(
         ) {
             Text("What-if calculator", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Try your own figures for ${s.fyLabel}. Leave a field blank to use what Hisaab calculated. " +
+                "Try your own figures for ${s.fyLabel}. Leave a field blank to use what Artha calculated. " +
                     "Nothing here is saved: the calculated estimate comes back when you leave the Tax centre.",
                 fontSize = 13.sp, color = Hx.text2,
             )

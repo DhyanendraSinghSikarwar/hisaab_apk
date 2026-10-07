@@ -176,11 +176,9 @@ internal fun TxLine(
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(tx.merchant ?: tx.category.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val account = tx.accountLast4?.let { " ••$it" }.orEmpty()
-            val date = if (showDate) Periods.localDate(tx.timestamp).format(SHORT_DATE) + " · " else ""
+            Text(com.hisaab.app.ui.components.TxStyle.merchant(tx), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "$date${tx.category.label} · ${tx.bankName}$account", fontSize = 12.sp, color = Hx.text2,
+                com.hisaab.app.ui.components.TxStyle.subtitle(tx, showDate), fontSize = 12.sp, color = Hx.text2,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp),
             )
             if (tx.needsReview) {
@@ -193,12 +191,8 @@ internal fun TxLine(
             }
         }
         Spacer(Modifier.width(8.dp))
-        val (text, color) = when {
-            isTransfer(tx) -> Money.format(tx.amountMinor, tx.currency) to Hx.transfer
-            tx.type == TransactionType.CREDIT -> "+" + Money.format(tx.amountMinor, tx.currency) to Hx.pos
-            else -> "−" + Money.format(tx.amountMinor, tx.currency) to MaterialTheme.colorScheme.onSurface
-        }
-        Text(text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
+        val (text, color) = com.hisaab.app.ui.components.TxStyle.amount(tx)
+        Text(text, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
     }
 }
 

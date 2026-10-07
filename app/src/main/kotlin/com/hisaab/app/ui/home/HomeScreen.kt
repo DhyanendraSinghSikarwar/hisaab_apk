@@ -68,6 +68,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hisaab.app.settings.TabLayout
 import com.hisaab.app.settings.TabLayouts
 import com.hisaab.app.ui.components.HCard
+import com.hisaab.app.ui.components.enterOnce
+import androidx.compose.foundation.lazy.itemsIndexed
 import com.hisaab.app.ui.components.rememberSmsPermission
 import com.hisaab.app.ui.ledger.BookPeriodChips
 import com.hisaab.app.ui.theme.Hx
@@ -169,7 +171,7 @@ fun HomeScreen(
         state.lockedStatements.forEach { st ->
             add(HomeNotice("Statement needs a password", st.bankName ?: st.sender.substringBefore('<').trim(), Icons.Filled.Lock, onOpenStatements))
         }
-        updateVersion?.let { add(HomeNotice("Hisaab $it is available", "Install the update", Icons.Filled.SystemUpdate, onOpenSettings)) }
+        updateVersion?.let { add(HomeNotice("Artha $it is available", "Install the update", Icons.Filled.SystemUpdate, onOpenSettings)) }
     }
     if (showNotices) NotificationsSheet(notices, onDismiss = { showNotices = false })
     val listState = rememberLazyListState()
@@ -198,10 +200,10 @@ fun HomeScreen(
             if (!hasSmsPermission && !state.smsPromptDismissed) item(key = "sms") { PermissionCard(smsBlocked, onGrantSms, onDismissSms) }
             if (state.scan.running) item(key = "scan") { ScanCard(state.scan) }
 
-            items(shown, key = { "w-$it" }) { key ->
+            itemsIndexed(shown, key = { _, k -> "w-$k" }) { index, key ->
                 // Order and visibility are set in More > Customise; Home has no edit mode.
                 val edit: WidgetEdit? = null
-                Box(Modifier.animateItem().padding(horizontal = 14.dp)) {
+                Box(Modifier.animateItem().enterOnce(index).padding(horizontal = 14.dp)) {
                     when (key) {
                         "networth" -> NetWorthWidget(widgets, onOpenInvestments, edit)
                         "cashflow" -> CashFlowWidget(widgets, onOpenAnalytics, edit)
@@ -284,7 +286,7 @@ private fun PermissionCard(blocked: Boolean, onGrant: () -> Unit, onDismiss: () 
             Text("Read bank SMS", style = MaterialTheme.typography.titleMedium)
         }
         Text(
-            "Hisaab reads SMS only from known bank senders, on this phone. Nothing is uploaded; there is no server.",
+            "Artha reads SMS only from known bank senders, on this phone. Nothing is uploaded; there is no server.",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp),
         )
         if (blocked) {

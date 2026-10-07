@@ -34,6 +34,8 @@ data class Recurring(
     /** Money coming in, such as a salary. Only user-added items can be income. */
     val income: Boolean = false,
     val yearly: Boolean = false,
+    /** Set for a loan's EMI (see [Loan.key]): the bill opens the loan. */
+    val loanKey: String? = null,
 )
 
 enum class InsuranceKind(val label: String) { HEALTH("Health"), LIFE("Life / term"), MOTOR("Car / bike"), OTHER("General") }
@@ -130,6 +132,33 @@ object Planning {
         }
         val names = mine.map { it.name.lowercase() }.toSet()
         return (mine + detected.filter { it.name.lowercase() !in names }).sortedBy { it.nextDue }
+    }
+
+    /**
+     * Adds each active loan's EMI that the repeats found above missed, and tags the ones they found with their
+     * loan. A repeat is the loan's EMI when it is an EMI & Loans payment of about the same amount (within 20%)
+     * on about the same day (within 6), or one with the loan's name.
+     */
+    fun withLoans(recurring: List<Recurring>, loans: List<Loan>): List<Recurring> {
+        val out = recurring.toMutableList()
+        for (loan in loans) {
+            val emi = loan.emiMinor ?: continue
+            val day = loan.emiDay ?: continue
+            val due = loan.nextDue ?: continue
+            if (loan.closed) continue
+            val i = out.indexOfFirst { r ->
+                r.loanKey == null && !r.income && (
+                    r.name.equals(loan.name, ignoreCase = true) ||
+                        (r.category == Category.EMI_LOAN && abs(r.amountMinor - emi) <= emi / 5 && abs(r.dayOfMonth - day) <= 6)
+                    )
+            }
+            if (i >= 0) out[i] = out[i].copy(loanKey = loan.key)
+            else out += Recurring(
+                name = if (loan.detected) loan.name else "${loan.name} EMI", amountMinor = emi, dayOfMonth = day, category = Category.EMI_LOAN,
+                accountId = loan.payingAccountId, lastPaid = loan.lastPaid, nextDue = due, occurrences = loan.trackedCount, loanKey = loan.key,
+            )
+        }
+        return out.sortedBy { it.nextDue }
     }
 
     private val HEALTH = Regex("""health|mediclaim|star\s|niva|bupa|care\s|cigna|aditya birla health""", RegexOption.IGNORE_CASE)

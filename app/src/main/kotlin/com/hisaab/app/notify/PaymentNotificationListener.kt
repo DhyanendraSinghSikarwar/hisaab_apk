@@ -49,6 +49,8 @@ class PaymentNotificationListener : NotificationListenerService() {
         val extras = n.extras ?: return
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
         val body = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString()
+        // WhatsApp also posts chats: only its payment notifications are read, never a conversation.
+        if (sbn.packageName in CHAT_APPS && !isChatPayment(n, body)) return
 
         val deps = EntryPointAccessors.fromApplication(applicationContext, Deps::class.java)
         deps.scope().launch {
@@ -83,7 +85,28 @@ class PaymentNotificationListener : NotificationListenerService() {
             "com.csam.icici.bank.imobile" to "ICICI iMobile",
             "com.axis.mobile" to "Axis Mobile",
             "com.msf.kbank.mobile" to "Kotak Bank",
+            "com.samsung.android.spay" to "Samsung Wallet",
+            "com.samsung.android.spaymini" to "Samsung Pay Mini",
+            "com.whatsapp" to "WhatsApp Pay",
+            "com.whatsapp.w4b" to "WhatsApp Pay",
         )
+
+        /** Apps that mix payments with chats. */
+        private val CHAT_APPS = setOf("com.whatsapp", "com.whatsapp.w4b")
+
+        /** "You paid ₹500 to Asha", "₹200 received from Ravi", "Payment of ₹500 successful". */
+        private val CHAT_PAYMENT = Regex(
+            """^\s*(?:you\s+(?:have\s+)?(?:paid|sent|received)|payment\s+(?:of|to|from|successful|received|sent|completed)|(?:₹|rs\.?|inr)\s?[\d,]+(?:\.\d{1,2})?\s+(?:paid|sent|received))""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** A payment notification, not a message: no conversation style, not a message category, and payment wording up front. */
+        private fun isChatPayment(n: Notification, body: String?): Boolean {
+            if (n.category == Notification.CATEGORY_MESSAGE) return false
+            if (n.extras?.containsKey(Notification.EXTRA_MESSAGES) == true) return false
+            val channel = if (android.os.Build.VERSION.SDK_INT >= 26) n.channelId.orEmpty() else ""
+            return body != null && CHAT_PAYMENT.containsMatchIn(body) && (channel.isEmpty() || !channel.contains("chat", ignoreCase = true))
+        }
 
         fun hasAccess(context: Context): Boolean =
             context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context)

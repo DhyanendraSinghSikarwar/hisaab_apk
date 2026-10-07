@@ -48,17 +48,25 @@ import com.hisaab.parser.model.Category
 
 /**
  * The app theme: [mode] picks light or dark, [palette] the colours (see Palettes.kt). Also provides
- * [LocalDarkTheme], [LocalPalette] and [LocalReduceMotion].
+ * [LocalDarkTheme], [LocalPalette] and [LocalReduceMotion]. [textScale] is the in-app text size
+ * (Settings › Security & backup), applied on top of the phone's font scale; see [appFontScale]. [pureBlack]
+ * makes dark mode true black for OLED screens.
  */
 @Composable
-fun HisaabTheme(mode: ThemeMode = ThemeMode.SYSTEM, palette: ThemePalette = ThemePalette.CLASSIC, content: @Composable () -> Unit) {
+fun HisaabTheme(
+    mode: ThemeMode = ThemeMode.SYSTEM,
+    palette: ThemePalette = ThemePalette.CLASSIC,
+    textScale: Float = 1f,
+    pureBlack: Boolean = false,
+    content: @Composable () -> Unit,
+) {
     val dark = when (mode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    // Always Hisaab's own colours: wallpaper-based Material You would make it look like every other app.
-    val spec = palette.spec
+    // Always Artha's own colours: wallpaper-based Material You would make it look like every other app.
+    val spec = remember(palette, pureBlack) { if (pureBlack) palette.spec.pureBlack() else palette.spec }
     val colors = if (dark) spec.dark else spec.light
     val resolver = LocalContext.current.contentResolver
     // Read once per composition of the theme; "Remove animations" is rarely toggled mid-session.
@@ -67,14 +75,32 @@ fun HisaabTheme(mode: ThemeMode = ThemeMode.SYSTEM, palette: ThemePalette = Them
     }
     // Overscroll: lists keep Compose's default platform effect (the Android 12+ stretch). Nothing in the app
     // overrides LocalOverscrollFactory, so it is deliberately left as the platform provides it.
+    val system = androidx.compose.ui.platform.LocalDensity.current
+    val density = remember(system, textScale) {
+        if (textScale == 1f) system else androidx.compose.ui.unit.Density(system.density, appFontScale(system.fontScale, textScale))
+    }
     MaterialTheme(colorScheme = colors, typography = HisaabTypography, shapes = HisaabShapes) {
         androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides density,
             LocalDarkTheme provides dark,
             LocalPalette provides spec,
             LocalReduceMotion provides reduceMotion,
             content = content,
         )
     }
+}
+
+/** Most the in-app text size may push the font scale to, so crowded rows still fit. */
+const val MAX_APP_FONT_SCALE = 1.3f
+
+/**
+ * The font scale the app draws with: the phone's [system] scale times the in-app [factor]. Enlarging is
+ * capped at [MAX_APP_FONT_SCALE], but never below the phone's own scale, so an accessibility setting
+ * above the cap is still honoured as-is (the in-app size then adds nothing). Shrinking always applies.
+ */
+fun appFontScale(system: Float, factor: Float): Float {
+    val scaled = system * factor
+    return if (factor <= 1f) scaled else minOf(scaled, maxOf(MAX_APP_FONT_SCALE, system))
 }
 
 val LocalDarkTheme = androidx.compose.runtime.staticCompositionLocalOf { false }
