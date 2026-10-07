@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.pressScale
 import com.hisaab.app.ui.theme.LocalReduceMotion
 
@@ -104,7 +105,7 @@ fun AnimatedTabBar(items: List<TabBarItem>, selected: Int, onSelect: (Int) -> Un
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        item.icon, item.label, tint = tint,
+                        item.icon, t(item.label), tint = tint,
                         modifier = Modifier.pressScale(press, 0.9f).graphicsLayer { scaleX = scale.value; scaleY = scale.value }.size(26.dp),
                     )
                 }

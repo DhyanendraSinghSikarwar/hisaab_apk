@@ -2,6 +2,9 @@ package com.hisaab.shared.repo
 
 import androidx.room.immediateTransaction
 import androidx.room.useWriterConnection
+import com.hisaab.parser.bank.Lenders
+import com.hisaab.parser.bank.LoanStatus
+import com.hisaab.parser.bank.DepositInfo
 import com.hisaab.parser.dedup.DedupDecision
 import com.hisaab.parser.dedup.DedupLookup
 import com.hisaab.parser.dedup.DuplicateMatcher
@@ -12,6 +15,7 @@ import com.hisaab.parser.model.Source
 import com.hisaab.parser.model.TransactionType
 import com.hisaab.parser.registry.ParserRegistry
 import com.hisaab.parser.model.Category
+import com.hisaab.parser.model.Channel
 import com.hisaab.shared.db.AccountEntity
 import com.hisaab.shared.db.AccountType
 import com.hisaab.shared.db.DeletedMessageEntity
@@ -68,7 +72,9 @@ data class IngestReport(val inserted: Int, val merged: Int, val flagged: Int, va
 class TransactionRepository @Inject constructor(
     private val db: HisaabDatabase,
     private val registry: ParserRegistry,
+    private val balanceNotifier: BalanceUpdateNotifier = BalanceUpdateNotifier.NONE,
 ) {
+    private val reconcileDao = db.reconcile()
     private val txDao = db.transactions()
     private val sourceDao = db.sources()
     private val accountDao = db.accounts()
@@ -92,7 +98,9 @@ class TransactionRepository @Inject constructor(
 
     suspend fun ingest(message: IncomingMessage): IngestOutcome {
         var outcome = IngestOutcome.ALREADY_PROCESSED
-        write { outcome = ingestInTransaction(message, System.currentTimeMillis(), rules.manualRules()) }
+        val gaps = ArrayList<BalanceGap>()
+        write { outcome = ingestInTransaction(message, System.currentTimeMillis(), rules.manualRules(), gaps) }
+        report(gaps)
         return outcome
     }
 
@@ -100,12 +108,14 @@ class TransactionRepository @Inject constructor(
     suspend fun ingestBatch(messages: List<IncomingMessage>, processedEmails: List<ProcessedEmailEntity> = emptyList()): IngestReport {
         if (messages.isEmpty() && processedEmails.isEmpty()) return IngestReport.EMPTY
         var report = IngestReport.EMPTY
+        val gaps = ArrayList<BalanceGap>()
         write {
+            gaps.clear()
             val now = System.currentTimeMillis()
             var inserted = 0; var merged = 0; var flagged = 0; var skipped = 0
             val manual = if (messages.isEmpty()) emptyList() else rules.manualRules()
             for (m in messages) {
-                when (ingestInTransaction(m, now, manual)) {
+                when (ingestInTransaction(m, now, manual, gaps)) {
                     IngestOutcome.INSERTED -> inserted++
                     IngestOutcome.MERGED -> merged++
                     IngestOutcome.FLAGGED_FOR_REVIEW -> flagged++
@@ -115,7 +125,33 @@ class TransactionRepository @Inject constructor(
             if (processedEmails.isNotEmpty()) processedDao.insertAll(processedEmails)
             report = IngestReport(inserted, merged, flagged, skipped)
         }
+        report(gaps)
         return report
+    }
+
+    /** Tells the user about balances the transactions did not explain: the latest gap per account. */
+    private suspend fun report(gaps: List<BalanceGap>) {
+        if (gaps.isEmpty()) return
+        runCatching { balanceNotifier.onBalancesUpdated(gaps.associateBy { it.key }.values.toList()) }
+    }
+
+    /**
+     * The gap between [stated] (an account's balance, or with [card] a card's available limit, true at [at]) and the last
+     * stated figure moved on by the transactions since; null when they agree, or nothing can be said. Deposits and loans
+     * are left out: interest moves them without a transaction.
+     */
+    private suspend fun gapFor(accountId: Long, stated: Long, at: Long, card: Boolean): BalanceGap? {
+        val a = accountDao.getById(accountId) ?: return null
+        if (a.accountType?.liquid == false) return null
+        val previous = if (card) a.availableLimitMinor else a.latestBalanceMinor
+        val previousAt = a.balanceUpdatedAt ?: return null
+        // A balance the user set since then is the better base; leave it alone.
+        if (a.manualBalanceAt != null && a.manualBalanceAt >= previousAt) return null
+        if (previous == null || at <= previousAt) return null
+        val change = reconcileDao.netChange(accountId, card, previousAt, at)
+        val gap = BalanceReconciler.gap(previous, previousAt, change.net, change.unclear, stated, at, System.currentTimeMillis()) ?: return null
+        val what = if (card) "limit" else "balance"
+        return BalanceGap("${BalanceReconciler.accountLabel(a.bankName, a.last4, a.nickname)} $what", "account:${a.id}", gap, at)
     }
 
     /**
@@ -128,7 +164,9 @@ class TransactionRepository @Inject constructor(
             ?: MerchantRuleEntity.keyOf(p.merchant, p.upiId)?.let { rules.get(it) }?.takeIf { !it.manual }
     }
 
-    private suspend fun ingestInTransaction(m: IncomingMessage, now: Long, manual: List<MerchantRuleEntity>): IngestOutcome {
+    private suspend fun ingestInTransaction(
+        m: IncomingMessage, now: Long, manual: List<MerchantRuleEntity>, gaps: MutableList<BalanceGap> = ArrayList(),
+    ): IngestOutcome {
         // A category the user set for this merchant wins over the parser's guess.
         val rule = ruleFor(m.parsed, manual)
         val tx = rule?.let { m.parsed.copy(category = it.category) } ?: m.parsed
@@ -181,19 +219,35 @@ class TransactionRepository @Inject constructor(
         )
         if (accountId != null) {
             val balance = tx.balanceMinor.takeIf { tx.accountKind == AccountKind.ACCOUNT || tx.isDebitCard }
+            // A stated balance or limit is checked against the transactions before it replaces the old one.
+            when {
+                tx.isDebitCard -> null
+                tx.accountKind == AccountKind.CARD -> tx.availableLimitMinor?.let { gapFor(accountId, it, tx.transactionTime, card = true) }
+                else -> balance?.let { gapFor(accountId, it, tx.transactionTime, card = false) }
+            }?.let(gaps::add)
             if (balance != null || tx.availableLimitMinor != null) accountDao.updateBalance(accountId, balance, tx.availableLimitMinor, tx.transactionTime)
             // A debit card's SMS states its bank account's balance.
             if (tx.isDebitCard && balance != null) {
-                accountDao.getById(accountId)?.linkedAccountId?.let { accountDao.updateBalance(it, balance, null, tx.transactionTime) }
+                accountDao.getById(accountId)?.linkedAccountId?.let {
+                    gapFor(it, balance, tx.transactionTime, card = false)?.let(gaps::add)
+                    accountDao.updateBalance(it, balance, null, tx.transactionTime)
+                }
             }
         }
         return outcome
     }
 
+    /**
+     * Last 4 digits of the user's own mobile numbers. A bank message can carry the mobile masked like an
+     * account ("XXXXXX6810"); no account is ever created with these digits.
+     */
+    @Volatile var phoneLast4s: Set<String> = emptySet()
+
     private suspend fun ensureAccount(tx: ParsedTransaction, rawText: String? = null): Long? {
-        val last4 = tx.accountLast4 ?: return null
+        val last4 = tx.accountLast4?.takeIf { it !in phoneLast4s } ?: return null
         accountDao.find(tx.bankName, last4)?.let { existing ->
             if (existing.accountType == null && tx.isDebitCard) accountDao.setType(existing.id, AccountType.DEBIT_CARD, existing.cardNetwork)
+            if (existing.accountType == null && Lenders.isLender(tx.bankName)) accountDao.setType(existing.id, AccountType.LOAN, null)
             return existing.id
         }
         val guess = AccountGuess.of(tx, rawText)
@@ -232,6 +286,7 @@ class TransactionRepository @Inject constructor(
                         .firstOrNull { it.type == TransactionType.TRANSFER && it.accountKind == AccountKind.CARD }
                         ?.let { markTransfer(t, "Credit card bill payment") }
                 }
+                if (t.type == TransactionType.DEBIT) pairEmi(t, accountId)
             }
             t.type == TransactionType.TRANSFER && t.accountKind == AccountKind.CARD -> {
                 txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - 72 * hour, t.timestamp + 72 * hour)
@@ -239,6 +294,66 @@ class TransactionRepository @Inject constructor(
                     ?.let { markTransfer(it, "Credit card bill payment") }
             }
         }
+    }
+
+    /**
+     * One EMI seen twice: the lender's receipt on the loan account and the bank's debit (same amount, within 3 days).
+     * The bank debit stays the spend; the loan side becomes a transfer, so the EMI is counted once.
+     */
+    private suspend fun pairEmi(t: TransactionEntity, accountId: Long) {
+        val day = 24 * 60 * 60 * 1000L
+        val onLoan = accountDao.getById(accountId)?.accountType == AccountType.LOAN
+        if (onLoan && t.category != Category.EMI_LOAN) return
+        val mate = txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - 3 * day, t.timestamp + 3 * day).firstOrNull { o ->
+            val other = o.accountId?.takeIf { it != accountId } ?: return@firstOrNull false
+            if (o.id == t.id || o.type != TransactionType.DEBIT) return@firstOrNull false
+            val otherOnLoan = accountDao.getById(other)?.accountType == AccountType.LOAN
+            val (loanSide, bankSide) = if (onLoan) t to o else o to t
+            otherOnLoan != onLoan && loanSide.category == Category.EMI_LOAN &&
+                (bankSide.category == Category.EMI_LOAN || bankSide.channel == Channel.AUTO_DEBIT)
+        } ?: return
+        markTransfer(if (onLoan) t else mate, "EMI also debited from your bank account")
+    }
+
+    /**
+     * A lender's message that is not a payment: makes sure the loan account exists, records the principal of a
+     * disbursal (unless the user set one) and the outstanding amount as the account's balance.
+     */
+    suspend fun applyLoanStatus(s: LoanStatus) = write {
+        if (s.last4 in phoneLast4s) return@write
+        s.deposit?.let { applyDeposit(s, it); return@write }
+        val existing = accountDao.find(s.lender, s.last4)
+        val id = existing?.id ?: accountDao.insert(
+            AccountEntity(
+                bankName = s.lender, last4 = s.last4, kind = AccountKind.ACCOUNT, createdAt = System.currentTimeMillis(),
+                accountType = AccountType.LOAN,
+            ),
+        ).takeIf { it != -1L } ?: return@write
+        if (existing != null && existing.accountType == null) accountDao.setType(id, AccountType.LOAN, null)
+        if (s.principalMinor != null && existing?.loanPrincipalMinor == null) {
+            accountDao.setLoanTerms(id, s.principalMinor, existing?.loanRateBps, existing?.loanTenureMonths, existing?.loanStartDay)
+        }
+        s.outstandingMinor?.let { accountDao.updateBalance(id, it, null, s.at) }
+    }
+
+    /**
+     * A bank's FD, RD or PPF message or advice: the deposit account exists with its type, balance, maturity day and what
+     * happens then, so the Maturity calendar and Debt/Retirement totals are right. A deposit paid out or closed leaves
+     * the lists. An older message never undoes what a newer one said.
+     */
+    private suspend fun applyDeposit(s: LoanStatus, d: DepositInfo) {
+        val type = DepositTerms.typeOf(d.kind)
+        val existing = accountDao.find(s.lender, s.last4)
+        val id = existing?.id ?: accountDao.insert(
+            AccountEntity(bankName = s.lender, last4 = s.last4, kind = AccountKind.ACCOUNT, createdAt = System.currentTimeMillis(), accountType = type),
+        ).takeIf { it != -1L } ?: return
+        if (existing != null && (existing.accountType == null || existing.accountType == AccountType.SAVINGS)) accountDao.setType(id, type, existing.cardNetwork)
+        val lastAt = existing?.balanceUpdatedAt
+        val newest = lastAt == null || s.at >= lastAt
+        val terms = DepositTerms.of(d, s.at, existing?.maturityDay, existing?.maturityAction, newest)
+        if (terms != null) accountDao.setMaturity(id, terms.first, terms.second)
+        if (d.closed && newest) accountDao.setHidden(id, true)
+        s.outstandingMinor?.let { accountDao.updateBalance(id, it, null, s.at) }
     }
 
     private suspend fun markTransfer(t: TransactionEntity, note: String) {
@@ -301,20 +416,29 @@ class TransactionRepository @Inject constructor(
     /**
      * What a statement says about the account: a card's credit limit and amount due give its available limit;
      * a bank statement's last running balance is the account balance. Only a newer figure replaces an older one.
+     * With [reconcile], a figure the transactions do not explain is reported (see [BalanceUpdateNotifier]); a statement
+     * whose own rows are still to be stored passes false, since those rows fill the gap.
      */
     suspend fun applyStatementToAccount(
         bankName: String, last4: String, kind: AccountKind, closingBalance: Long?, creditLimit: Long?, totalDue: Long?, at: Long,
-        available: Long? = null,
+        available: Long? = null, reconcile: Boolean = false,
     ) {
         val id = accountDao.find(bankName, last4)?.id
             ?: accountDao.insert(AccountEntity(bankName = bankName, last4 = last4, kind = kind, createdAt = System.currentTimeMillis())).takeIf { it != -1L }
             ?: return
+        var gap: BalanceGap? = null
         when (kind) {
             // The available limit printed on the statement beats working it out from the limit and the amount due.
-            AccountKind.CARD -> (available ?: creditLimit?.let { (it - (totalDue ?: 0)).coerceAtLeast(0) })
-                ?.let { accountDao.setLimitFromStatement(id, it, at) }
-            AccountKind.ACCOUNT -> if (closingBalance != null) accountDao.updateBalance(id, closingBalance, null, at)
+            AccountKind.CARD -> (available ?: creditLimit?.let { (it - (totalDue ?: 0)).coerceAtLeast(0) })?.let {
+                if (reconcile) gap = gapFor(id, it, at, card = true)
+                accountDao.setLimitFromStatement(id, it, at)
+            }
+            AccountKind.ACCOUNT -> if (closingBalance != null) {
+                if (reconcile) gap = gapFor(id, closingBalance, at, card = false)
+                accountDao.updateBalance(id, closingBalance, null, at)
+            }
         }
+        report(listOfNotNull(gap))
     }
 
     // Review actions.
@@ -473,6 +597,25 @@ class TransactionRepository @Inject constructor(
         } else null
         if (account == null && typed == null) return null
         return ReparseFix(t.id, t.accountLast4, t.type, account, typed)
+    }
+
+    /**
+     * Removes accounts numbered like the user's own mobile: their transactions move to the bank's only other
+     * account or card, or stay without an account. Cheap; safe to run at every start.
+     */
+    suspend fun removePhoneAccounts(phones: Set<String>): Int {
+        if (phones.isEmpty()) return 0
+        var removed = 0
+        write {
+            val all = accountDao.all()
+            for (a in all.filter { it.last4 in phones }) {
+                val siblings = all.filter { it.id != a.id && it.bankName == a.bankName && it.last4 !in phones && !it.hidden }
+                if (siblings.size == 1) txDao.moveAccount(a.id, siblings.single().id, siblings.single().last4) else txDao.detachAccount(a.id)
+                accountDao.delete(a.id)
+                removed++
+            }
+        }
+        return removed
     }
 
     private fun AccountEntity.untouched() = nickname == null && colorArgb == null && manualBalanceMinor == null &&

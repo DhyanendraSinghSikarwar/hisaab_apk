@@ -56,6 +56,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.charts.ChartSlice
 import com.hisaab.app.ui.charts.DonutChart
 import com.hisaab.app.ui.components.IconLibrary
@@ -125,40 +126,40 @@ fun CategoryDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, v
     var creating by remember { mutableStateOf(false) }
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
-            colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(look?.name ?: "Category") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(look?.name?.let { t(it) } ?: t("Category")) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
         )
     }) { inner ->
         if (look == null) return@Scaffold
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = inner.calculateTopPadding(), bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())) {
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { vm.shift(-1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month") }
+                    IconButton(onClick = { vm.shift(-1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, t("Previous month")) }
                     Text(Periods.month(s.month), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     IconButton(onClick = { vm.shift(1) }, enabled = s.month < YearMonth.now(Periods.zone)) {
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month")
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, t("Next month"))
                     }
                 }
             }
             if (s.subs.isEmpty()) {
                 item {
-                    Text("Nothing spent on ${look.name} in ${Periods.month(s.month)}.", Modifier.padding(24.dp),
+                    Text(t("Nothing spent on {category} in {month}.", "category" to t(look.name), "month" to Periods.month(s.month)), Modifier.padding(24.dp),
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 item {
                     val palette = remember(look.color, s.subs.size) { shades(look.color, s.subs.size) }
-                    val slices = s.subs.mapIndexed { i, sub -> ChartSlice(sub.name, sub.total, palette[i]) }
+                    val slices = s.subs.mapIndexed { i, sub -> ChartSlice(t(sub.name), sub.total, palette[i]) }
                     Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                         DonutChart(
-                            slices = slices, selected = selected, onSelect = { selected = it }, centerLabel = look.name,
+                            slices = slices, selected = selected, onSelect = { selected = it }, centerLabel = t(look.name),
                             centerValue = { Money.format(it, showPaise = false) }, modifier = Modifier.fillMaxWidth(0.66f),
                         )
                     }
                 }
                 item {
-                    Text("By sub-category", Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp), style = MaterialTheme.typography.titleMedium)
+                    Text(t("By sub-category"), Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp), style = MaterialTheme.typography.titleMedium)
                 }
                 val palette = shades(look.color, s.subs.size)
                 s.subs.forEachIndexed { i, sub ->
@@ -173,20 +174,20 @@ fun CategoryDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, v
             item {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { creating = true }) {
-                        Icon(Icons.Filled.Add, null); Spacer(Modifier.width(8.dp)); Text("Add a sub-category")
+                        Icon(Icons.Filled.Add, null); Spacer(Modifier.width(8.dp)); Text(t("Add a sub-category"))
                     }
                     if (s.customSubs.isNotEmpty()) {
-                        Text("Your sub-categories", style = MaterialTheme.typography.labelLarge)
+                        Text(t("Your sub-categories"), style = MaterialTheme.typography.labelLarge)
                         s.customSubs.forEach { c ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconBadge(IconLibrary.get(c.icon), look.color, 32)
                                 Text(c.name, Modifier.weight(1f).padding(start = 10.dp))
-                                IconButton(onClick = { cats.deleteSub(c.id) }) { Icon(Icons.Filled.Delete, "Delete ${c.name}") }
+                                IconButton(onClick = { cats.deleteSub(c.id) }) { Icon(Icons.Filled.Delete, t("Delete {name}", "name" to c.name)) }
                             }
                         }
                     }
                     Text(
-                        "Tap a sub-category to see its transactions. To move a transaction, open it and change its sub-category.",
+                        t("Tap a sub-category to see its transactions. To move a transaction, open it and change its sub-category."),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -194,7 +195,7 @@ fun CategoryDetailRoute(onBack: () -> Unit, onOpenTransaction: (Long) -> Unit, v
         }
     }
     if (creating) {
-        NewItemDialog("New sub-category in ${look?.name}", withColor = false, onDismiss = { creating = false }) { name, icon, _ ->
+        NewItemDialog(t("New sub-category in {category}", "category" to look?.name?.let { t(it) }), withColor = false, onDismiss = { creating = false }) { name, icon, _ ->
             cats.createSub(vm.key, name, icon); creating = false
         }
     }
@@ -207,11 +208,11 @@ private fun SubRow(sub: SubSpend, total: Long, color: Color, open: Boolean, onCl
             IconBadge(IconLibrary.get(sub.icon), color, 40)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Row {
-                    Text(sub.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                    Text(t(sub.name), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                     Text(Money.format(sub.total, showPaise = false), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 }
                 Text(
-                    "${sub.transactions.size} payment${if (sub.transactions.size == 1) "" else "s"} · ${sub.total * 100 / total.coerceAtLeast(1)}%",
+                    (if (sub.transactions.size == 1) t("{n} payment", "n" to sub.transactions.size) else t("{n} payments", "n" to sub.transactions.size)) + " · ${sub.total * 100 / total.coerceAtLeast(1)}%",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 LinearProgressIndicator(

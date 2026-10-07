@@ -7,6 +7,7 @@ import com.hisaab.email.mime.EmailContent
 import com.hisaab.email.mime.MimeParser
 import com.hisaab.email.statement.StatementHandler
 import com.hisaab.email.statement.StatementMeta
+import com.hisaab.parser.bank.LoanStatus
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.registry.ParserRegistry
 import com.hisaab.parser.registry.SenderKeys
@@ -26,6 +27,9 @@ import java.util.concurrent.TimeUnit
 interface EmailSink {
     suspend fun alreadyProcessed(ids: List<String>): Set<String>
     suspend fun store(messages: List<IncomingMessage>, processed: List<ProcessedEmailEntity>): IngestReport
+
+    /** A lender's email that is not a payment: disbursal, outstanding amount or EMI reminder. */
+    suspend fun loanStatus(status: LoanStatus) {}
 }
 
 enum class SyncMode { FULL, INCREMENTAL, FALLBACK_FULL, DISABLED }
@@ -59,24 +63,25 @@ class GmailSyncEngine(
     private val pdf: StatementHandler?,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    suspend fun sync(): SyncReport {
+    /** [onProgress] gets the running count of emails fetched, after each page. */
+    suspend fun sync(onProgress: suspend (Int) -> Unit = {}): SyncReport {
         val s = state.read()
         if (!s.enabled) return SyncReport(SyncMode.DISABLED)
         val start = clock()
         val report = when (val historyId = s.historyId) {
-            null -> fullSync(s, s.lookbackDays, SyncMode.FULL)
+            null -> fullSync(s, s.lookbackDays, SyncMode.FULL, onProgress)
             else -> try {
-                incrementalSync(s, historyId)
+                incrementalSync(s, historyId, onProgress)
             } catch (_: HistoryExpiredException) {
                 val days = s.lastSyncAt?.let { TimeUnit.MILLISECONDS.toDays(clock() - it).toInt() + 1 } ?: s.lookbackDays
-                fullSync(s, days.coerceIn(1, s.lookbackDays), SyncMode.FALLBACK_FULL)
+                fullSync(s, days.coerceIn(1, s.lookbackDays), SyncMode.FALLBACK_FULL, onProgress)
             }
         }
         val done = report.copy(millis = clock() - start)
         return done
     }
 
-    private suspend fun fullSync(s: GmailSettings, days: Int, mode: SyncMode): SyncReport {
+    private suspend fun fullSync(s: GmailSettings, days: Int, mode: SyncMode, onProgress: suspend (Int) -> Unit): SyncReport {
         // Taken before listing, so mail arriving mid-sync is picked up by the next incremental sync.
         val checkpoint = api.profile().historyId
         val query = GmailQuery.build(s.senders, days)
@@ -85,13 +90,14 @@ class GmailSyncEngine(
         do {
             val response = api.listMessages(query, page, PAGE_SIZE)
             total = total.plus(process(response.messages.map { it.id }, s, filterBySender = false))
+            onProgress(total.fetched)
             page = response.nextPageToken
         } while (page != null)
         state.saveCheckpoint(checkpoint, clock(), total.summary())
         return total
     }
 
-    private suspend fun incrementalSync(s: GmailSettings, startHistoryId: String): SyncReport {
+    private suspend fun incrementalSync(s: GmailSettings, startHistoryId: String, onProgress: suspend (Int) -> Unit): SyncReport {
         val ids = LinkedHashSet<String>()
         var latest = startHistoryId
         var page: String? = null
@@ -103,6 +109,7 @@ class GmailSyncEngine(
         } while (page != null)
         // History lists all new mail, so the sender whitelist is applied here instead of in a query.
         val report = process(ids.toList(), s, filterBySender = true).copy(mode = SyncMode.INCREMENTAL)
+        onProgress(report.fetched)
         state.saveCheckpoint(latest, clock(), report.summary())
         return report
     }
@@ -143,6 +150,7 @@ class GmailSyncEngine(
         registry.parse(content.text, content.from, content.receivedAt, Source.EMAIL)?.let {
             out += IncomingMessage(it, messageId, content.text, subject = content.subject)
         }
+        if (out.isEmpty()) registry.loanStatus(content.text, content.from, content.receivedAt, Source.EMAIL)?.let { sink.loanStatus(it) }
         // Not a bank alert: maybe a mutual fund purchase confirmation (SIP instalment, units allotted).
         if (out.isEmpty() && pdf != null) out += pdf.readEmail(messageId, content.from, content.subject, content.text, content.receivedAt)
         if (readPdf && pdf != null) {

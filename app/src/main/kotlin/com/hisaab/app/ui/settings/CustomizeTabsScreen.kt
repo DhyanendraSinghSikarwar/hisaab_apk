@@ -28,6 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.TabLayout
 import com.hisaab.app.settings.TabLayoutStore
 import com.hisaab.app.settings.TabLayouts
@@ -96,42 +97,42 @@ fun CustomizeTabsRoute(onBack: () -> Unit, vm: CustomizeTabsViewModel = hiltView
     val layout by vm.layout.collectAsStateWithLifecycle()
     val s by settings.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(TabLayouts.HOME) }
-    MoreScaffold("Customise", onBack) { inner ->
+    MoreScaffold(t("Customise"), onBack) { inner ->
         Column(
             Modifier.padding(top = inner.calculateTopPadding()).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            HCard(title = "Appearance") {
+            HCard(title = t("Appearance")) {
                 val modes = ThemeMode.entries
                 Segmented(
-                    modes.map { m -> m.name.lowercase().replaceFirstChar { it.uppercase() } },
+                    modes.map { m -> t(m.name.lowercase().replaceFirstChar { it.uppercase() }) },
                     modes.indexOf(s.app?.theme ?: ThemeMode.SYSTEM),
                     onSelect = { settings.setTheme(modes[it]) },
                 )
                 val pureBlack = s.app?.pureBlack ?: false
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Pure black in dark mode", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    Text(t("Pure black in dark mode"), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                     Switch(pureBlack, { vm.setPureBlack(it) })
                 }
-                val selected = s.app?.palette ?: ThemePalette.CLASSIC
+                val selected = s.app?.palette ?: ThemePalette.DHANKOSH
                 PaletteGroup.entries.forEach { group ->
-                    Text(group.label, style = MaterialTheme.typography.labelLarge, color = Hx.text2, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                    Text(t(group.label), style = MaterialTheme.typography.labelLarge, color = Hx.text2, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
                     PalettePicker(ThemePalette.entries.filter { it.group == group }, selected, pureBlack, onPick = { vm.setPalette(it) })
                 }
             }
 
-            HCard(title = "Tab sections", action = "Reset", onAction = { vm.reset(tab) }) {
-                Segmented(TabLayouts.TABS.map { it.second }, TabLayouts.TABS.indexOfFirst { it.first == tab }, onSelect = { tab = TabLayouts.TABS[it].first })
+            HCard(title = t("Tab sections"), action = t("Reset"), onAction = { vm.reset(tab) }) {
+                Segmented(TabLayouts.TABS.map { t(it.second) }, TabLayouts.TABS.indexOfFirst { it.first == tab }, onSelect = { tab = TabLayouts.TABS[it].first })
                 val labels = TabLayouts.DEFAULTS.getValue(tab).associate { it.key to it.label }
                 val order = layout.order(tab)
                 Column(Modifier.padding(top = 8.dp)) {
                     order.forEachIndexed { i, key ->
                         val shown = !layout.isHidden(tab, key)
                         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(labels[key] ?: key, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
+                            Text(labels[key]?.let { t(it) } ?: key, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
                                 color = if (shown) MaterialTheme.colorScheme.onSurface else Hx.text2)
-                            IconButton(onClick = { vm.move(tab, key, -1) }, enabled = i > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Move up") }
-                            IconButton(onClick = { vm.move(tab, key, 1) }, enabled = i < order.lastIndex) { Icon(Icons.Filled.KeyboardArrowDown, "Move down") }
+                            IconButton(onClick = { vm.move(tab, key, -1) }, enabled = i > 0) { Icon(Icons.Filled.KeyboardArrowUp, t("Move up")) }
+                            IconButton(onClick = { vm.move(tab, key, 1) }, enabled = i < order.lastIndex) { Icon(Icons.Filled.KeyboardArrowDown, t("Move down")) }
                             Switch(shown, { vm.setVisible(tab, key, it) }, Modifier.padding(start = 4.dp))
                         }
                     }
@@ -184,7 +185,7 @@ private fun PaletteSwatch(palette: ThemePalette, selected: Boolean, pureBlack: B
             }
         }
         Text(
-            palette.label, color = label, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 2,
+            t(palette.label), color = label, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 2,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             modifier = Modifier.padding(top = 6.dp),

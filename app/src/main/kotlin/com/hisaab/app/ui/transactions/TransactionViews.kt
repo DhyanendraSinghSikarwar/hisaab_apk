@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -54,6 +56,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hisaab.app.i18n.t
+import com.hisaab.app.ui.components.BrandMark
+import com.hisaab.app.ui.components.Brands
 import com.hisaab.app.ui.components.HCard
 import com.hisaab.app.ui.components.SplitBar
 import com.hisaab.app.ui.components.TransactionAvatar
@@ -95,7 +100,7 @@ internal fun SearchBox(query: String, matches: Int, onChange: (String) -> Unit, 
         Icon(Icons.Filled.Search, null, tint = if (focused) Hx.accent else Hx.text2, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-            if (query.isEmpty()) Text("Search merchant, amount, note…", color = Hx.text2, fontSize = 14.sp, maxLines = 1)
+            if (query.isEmpty()) Text(t("Search merchant, amount, note…"), color = Hx.text2, fontSize = 14.sp, maxLines = 1)
             BasicTextField(
                 value = query, onValueChange = onChange, singleLine = true,
                 textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp),
@@ -111,10 +116,82 @@ internal fun SearchBox(query: String, matches: Int, onChange: (String) -> Unit, 
                 modifier = Modifier.clip(CircleShape).background(Hx.accentSoft).padding(horizontal = 7.dp, vertical = 1.dp),
             )
             IconButton(onClick = { onChange(""); focus.clearFocus() }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Filled.Clear, "Clear search", tint = Hx.text2, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Clear, t("Clear search"), tint = Hx.text2, modifier = Modifier.size(18.dp))
             }
         } else {
             Spacer(Modifier.width(8.dp))
+        }
+    }
+}
+
+/** A compact filter chip, optionally led by a logo or icon. */
+@Composable
+private fun FilterChip(text: String, on: Boolean, onClick: () -> Unit, leading: (@Composable () -> Unit)? = null) {
+    val shape = RoundedCornerShape(9.dp)
+    Row(
+        Modifier.height(30.dp).clip(shape).background(if (on) Hx.accentSoft else Hx.surface2)
+            .border(1.dp, if (on) Hx.accent else Hx.border, shape).clickable(onClick = onClick)
+            .padding(start = if (leading != null) 6.dp else 11.dp, end = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (leading != null) { leading(); Spacer(Modifier.width(6.dp)) }
+        Text(
+            text, color = if (on) Hx.accent else MaterialTheme.colorScheme.onSurface, fontSize = 12.5.sp,
+            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** One horizontally scrolling row of chips. */
+@Composable
+private fun ChipRow(content: @Composable () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+    ) { content() }
+}
+
+/**
+ * The filters under the search box: type, bank or card issuer (with logos) and source, one scrolling row each.
+ * Chips combine; tapping a chosen chip clears its row. "Clear" resets all three when any is set.
+ */
+@Composable
+internal fun TxFilters(
+    kind: TxKind, bank: String?, source: TxSource?, banks: List<BankOption>, sourceChips: List<TxSource>, reviewCount: Int,
+    onKind: (TxKind) -> Unit, onBank: (String?) -> Unit, onSource: (TxSource?) -> Unit, onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val active = kind != TxKind.ALL || bank != null || source != null
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ChipRow {
+            TxKind.CHIPS.forEach { k -> FilterChip(t(k.label), kind == k, { onKind(if (kind == k) TxKind.ALL else k) }) }
+            if (kind == TxKind.REVIEW) {
+                FilterChip("${t(TxKind.REVIEW.label)} · $reviewCount", true, { onKind(TxKind.ALL) }) {
+                    Icon(Icons.Filled.Warning, null, tint = Hx.warn, modifier = Modifier.size(15.dp))
+                }
+            }
+            if (active) {
+                Text(
+                    t("Clear"), color = Hx.accent, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onClear).padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+        }
+        // A bank chosen in an earlier period stays visible so it can be cleared.
+        val options = if (bank != null && banks.none { it.key == bank }) listOf(BankOption(bank, bank.removeSuffix(" Bank"), bank, 0)) + banks else banks
+        if (options.isNotEmpty()) {
+            ChipRow {
+                FilterChip(t("All banks"), bank == null, { onBank(null) })
+                options.forEach { o ->
+                    FilterChip(o.short, bank == o.key, { onBank(if (bank == o.key) null else o.key) }) {
+                        BrandMark(Brands.forBank(o.bankName), size = 18.dp)
+                    }
+                }
+            }
+        }
+        ChipRow {
+            FilterChip(t("All sources"), source == null, { onSource(null) })
+            sourceChips.forEach { s -> FilterChip(t(s.label), source == s, { onSource(if (source == s) null else s) }) }
         }
     }
 }
@@ -131,23 +208,23 @@ internal fun ReviewBanner(count: Int, onSelect: () -> Unit, onReview: () -> Unit
         Icon(Icons.Filled.Warning, null, tint = Hx.warn, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(10.dp))
         Text(
-            if (count == 1) "1 transaction needs review" else "$count transactions need review",
+            if (count == 1) t("1 transaction needs review") else t("{n} transactions need review", "n" to count),
             fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
         )
         Text(
-            "Review ›", color = Hx.warn, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            t("Review ›"), color = Hx.warn, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onReview).padding(horizontal = 8.dp, vertical = 8.dp),
         )
     }
 }
 
 private fun sourceLabel(s: String) = when (s.uppercase()) {
-    "SMS" -> "SMS"
-    "EMAIL" -> "Email"
-    "CSV" -> "Imported"
-    "MANUAL" -> "Manual"
-    "STATEMENT" -> "Statement"
-    "NOTIFICATION" -> "Notification"
+    "SMS" -> t("SMS")
+    "EMAIL" -> t("Email")
+    "CSV" -> t("Imported")
+    "MANUAL" -> t("Manual")
+    "STATEMENT" -> t("Statement")
+    "NOTIFICATION" -> t("Notification")
     else -> s.lowercase().replaceFirstChar { it.uppercase() }
 }
 
@@ -169,7 +246,7 @@ internal fun TxLine(
     ) {
         if (selected) {
             Box(Modifier.size(40.dp).background(Hx.accent, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Check, "Selected", tint = MaterialTheme.colorScheme.onPrimary)
+                Icon(Icons.Filled.Check, t("Selected"), tint = MaterialTheme.colorScheme.onPrimary)
             }
         } else {
             TransactionAvatar(tx, size = 38.dp)
@@ -182,12 +259,7 @@ internal fun TxLine(
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp),
             )
             if (tx.needsReview) {
-                Text("Needs review", fontSize = 11.sp, color = Hx.warn, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 1.dp))
-            } else if (!sources.isNullOrEmpty()) {
-                Text(
-                    sources.distinct().joinToString(" · ", transform = ::sourceLabel) + " · ✓", fontSize = 11.sp,
-                    color = Hx.text2.copy(alpha = 0.8f), maxLines = 1, modifier = Modifier.padding(top = 1.dp),
-                )
+                Text(t("Needs review"), fontSize = 11.sp, color = Hx.warn, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 1.dp))
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -249,11 +321,11 @@ internal fun MerchantCard(
                         Modifier.weight(1f), height = 5.dp,
                     )
                     Spacer(Modifier.width(10.dp))
-                    Text(if (m.txs.size == 1) "1 txn" else "${m.txs.size} txns", fontSize = 11.sp, color = Hx.text2)
+                    Text(if (m.txs.size == 1) t("1 txn") else t("{n} txns", "n" to m.txs.size), fontSize = 11.sp, color = Hx.text2)
                 }
             }
             Spacer(Modifier.width(6.dp))
-            Icon(Icons.Filled.KeyboardArrowDown, if (expanded) "Collapse" else "Expand", tint = Hx.text2, modifier = Modifier.size(20.dp).rotate(turn))
+            Icon(Icons.Filled.KeyboardArrowDown, if (expanded) t("Collapse") else t("Expand"), tint = Hx.text2, modifier = Modifier.size(20.dp).rotate(turn))
         }
         if (expanded) {
             HorizontalDivider(color = Hx.border)
@@ -285,19 +357,19 @@ internal fun CalendarCard(
     HCard(modifier, padding = 12.dp) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { onPrev?.invoke() }, enabled = onPrev != null, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month")
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, t("Previous month"))
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(Periods.month(month), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(caption, fontSize = 11.sp, color = Hx.text2)
             }
             IconButton(onClick = { onNext?.invoke() }, enabled = onNext != null, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month")
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, t("Next month"))
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)) {
             listOf("M", "T", "W", "T", "F", "S", "S").forEach {
-                Text(it, Modifier.weight(1f), fontSize = 11.sp, color = Hx.text2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text(t(it), Modifier.weight(1f), fontSize = 11.sp, color = Hx.text2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
         val lead = month.atDay(1).dayOfWeek.value - DayOfWeek.MONDAY.value
@@ -358,7 +430,7 @@ private fun DayCell(
 @Composable
 internal fun CalendarDayHint(date: LocalDate?, modifier: Modifier = Modifier) {
     Text(
-        if (date == null) "Tap a day to see its transactions." else "No transactions on ${Periods.dayHeader(date)}.",
+        if (date == null) t("Tap a day to see its transactions.") else t("No transactions on {date}.", "date" to Periods.dayHeader(date)),
         fontSize = 13.sp, color = Hx.text2, modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
     )

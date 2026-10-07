@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.theme.LocalDarkTheme
 import com.hisaab.app.ui.theme.heroColors
 import kotlinx.coroutines.Dispatchers
@@ -184,7 +185,7 @@ fun ProfileHeader(
                             .clip(CircleShape)
                             .clickable(onClick = onPickPhoto),
                         contentAlignment = Alignment.Center,
-                    ) { ProfileAvatar(name.ifBlank { "You" }, photoPath, 112.dp, ring = false) }
+                    ) { ProfileAvatar(name.ifBlank { t("You") }, photoPath, 112.dp, ring = false) }
                     Box(
                         Modifier.align(Alignment.BottomEnd).offset(x = (-2).dp, y = (-2).dp).size(38.dp)
                             .shadow(6.dp, CircleShape)
@@ -193,10 +194,10 @@ fun ProfileHeader(
                             .clip(CircleShape)
                             .clickable(onClick = onPickPhoto),
                         contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Filled.CameraAlt, "Choose photo", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp)) }
+                    ) { Icon(Icons.Filled.CameraAlt, t("Choose photo"), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp)) }
                 }
                 Text(
-                    name.ifBlank { "Your name" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold,
+                    name.ifBlank { t("Your name") }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 14.dp),
                 )
                 Text(
@@ -213,7 +214,7 @@ fun ProfileHeader(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Icon(Icons.Filled.DeleteOutline, null, modifier = Modifier.size(16.dp))
-                        Text("Remove photo", style = MaterialTheme.typography.labelLarge)
+                        Text(t("Remove photo"), style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }

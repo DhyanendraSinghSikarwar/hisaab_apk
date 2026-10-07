@@ -100,7 +100,7 @@ jobs:
           echo "$RELEASE_KEYSTORE" | base64 -d > "$RUNNER_TEMP/keys/release.jks"
           echo "$DEBUG_KEYSTORE" | base64 -d > "$RUNNER_TEMP/keys/debug.keystore"
           echo "$LINEAGE" | base64 -d > "$RUNNER_TEMP/keys/lineage.bin"
-          out="Artha-${{ steps.version.outputs.name }}.apk"
+          out="DhanKosh-${{ steps.version.outputs.name }}.apk"
           "$ANDROID_HOME/build-tools/37.0.0/apksigner" sign --rotation-min-sdk-version 28 --v4-signing-enabled false \
             --ks "$RUNNER_TEMP/keys/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android \
             --next-signer --ks "$RUNNER_TEMP/keys/release.jks" --ks-key-alias hisaab --ks-pass "pass:$PASSWORD" --key-pass "pass:$PASSWORD" \
@@ -116,10 +116,10 @@ jobs:
         run: |
           sha=$(sha256sum "$APK" | cut -d' ' -f1)
           {
-            echo "Artha ${{ steps.version.outputs.name }}"
+            echo "DhanKosh ${{ steps.version.outputs.name }}"
             echo
             git log --pretty='- %s' "$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)"..HEAD | head -30
             echo
             echo "sha256: $sha"
           } > notes.md
-          gh release create "v${{ steps.version.outputs.name }}" "$APK" --title "Artha ${{ steps.version.outputs.name }}" --notes-file notes.md
+          gh release create "v${{ steps.version.outputs.name }}" "$APK" --title "DhanKosh ${{ steps.version.outputs.name }}" --notes-file notes.md

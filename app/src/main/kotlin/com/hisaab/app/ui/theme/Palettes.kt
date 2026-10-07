@@ -54,7 +54,7 @@ private fun darkScheme(
 
 /**
  * Everything a palette paints: both colour schemes, the hero-card gradient (by day and by night), the three
- * soft backdrop glows, and the colour the backdrop fades to at the bottom.
+ * soft backdrop glows (scaled by [glowStrength]), and the colour the backdrop fades to at the bottom.
  */
 @Immutable
 class PaletteSpec(
@@ -65,6 +65,54 @@ class PaletteSpec(
     val glows: List<Color>,
     val bottomLight: Color,
     val bottomDark: Color,
+    val glowStrength: Float = 1f,
+)
+
+private val DhanKosh = PaletteSpec(
+    // The logo: fresh green through teal into blue, on cool near-white; at night a deep navy-teal base.
+    light = lightScheme(
+        Color(0xFF2873BE), Color(0xFFD8E9F8), Color(0xFF0B2C4D),
+        Color(0xFF2E8A99), Color(0xFFD5EEF0), Color(0xFF07343A),
+        Color(0xFF2FAE6E), Color(0xFFD3F2E2), Color(0xFF00391F),
+        background = Color(0xFFF6F8FA), ink = Color(0xFF121A22), muted = Color(0xFF5A6672), outline = Color(0xFF97A2AD), outlineVariant = Color(0xFFE1E6EC),
+        high = Color(0xFFEEF1F5), highest = Color(0xFFE6EAF0), inversePrimary = Color(0xFF5FB3E8),
+    ),
+    dark = darkScheme(
+        Color(0xFF5FB3E8), Color(0xFF032A45), Color(0xFF12476E), Color(0xFFD3EAFB),
+        Color(0xFF6CC5C9), Color(0xFF003638), Color(0xFF144C50), Color(0xFFCDEFF0),
+        Color(0xFF5FD39A), Color(0xFF003A20), Color(0xFF0F5235), Color(0xFFC8F4DD),
+        background = Color(0xFF0B1418), ink = Color(0xFFE6EEF2), muted = Color(0xFF9AAAB2), outline = Color(0xFF63737B), outlineVariant = Color(0xFF1F2D33),
+        lowest = Color(0xFF081014), container = Color(0xFF121C21), high = Color(0xFF19252B), highest = Color(0xFF203036), bright = Color(0xFF243439),
+        inversePrimary = Color(0xFF2873BE),
+    ),
+    heroLight = listOf(Color(0xFF2E9E72), Color(0xFF2E8AA0), Color(0xFF2F6CCF)),
+    heroDark = listOf(Color(0xFF1E7A57), Color(0xFF1F6878), Color(0xFF23509E)),
+    glows = listOf(Color(0xFF4DB6A6), Color(0xFF3B78DB), Color(0xFF66D693)),
+    bottomLight = Color(0xFFEEF2F6), bottomDark = Color(0xFF081014),
+)
+
+private val Fold = PaletteSpec(
+    // Minimal monochrome: white and near-black by day, true black and white by night, hairline borders, no glow.
+    light = lightScheme(
+        Color(0xFF111113), Color(0xFFE8E8EA), Color(0xFF111113),
+        Color(0xFF4A4A50), Color(0xFFEFEFF1), Color(0xFF111113),
+        Color(0xFF2C2C30), Color(0xFFEBEBED), Color(0xFF111113),
+        background = Color(0xFFFFFFFF), ink = Color(0xFF0E0E10), muted = Color(0xFF6B6B72), outline = Color(0xFFA1A1A8), outlineVariant = Color(0xFFEAEAEC),
+        high = Color(0xFFF4F4F5), highest = Color(0xFFECECEE), inversePrimary = Color(0xFFFFFFFF),
+    ),
+    dark = darkScheme(
+        Color(0xFFFFFFFF), Color(0xFF000000), Color(0xFF2A2A2E), Color(0xFFFFFFFF),
+        Color(0xFFC7C7CC), Color(0xFF111113), Color(0xFF222225), Color(0xFFF2F2F4),
+        Color(0xFFE5E5EA), Color(0xFF111113), Color(0xFF26262A), Color(0xFFF2F2F4),
+        background = Color(0xFF000000), ink = Color(0xFFF5F5F7), muted = Color(0xFF8E8E93), outline = Color(0xFF5A5A60), outlineVariant = Color(0xFF1F1F23),
+        lowest = Color(0xFF000000), container = Color(0xFF111113), high = Color(0xFF1A1A1D), highest = Color(0xFF222225), bright = Color(0xFF2A2A2E),
+        inversePrimary = Color(0xFF111113),
+    ),
+    heroLight = listOf(Color(0xFF0E0E10), Color(0xFF1E1E22), Color(0xFF34343A)),
+    heroDark = listOf(Color(0xFF1C1C1F), Color(0xFF232327), Color(0xFF141416)),
+    glows = listOf(Color(0xFF8E8E93), Color(0xFF8E8E93), Color(0xFF8E8E93)),
+    bottomLight = Color(0xFFFAFAFA), bottomDark = Color(0xFF000000),
+    glowStrength = 0.25f,
 )
 
 private val Classic = PaletteSpec(
@@ -540,11 +588,13 @@ fun ColorScheme.pureBlack(): ColorScheme = copy(
 )
 
 /** This palette with a true-black dark scheme and backdrop. */
-fun PaletteSpec.pureBlack(): PaletteSpec = PaletteSpec(light, dark.pureBlack(), heroLight, heroDark, glows, bottomLight, Color.Black)
+fun PaletteSpec.pureBlack(): PaletteSpec = PaletteSpec(light, dark.pureBlack(), heroLight, heroDark, glows, bottomLight, Color.Black, glowStrength)
 
 /** The colours behind a [ThemePalette] choice. */
 val ThemePalette.spec: PaletteSpec
     get() = when (this) {
+        ThemePalette.DHANKOSH -> DhanKosh
+        ThemePalette.FOLD -> Fold
         ThemePalette.CLASSIC -> Classic
         ThemePalette.EMERALD -> Emerald
         ThemePalette.GRAPHITE -> Graphite
@@ -568,7 +618,7 @@ val ThemePalette.spec: PaletteSpec
     }
 
 /** The palette in use, for the drawings that go beyond the colour scheme (hero gradient, backdrop glows). */
-val LocalPalette = staticCompositionLocalOf { Classic }
+val LocalPalette = staticCompositionLocalOf { DhanKosh }
 
 /**
  * True when the user turned animations off (Developer options or Accessibility, "Remove animations"):

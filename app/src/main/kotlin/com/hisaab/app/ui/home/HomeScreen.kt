@@ -14,6 +14,13 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +72,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.TabLayout
 import com.hisaab.app.settings.TabLayouts
 import com.hisaab.app.ui.components.HCard
@@ -78,7 +86,7 @@ import com.hisaab.shared.insight.Insight
 import java.time.YearMonth
 
 /**
- * Home. Every widget follows the global Book (set in More) and Period (the chip under the header) filter. The widgets, their
+ * Home. Every widget follows the global Book and Period filter (the chips under the header). The widgets, their
  * order and which are shown are the user's, set in More > Customise and kept in [com.hisaab.app.settings.TabLayoutStore].
  */
 @Composable
@@ -105,6 +113,7 @@ fun HomeRoute(
     val layout by vm.layout.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
     val syncing by vm.syncing.collectAsStateWithLifecycle()
+    val sync by vm.sync.collectAsStateWithLifecycle()
     val profile by vm.profile.collectAsStateWithLifecycle()
     var addingRecurring by rememberSaveable { mutableStateOf(false) }
     if (addingRecurring) com.hisaab.app.ui.plan.RecurringSheet(existing = null, onDismiss = { addingRecurring = false })
@@ -126,7 +135,7 @@ fun HomeRoute(
         onOpenInvestments = onOpenInvestments, onOpenStatements = onOpenStatements, onOpenBills = onOpenBills, onOpenAnalytics = onOpenAnalytics,
         onOpenCategory = { onOpenCategory(it, month) }, onOpenCategoryKey = { onOpenCategoryKey("$it?month=$month") },
         updateVersion = (update as? com.hisaab.app.update.UpdateState.Available)?.release?.version, onOpenSettings = onOpenSettings,
-        syncing = syncing, onSync = vm::syncAll, photoPath = profile?.first?.photoPath, onOpenProfile = onOpenProfile,
+        syncing = syncing, sync = sync, onSync = vm::syncAll, photoPath = profile?.first?.photoPath, onOpenProfile = onOpenProfile,
         onDismissInsight = vm::dismissInsight,
     )
 }
@@ -159,6 +168,7 @@ fun HomeScreen(
     updateVersion: String? = null,
     onOpenSettings: () -> Unit = {},
     syncing: Boolean = false,
+    sync: SyncStatus = SyncStatus(),
     onSync: () -> Unit = {},
     photoPath: String? = null,
     onOpenProfile: () -> Unit = {},
@@ -166,18 +176,18 @@ fun HomeScreen(
 ) {
     var showNotices by rememberSaveable { mutableStateOf(false) }
     val notices = buildList {
-        if (state.reviewCount > 0) add(HomeNotice("${state.reviewCount} possible duplicate${if (state.reviewCount > 1) "s" else ""}", "Review and merge",
+        if (state.reviewCount > 0) add(HomeNotice(if (state.reviewCount > 1) t("{n} possible duplicates", "n" to state.reviewCount) else t("{n} possible duplicate", "n" to state.reviewCount), t("Review and merge"),
             Icons.Filled.ContentCopy, onOpenReview))
         state.lockedStatements.forEach { st ->
-            add(HomeNotice("Statement needs a password", st.bankName ?: st.sender.substringBefore('<').trim(), Icons.Filled.Lock, onOpenStatements))
+            add(HomeNotice(t("Statement needs a password"), st.bankName ?: st.sender.substringBefore('<').trim(), Icons.Filled.Lock, onOpenStatements))
         }
-        updateVersion?.let { add(HomeNotice("Artha $it is available", "Install the update", Icons.Filled.SystemUpdate, onOpenSettings)) }
+        updateVersion?.let { add(HomeNotice(t("DhanKosh {version} is available", "version" to it), t("Install the update"), Icons.Filled.SystemUpdate, onOpenSettings)) }
     }
     if (showNotices) NotificationsSheet(notices, onDismiss = { showNotices = false })
     val listState = rememberLazyListState()
     // Once the header has scrolled away, a compact one floats at the top.
     val collapsed by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
-    val name = state.displayName ?: "Welcome"
+    val name = state.displayName ?: t("Welcome")
     val shown = layout.visible(TabLayouts.HOME)
 
     Box(Modifier.fillMaxSize()) {
@@ -198,7 +208,6 @@ fun HomeScreen(
                 BookPeriodChips(Modifier.fillMaxWidth().padding(horizontal = 14.dp))
             }
             if (!hasSmsPermission && !state.smsPromptDismissed) item(key = "sms") { PermissionCard(smsBlocked, onGrantSms, onDismissSms) }
-            if (state.scan.running) item(key = "scan") { ScanCard(state.scan) }
 
             itemsIndexed(shown, key = { _, k -> "w-$k" }) { index, key ->
                 // Order and visibility are set in More > Customise; Home has no edit mode.
@@ -234,6 +243,18 @@ fun HomeScreen(
                 .background(MaterialTheme.colorScheme.background),
         )
 
+        // Refresh progress: a slim bar under the status bar while anything is read.
+        AnimatedVisibility(
+            sync.active, modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding(), enter = fadeIn(), exit = fadeOut(),
+        ) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp), color = Hx.accent, trackColor = Hx.accent.copy(alpha = 0.15f))
+        }
+        SyncPill(
+            sync,
+            Modifier.align(Alignment.BottomStart)
+                .padding(start = 16.dp, end = 88.dp, bottom = contentPadding.calculateBottomPadding() + 26.dp),
+        )
+
         HomeFabs(
             onAdd = onAdd, onAddRecurring = onAddRecurring, syncing = syncing, onSync = onSync,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = contentPadding.calculateBottomPadding() + 16.dp),
@@ -260,18 +281,18 @@ private fun HomeFabs(onAdd: () -> Unit, onAddRecurring: () -> Unit, syncing: Boo
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ExtendedFloatingActionButton(
                     onClick = { open = false; onAddRecurring() }, icon = { Icon(Icons.Filled.EventRepeat, null) },
-                    text = { Text("Recurring / subscription") },
+                    text = { Text(t("Recurring / subscription")) },
                 )
                 ExtendedFloatingActionButton(
-                    onClick = { open = false; onAdd() }, icon = { Icon(Icons.Filled.Receipt, null) }, text = { Text("Transaction") },
+                    onClick = { open = false; onAdd() }, icon = { Icon(Icons.Filled.Receipt, null) }, text = { Text(t("Transaction")) },
                 )
             }
         }
         FloatingActionButton(onClick = { open = !open }, containerColor = MaterialTheme.colorScheme.secondaryContainer) {
-            Icon(Icons.Filled.Add, if (open) "Close" else "Add", modifier = Modifier.rotate(turn))
+            Icon(Icons.Filled.Add, if (open) t("Close") else t("Add"), modifier = Modifier.rotate(turn))
         }
         FloatingActionButton(onClick = { if (!syncing) onSync() }, containerColor = MaterialTheme.colorScheme.primaryContainer) {
-            Icon(Icons.Filled.Sync, if (syncing) "Syncing" else "Sync everything", modifier = Modifier.rotate(if (syncing) -angle else 0f))
+            Icon(Icons.Filled.Sync, if (syncing) t("Syncing") else t("Sync everything"), modifier = Modifier.rotate(if (syncing) -angle else 0f))
         }
     }
 }
@@ -283,32 +304,71 @@ private fun PermissionCard(blocked: Boolean, onGrant: () -> Unit, onDismiss: () 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Sms, null, tint = Hx.accent)
             Spacer(Modifier.width(8.dp))
-            Text("Read bank SMS", style = MaterialTheme.typography.titleMedium)
+            Text(t("Read bank SMS"), style = MaterialTheme.typography.titleMedium)
         }
         Text(
-            "Artha reads SMS only from known bank senders, on this phone. Nothing is uploaded; there is no server.",
+            t("DhanKosh reads SMS only from known bank senders, on this phone. Nothing is uploaded; there is no server."),
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp),
         )
         if (blocked) {
             Text(
-                "Android didn't show the permission prompt. Open App settings, then Permissions, SMS, Allow. " +
-                    "If SMS is greyed out, first tap the menu at the top right of App info and choose Allow restricted settings.",
+                t(
+                    "Android didn't show the permission prompt. Open App settings, then Permissions, SMS, Allow. " +
+                        "If SMS is greyed out, first tap the menu at the top right of App info and choose Allow restricted settings.",
+                ),
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp),
             )
         }
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onGrant, modifier = Modifier.testTag("grant-sms")) { Text(if (blocked) "Open App settings" else "Allow SMS access") }
-            TextButton(onClick = onDismiss) { Text("Not now") }
+            Button(onClick = onGrant, modifier = Modifier.testTag("grant-sms")) { Text(if (blocked) t("Open App settings") else t("Allow SMS access")) }
+            TextButton(onClick = onDismiss) { Text(t("Not now")) }
         }
     }
 }
 
-/** Progress while the SMS inbox is read. */
+/**
+ * Beside the refresh button: "Reading messages · n", then "Reading email", and for three seconds after, what was read.
+ * Counts come from the finished SMS scan and email sync of this run only.
+ */
 @Composable
-private fun ScanCard(p: ScanProgress) {
-    HCard(Modifier.padding(horizontal = 14.dp)) {
-        Text("Reading bank SMS… ${p.scanned} checked, ${p.found} transactions", style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(8.dp))
-        LinearProgressIndicator(Modifier.fillMaxWidth())
+private fun SyncPill(sync: SyncStatus, modifier: Modifier = Modifier) {
+    var sawSms by remember { mutableStateOf(false) }
+    var sawMail by remember { mutableStateOf(false) }
+    var done by remember { mutableStateOf<String?>(null) }
+    if (sync.smsActive) sawSms = true
+    if (sync.mailActive) sawMail = true
+    val doneText = when {
+        sawSms && sawMail && sync.smsRead != null && sync.mailRead != null ->
+            t("{sms} messages · {mail} emails read", "sms" to sync.smsRead, "mail" to sync.mailRead)
+        sawSms && sync.smsRead != null -> t("{sms} messages read", "sms" to sync.smsRead)
+        sawMail && sync.mailRead != null -> t("{mail} emails read", "mail" to sync.mailRead)
+        else -> null
+    }
+    LaunchedEffect(sync.active) {
+        if (!sync.active && (sawSms || sawMail)) {
+            done = doneText
+            sawSms = false; sawMail = false
+            kotlinx.coroutines.delay(3_000)
+            done = null
+        }
+    }
+    val text = when {
+        sync.smsActive -> if (sync.smsSoFar > 0) t("Reading messages · {n}", "n" to sync.smsSoFar) else t("Reading messages…")
+        sync.mailActive -> if (sync.mailSoFar > 0) t("Reading email · {n}", "n" to sync.mailSoFar) else t("Reading email…")
+        else -> done
+    }
+    // Kept while the pill fades out.
+    var shown by remember { mutableStateOf("") }
+    if (text != null) shown = text
+    AnimatedVisibility(text != null, modifier, enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut()) {
+        Row(
+            Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .border(1.dp, Hx.border, RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(if (sync.active) Icons.Filled.Sync else Icons.Filled.Check, null, tint = Hx.accent, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(shown, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }

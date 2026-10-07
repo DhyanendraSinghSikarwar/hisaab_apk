@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.CardGap
 import com.hisaab.app.ui.components.CategorySheet
 import com.hisaab.app.ui.components.EmptyState
@@ -67,7 +68,7 @@ import java.time.YearMonth
 private val SEGMENTS = listOf("List", "Calendar", "By merchant")
 
 /**
- * The Transactions tab: global book and period, search, type chips, the period's in/out/net, and the
+ * The Transactions tab: global book and period, search, type/bank/source chips, the period's in/out/net, and the
  * transactions as a day list, a calendar, or by merchant. Long-press a row to select several.
  *
  * [onOpenReview] opens the review queue; when it is not wired, "Review" narrows the list to flagged rows instead.
@@ -85,6 +86,9 @@ fun TransactionsRoute(
     val ui by vm.ui.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
     val kind by vm.kind.collectAsStateWithLifecycle()
+    val bank by vm.bank.collectAsStateWithLifecycle()
+    val source by vm.source.collectAsStateWithLifecycle()
+    val filtered by vm.filtered.collectAsStateWithLifecycle()
     val scope by vm.scope.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
@@ -117,31 +121,31 @@ fun TransactionsRoute(
             if (selecting) {
                 TopAppBar(
                     title = { Text("${selected.size} selected") },
-                    navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Filled.Close, "Cancel selection") } },
+                    navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Filled.Close, t("Cancel selection")) } },
                     actions = {
-                        IconButton(onClick = { selected = ui.shown.map { it.id }.toSet() }) { Icon(Icons.Filled.SelectAll, "Select all") }
-                        IconButton(onClick = { pickingCategory = true }) { Icon(Icons.Filled.Category, "Change category") }
-                        IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete") }
+                        IconButton(onClick = { selected = ui.shown.map { it.id }.toSet() }) { Icon(Icons.Filled.SelectAll, t("Select all")) }
+                        IconButton(onClick = { pickingCategory = true }) { Icon(Icons.Filled.Category, t("Change category")) }
+                        IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, t("Delete")) }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                 )
             } else {
                 TopAppBar(
-                    colors = clearTopBar(), title = { Text("Transactions") },
-                    actions = { RoundIcon(Icons.Filled.EventRepeat, "Bills", Modifier.padding(end = 14.dp), onClick = onOpenBills) },
+                    colors = clearTopBar(), title = { Text(t("Transactions")) },
+                    actions = { RoundIcon(Icons.Filled.EventRepeat, t("Bills"), Modifier.padding(end = 14.dp), onClick = onOpenBills) },
                 )
             }
         },
         floatingActionButton = {
             if (!selecting) {
                 FloatingActionButton(onClick = onAdd, modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding())) {
-                    Icon(Icons.Filled.Add, "Add a transaction")
+                    Icon(Icons.Filled.Add, t("Add a transaction"))
                 }
             }
         },
     ) { inner ->
         Column(Modifier.padding(top = inner.calculateTopPadding()).fillMaxSize()) {
-            // Fixed controls: book and period, any scope from a link, search, and type chips.
+            // Fixed controls: book and period, any scope from a link, search, and filter chips.
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -149,20 +153,16 @@ fun TransactionsRoute(
                 BookPeriodChips()
                 scope.accountId?.let { id ->
                     val a = accounts.firstOrNull { it.id == id }
-                    Pill(a?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: "One account", on = true, leading = Icons.Filled.Close) { vm.clearAccount() }
+                    Pill(a?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: t("One account"), on = true, leading = Icons.Filled.Close) { vm.clearAccount() }
                 }
-                scope.category?.let { c -> Pill(c.label, on = true, leading = Icons.Filled.Close) { vm.clearCategory() } }
+                scope.category?.let { c -> Pill(t(c.label), on = true, leading = Icons.Filled.Close) { vm.clearCategory() } }
             }
             SearchBox(query, ui.shown.size, vm::setQuery, Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp))
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                TxKind.entries.forEach { k ->
-                    val label = if (k == TxKind.REVIEW && ui.reviewCount > 0) "${k.label} · ${ui.reviewCount}" else k.label
-                    Pill(label, on = kind == k) { vm.setKind(if (kind == k && k != TxKind.ALL) TxKind.ALL else k) }
-                }
-            }
+            TxFilters(
+                kind, bank, source, ui.banks, ui.sourceChips, ui.reviewCount,
+                onKind = vm::setKind, onBank = vm::setBank, onSource = vm::setSource, onClear = vm::clearFilters,
+                modifier = Modifier.padding(top = 10.dp, bottom = 10.dp),
+            )
 
             LazyColumn(
                 state = listState,
@@ -173,12 +173,13 @@ fun TransactionsRoute(
                     HCard(Modifier.animateItem(), padding = 14.dp) {
                         val net = ui.inMinor - ui.outMinor
                         KpiRow(
-                            Triple("In", Money.format(ui.inMinor, showPaise = false), Hx.pos),
-                            Triple("Out", Money.format(ui.outMinor, showPaise = false), null),
-                            Triple("Net", (if (net < 0) "−" else "+") + Money.format(kotlin.math.abs(net), showPaise = false), if (net < 0) Hx.neg else Hx.pos),
+                            Triple(t("In"), Money.format(ui.inMinor, showPaise = false), Hx.pos),
+                            Triple(t("Out"), Money.format(ui.outMinor, showPaise = false), null),
+                            Triple(t("Net"), (if (net < 0) "−" else "+") + Money.format(kotlin.math.abs(net), showPaise = false), if (net < 0) Hx.neg else Hx.pos),
                         )
                         Text(
-                            "${ui.base.size} transactions · ${ui.periodLabel}" + if (ui.outMinor > 0 && LedgerMath.invested(ui.base) > 0) " · Out includes investments" else "",
+                            t("{n} transactions · {period}", "n" to ui.shown.size, "period" to t(ui.periodLabel)) +
+                                if (ui.outMinor > 0 && LedgerMath.invested(ui.shown) > 0) " · " + t("Out includes investments") else "",
                             fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 8.dp),
                         )
                     }
@@ -192,16 +193,16 @@ fun TransactionsRoute(
                         )
                     }
                 }
-                item(key = "segments") { Segmented(SEGMENTS, segment, { segment = it }, Modifier.animateItem()) }
+                item(key = "segments") { Segmented(SEGMENTS.map { t(it) }, segment, { segment = it }, Modifier.animateItem()) }
 
                 if (ui.loaded && ui.shown.isEmpty()) {
                     item(key = "empty") {
                         val body = when {
-                            query.isNotBlank() -> "Nothing matches “${query.trim()}” in ${ui.periodLabel}."
-                            kind != TxKind.ALL -> "No ${kind.label.lowercase()} transactions in ${ui.periodLabel}."
-                            else -> "No transactions in ${ui.periodLabel}."
+                            query.isNotBlank() -> t("Nothing matches “{query}” in {period}.", "query" to query.trim(), "period" to t(ui.periodLabel))
+                            filtered -> t("No transactions match these filters in {period}.", "period" to t(ui.periodLabel))
+                            else -> t("No transactions in {period}.", "period" to t(ui.periodLabel))
                         }
-                        EmptyState(Icons.Filled.ReceiptLong, "Nothing here", body, Modifier.animateItem())
+                        EmptyState(Icons.Filled.ReceiptLong, t("Nothing here"), body, Modifier.animateItem())
                     }
                 } else when (segment) {
                     0 -> items(ui.days, key = { "d${it.date}" }) { day ->
@@ -214,11 +215,11 @@ fun TransactionsRoute(
                                     .groupBy { Periods.localDate(it.timestamp) }.mapValues { (_, l) -> l.sumOf(LedgerMath::rupees) }
                             }
                             val caption = when (kind) {
-                                TxKind.ALL, TxKind.EXPENSE -> "Daily spend"
-                                TxKind.INCOME -> "Daily income"
-                                TxKind.TRANSFER -> "Daily transfers"
-                                TxKind.INVESTMENT -> "Daily investments"
-                                TxKind.REVIEW -> "Flagged amounts by day"
+                                TxKind.ALL, TxKind.EXPENSE -> t("Daily spend")
+                                TxKind.INCOME -> t("Daily income")
+                                TxKind.TRANSFER -> t("Daily transfers")
+                                TxKind.INVESTMENT -> t("Daily investments")
+                                TxKind.REVIEW -> t("Flagged amounts by day")
                             }
                             CalendarCard(
                                 calMonth, ui.from, ui.to, values, caption, if (kind == TxKind.INCOME) Hx.pos else Hx.accent, calDay,
@@ -261,14 +262,14 @@ private fun BulkDialogs(
     count: Int, pickingCategory: Boolean, confirmDelete: Boolean,
     onPick: (Category) -> Unit, onDelete: () -> Unit, onDismissPicker: () -> Unit, onDismissDelete: () -> Unit,
 ) {
-    if (pickingCategory) CategorySheet(current = null, onPick = onPick, onDismiss = onDismissPicker, title = "Category for $count transactions")
+    if (pickingCategory) CategorySheet(current = null, onPick = onPick, onDismiss = onDismissPicker, title = t("Category for {n} transactions", "n" to count))
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = onDismissDelete,
-            title = { Text("Delete $count transactions?") },
-            text = { Text("They are removed from Artha and won't come back on a rescan. The SMS and emails themselves are not touched.") },
-            confirmButton = { TextButton(onClick = onDelete) { Text("Delete", fontWeight = FontWeight.SemiBold) } },
-            dismissButton = { TextButton(onClick = onDismissDelete) { Text("Cancel") } },
+            title = { Text(t("Delete {n} transactions?", "n" to count)) },
+            text = { Text(t("They are removed from DhanKosh and won't come back on a rescan. The SMS and emails themselves are not touched.")) },
+            confirmButton = { TextButton(onClick = onDelete) { Text(t("Delete"), fontWeight = FontWeight.SemiBold) } },
+            dismissButton = { TextButton(onClick = onDismissDelete) { Text(t("Cancel")) } },
         )
     }
 }

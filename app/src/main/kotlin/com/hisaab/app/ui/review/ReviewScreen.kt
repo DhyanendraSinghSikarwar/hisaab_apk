@@ -46,6 +46,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.EmptyState
 import com.hisaab.app.ui.components.TransactionRow
 import com.hisaab.app.ui.components.signedAmount
@@ -95,20 +96,20 @@ fun ReviewRoute(onBack: () -> Unit, onOpen: (Long) -> Unit, onCompare: (Long, Lo
     val pairs by vm.pairs.collectAsStateWithLifecycle()
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
-            title = { Text("Possible duplicates") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = { com.hisaab.app.ui.components.InfoButton("Possible duplicates", *com.hisaab.app.ui.components.Info.DUPLICATES) },
+            title = { Text(t("Possible duplicates")) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
+            actions = { com.hisaab.app.ui.components.InfoButton(t("Possible duplicates"), *com.hisaab.app.ui.components.Info.DUPLICATES) },
         )
     }) { inner ->
         if (pairs.isEmpty()) {
-            EmptyState(Icons.Filled.DoneAll, "All clear", "Nothing needs a decision.", Modifier.padding(inner))
+            EmptyState(Icons.Filled.DoneAll, t("All clear"), t("Nothing needs a decision."), Modifier.padding(inner))
             return@Scaffold
         }
         Column(Modifier.fillMaxSize().padding(top = inner.calculateTopPadding())) {
             // Pinned and opaque: the explanation stays under the top bar, and the pairs scroll in their own clipped area,
             // so no card ever slides beneath the header.
             Text(
-                "Each pair looks like one payment reported twice. Tap a transaction to see it, or Compare to see both side by side.",
+                t("Each pair looks like one payment reported twice. Tap a transaction to see it, or Compare to see both side by side."),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
             )
@@ -117,7 +118,7 @@ fun ReviewRoute(onBack: () -> Unit, onOpen: (Long) -> Unit, onCompare: (Long, Lo
                 items(pairs, key = { it.flagged.id }) { p ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(vertical = 8.dp)) {
-                            Text(p.flagged.reviewReason ?: "These look like the same transaction", style = MaterialTheme.typography.labelLarge,
+                            Text(t(p.flagged.reviewReason ?: "These look like the same transaction"), style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                             TransactionRow(p.flagged, onClick = { onOpen(p.flagged.id) }, showDate = true)
                             p.flaggedSources.forEach { s -> com.hisaab.app.ui.components.MessageView(s, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), collapsedLines = 4) }
@@ -129,13 +130,13 @@ fun ReviewRoute(onBack: () -> Unit, onOpen: (Long) -> Unit, onCompare: (Long, Lo
                                     TextButton(onClick = { onCompare(p.flagged.id, c.id) }) {
                                         Icon(Icons.AutoMirrored.Filled.CompareArrows, null)
                                         Spacer(Modifier.padding(2.dp))
-                                        Text("Compare")
+                                        Text(t("Compare"))
                                     }
                                 }
                                 Spacer(Modifier.weight(1f))
-                                OutlinedButton(onClick = { vm.keep(p.flagged.id) }) { Text("Keep both") }
+                                OutlinedButton(onClick = { vm.keep(p.flagged.id) }) { Text(t("Keep both")) }
                                 Spacer(Modifier.padding(4.dp))
-                                Button(onClick = { vm.merge(p.flagged.id) }) { Text("Merge") }
+                                Button(onClick = { vm.merge(p.flagged.id) }) { Text(t("Merge")) }
                             }
                         }
                     }
@@ -173,34 +174,34 @@ class CompareViewModel @Inject constructor(
 fun CompareRoute(onBack: () -> Unit, vm: CompareViewModel = hiltViewModel()) {
     val sides by vm.sides.collectAsStateWithLifecycle()
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
-        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Compare") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(t("Compare")) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } })
     }) { inner ->
         val (a, b) = sides ?: return@Scaffold
         Column(Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    CompareRow("", "This one", "Earlier one", header = true)
+                    CompareRow("", t("This one"), t("Earlier one"), header = true)
                     HorizontalDivider()
-                    CompareRow("Amount", signedAmount(a.tx), signedAmount(b.tx))
-                    CompareRow("When", Periods.dateTime(a.tx.timestamp), Periods.dateTime(b.tx.timestamp))
-                    CompareRow("Merchant", a.tx.merchant ?: "—", b.tx.merchant ?: "—")
-                    CompareRow("Account", account(a.tx), account(b.tx))
-                    CompareRow("Channel", a.tx.channel.name.replace('_', ' '), b.tx.channel.name.replace('_', ' '))
-                    CompareRow("Reference", a.tx.referenceNumber ?: "—", b.tx.referenceNumber ?: "—")
-                    CompareRow("Balance after", a.tx.balanceMinor?.let { Money.format(it) } ?: "—", b.tx.balanceMinor?.let { Money.format(it) } ?: "—")
-                    CompareRow("Category", a.tx.category.label, b.tx.category.label)
-                    CompareRow("Reported by", a.sources.joinToString { it.source }, b.sources.joinToString { it.source })
+                    CompareRow(t("Amount"), signedAmount(a.tx), signedAmount(b.tx))
+                    CompareRow(t("When"), Periods.dateTime(a.tx.timestamp), Periods.dateTime(b.tx.timestamp))
+                    CompareRow(t("Merchant"), a.tx.merchant ?: "—", b.tx.merchant ?: "—")
+                    CompareRow(t("Account"), account(a.tx), account(b.tx))
+                    CompareRow(t("Channel"), a.tx.channel.name.replace('_', ' '), b.tx.channel.name.replace('_', ' '))
+                    CompareRow(t("Reference"), a.tx.referenceNumber ?: "—", b.tx.referenceNumber ?: "—")
+                    CompareRow(t("Balance after"), a.tx.balanceMinor?.let { Money.format(it) } ?: "—", b.tx.balanceMinor?.let { Money.format(it) } ?: "—")
+                    CompareRow(t("Category"), t(a.tx.category.label), t(b.tx.category.label))
+                    CompareRow(t("Reported by"), a.sources.joinToString { it.source }, b.sources.joinToString { it.source })
                 }
             }
             Text(
-                "Different balances after, different times far apart, or two separate messages from the same bank usually mean two real payments.",
+                t("Different balances after, different times far apart, or two separate messages from the same bank usually mean two real payments."),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Messages("This one", a.sources)
-            Messages("Earlier one", b.sources)
+            Messages(t("This one"), a.sources)
+            Messages(t("Earlier one"), b.sources)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                OutlinedButton(onClick = { vm.keep(onBack) }) { Text("Keep both") }
-                Button(onClick = { vm.merge(onBack) }) { Text("Merge into one") }
+                OutlinedButton(onClick = { vm.keep(onBack) }) { Text(t("Keep both")) }
+                Button(onClick = { vm.merge(onBack) }) { Text(t("Merge into one")) }
             }
         }
     }

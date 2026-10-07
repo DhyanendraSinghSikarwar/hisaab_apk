@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.hisaab.app.i18n.t
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
@@ -224,9 +225,9 @@ fun PhotoCropDialog(source: Bitmap, saving: Boolean, onCancel: () -> Unit, onCon
                 Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("Move and scale", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text(t("Move and scale"), color = Color.White, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Pinch to zoom, drag to position", color = Color.White.copy(alpha = 0.7f),
+                    t("Pinch to zoom, drag to position"), color = Color.White.copy(alpha = 0.7f),
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp),
                 )
             }
@@ -249,13 +250,13 @@ fun PhotoCropDialog(source: Bitmap, saving: Boolean, onCancel: () -> Unit, onCon
                     Icon(Icons.Filled.ZoomIn, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onCancel, enabled = !saving) { Text("Cancel", color = Color.White) }
+                    TextButton(onClick = onCancel, enabled = !saving) { Text(t("Cancel"), color = Color.White) }
                     Spacer(Modifier.weight(1f))
                     val tonal = IconButtonDefaults.filledTonalIconButtonColors(
                         containerColor = Color.White.copy(alpha = 0.14f), contentColor = Color.White,
                     )
                     FilledTonalIconButton(onClick = { rotation += 90; animateTo(zoom, Offset.Zero) }, enabled = !saving, colors = tonal) {
-                        Icon(Icons.Filled.Rotate90DegreesCw, "Rotate")
+                        Icon(Icons.Filled.Rotate90DegreesCw, t("Rotate"))
                     }
                     Spacer(Modifier.width(10.dp))
                     FilledTonalIconButton(
@@ -264,14 +265,14 @@ fun PhotoCropDialog(source: Bitmap, saving: Boolean, onCancel: () -> Unit, onCon
                             animateTo(1f, Offset.Zero)
                         },
                         enabled = !saving, colors = tonal,
-                    ) { Icon(Icons.Filled.RestartAlt, "Reset") }
+                    ) { Icon(Icons.Filled.RestartAlt, t("Reset")) }
                     Spacer(Modifier.weight(1f))
                     Button(
                         onClick = { onConfirm(CropSpec(rotation % 360, base * zoom, offset.x, offset.y, diameter)) },
                         enabled = !saving && diameter > 0f,
                     ) {
                         if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                        else Text("Use photo")
+                        else Text(t("Use photo"))
                     }
                 }
             }

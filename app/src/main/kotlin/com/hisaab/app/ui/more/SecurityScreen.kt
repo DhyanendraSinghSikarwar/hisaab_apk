@@ -32,6 +32,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.security.AppLockGate
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.settings.TextSize
@@ -66,29 +67,29 @@ fun SecurityRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel(), t
         BiometricManager.from(context).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
-    MoreScaffold("Security & backup", onBack, snackbar = snackbar) { inner ->
+    MoreScaffold(t("Security & backup"), onBack, snackbar = snackbar) { inner ->
         val app = s.app ?: return@MoreScaffold
         LazyColumn(contentPadding = listPadding(inner), verticalArrangement = Arrangement.spacedBy(CardGap)) {
             item("privacy") {
                 HCard {
                     SettingSwitch(
-                        "App lock", if (canLock) "Fingerprint, face or screen lock" else "Set a screen lock on this phone first",
+                        t("App lock"), if (canLock) t("Fingerprint, face or screen lock") else t("Set a screen lock on this phone first"),
                         app.appLock, vm::setAppLock, enabled = canLock,
                     )
-                    SettingSwitch("Hide amounts", "Mask balances and totals when the app opens", app.hideAmounts, vm::setHideAmounts)
+                    SettingSwitch(t("Hide amounts"), t("Mask balances and totals when the app opens"), app.hideAmounts, vm::setHideAmounts)
                 }
             }
             item("text") { TextSizeCard(app.textSize, textVm::set) }
             item("backup") {
-                HCard(title = "Backup") {
-                    HRow("Export CSV", "Every transaction, to a file you choose") {
-                        OutlinedButton(onClick = { AppLockGate.skipNextLock(); exportLauncher.launch("hisaab-${LocalDate.now()}.csv") }) { Text("Export") }
+                HCard(title = t("Backup")) {
+                    HRow(t("Export CSV"), t("Every transaction, to a file you choose")) {
+                        OutlinedButton(onClick = { AppLockGate.skipNextLock(); exportLauncher.launch("hisaab-${LocalDate.now()}.csv") }) { Text(t("Export")) }
                     }
-                    HRow("Import CSV", "Rows already present are skipped") {
+                    HRow(t("Import CSV"), t("Rows already present are skipped")) {
                         OutlinedButton(onClick = {
                             AppLockGate.skipNextLock()
                             importLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain"))
-                        }) { Text("Import") }
+                        }) { Text(t("Import")) }
                     }
                 }
             }
@@ -106,30 +107,30 @@ private fun TextSizeCard(saved: TextSize, onPick: (TextSize) -> Unit) {
     // Follows the tap straight away, before the saved value comes back round from DataStore.
     var picked by remember(saved) { mutableStateOf(saved) }
     val sizes = TextSize.entries
-    HCard(title = "Text size") {
+    HCard(title = t("Text size")) {
         Segmented(
-            sizes.map { if (it == TextSize.EXTRA_LARGE) "XL" else it.label },
+            sizes.map { if (it == TextSize.EXTRA_LARGE) t("XL") else t(it.label) },
             sizes.indexOf(picked),
             { i -> picked = sizes[i]; onPick(sizes[i]) },
         )
         HCard(Modifier.padding(top = 12.dp), container = Hx.surface2, padding = 14.dp) {
-            Text("Preview", fontSize = 11.sp, color = Hx.text2, fontWeight = FontWeight.Medium, maxLines = 1)
+            Text(t("Preview"), fontSize = 11.sp, color = Hx.text2, fontWeight = FontWeight.Medium, maxLines = 1)
             Text(
-                "₹12,450 spent this month", fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                t("{amount} spent this month", "amount" to "₹12,450"), fontSize = 18.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
             )
             Text(
-                "₹3,120 left of your ₹15,570 budget", fontSize = 13.sp, color = Hx.text2,
+                t("{left} left of your {budget} budget", "left" to "₹3,120", "budget" to "₹15,570"), fontSize = 13.sp, color = Hx.text2,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
             )
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Kpi("Income", "₹85,000", Modifier.weight(1f), Hx.pos)
-                Kpi("Spent", "₹12,450", Modifier.weight(1f), Hx.neg)
-                Kpi("Saved", "₹72,550", Modifier.weight(1f))
+                Kpi(t("Income"), "₹85,000", Modifier.weight(1f), Hx.pos)
+                Kpi(t("Spent"), "₹12,450", Modifier.weight(1f), Hx.neg)
+                Kpi(t("Saved"), "₹72,550", Modifier.weight(1f))
             }
         }
         HelpText(
-            "${picked.label} text. Applied on top of your phone's font size, up to a limit so screens still fit.",
+            t("{size} text. Applied on top of your phone's font size, up to a limit so screens still fit.", "size" to t(picked.label)),
             Modifier.padding(top = 10.dp),
         )
     }
@@ -141,7 +142,7 @@ internal fun PrivacyNote(modifier: Modifier = Modifier) {
     Row(modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Filled.Lock, null, tint = Hx.accent, modifier = Modifier.size(16.dp))
         Text(
-            "Your data never leaves this phone. No servers, no tracking.",
+            t("Your data never leaves this phone. No servers, no tracking."),
             fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(start = 8.dp),
         )
     }

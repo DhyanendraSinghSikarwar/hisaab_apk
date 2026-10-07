@@ -8,6 +8,9 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.hisaab.app.log.ActivityEntry
+import com.hisaab.app.log.ActivityLog
+import com.hisaab.app.log.ActivitySource
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.email.sync.GmailSettingsStore
 import com.hisaab.parser.model.Source
@@ -16,6 +19,7 @@ import com.hisaab.parser.statement.InvestmentParser
 import com.hisaab.shared.repo.HoldingRepository
 import com.hisaab.shared.repo.IncomingMessage
 import com.hisaab.shared.repo.IngestReport
+import com.hisaab.shared.repo.NpsContributions
 import com.hisaab.shared.repo.TransactionRepository
 import com.hisaab.shared.repo.TransactionsChangedNotifier
 import dagger.assisted.Assisted
@@ -42,11 +46,14 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
     private val settings: AppSettingsStore,
     private val mailSettings: GmailSettingsStore,
     private val holdings: HoldingRepository,
+    private val nps: NpsContributions? = null,
+    private val activity: ActivityLog? = null,
     private val notifier: TransactionsChangedNotifier,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         if (ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+            activity?.record(ActivityEntry(System.currentTimeMillis(), ActivitySource.SMS_SCAN, error = "permission"))
             return Result.failure(workDataOf(KEY_ERROR to "permission"))
         }
         val full = inputData.getBoolean(KEY_FULL, false)
@@ -66,8 +73,15 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
             cursor = maxOf(cursor, batch.maxOf { it.receivedAt })
             // EPFO and similar: a holding's balance, not a bank transaction.
             val (investments, bank) = batch.partition { InvestmentParser.accepts(it.sender) }
-            investments.mapNotNull { InvestmentParser.parse(it.body, it.sender, it.receivedAt) }.takeIf { it.isNotEmpty() }?.let { holdings.record(it, "SMS") }
-            val incoming = parseInParallel(bank)
+            // NPS contributions add to the NPS holding, and are investments unless the bank reported the payment.
+            val (contributions, balances) = investments.map { it to InvestmentParser.npsContribution(it.body, it.receivedAt) }.partition { it.second != null }
+            balances.mapNotNull { InvestmentParser.parse(it.first.body, it.first.sender, it.first.receivedAt) }.takeIf { it.isNotEmpty() }?.let { holdings.record(it, "SMS") }
+            val npsInvestments = nps?.let { recorder ->
+                contributions.mapNotNull { (sms, c) -> recorder.contribute(c!!, sms.body, sms.sender, sms.receivedAt, sms.messageId, Source.SMS) }
+            }.orEmpty()
+            val incoming = parseInParallel(bank) + npsInvestments
+            // Lender messages that are not payments: disbursals, outstanding amounts, EMI reminders.
+            bank.forEach { sms -> registry.loanStatus(sms.body, sms.sender, sms.receivedAt, Source.SMS)?.let { repository.applyLoanStatus(it) } }
             parsed += incoming.size
             report += repository.ingestBatch(incoming)
             setProgress(workDataOf(KEY_SCANNED to bankMessages, KEY_FOUND to parsed))
@@ -77,8 +91,14 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
         val summary = "$examined SMS checked, $bankMessages from banks, ${report.inserted} new, ${report.merged} merged, " +
             "${report.flagged} to review (${"%.1f".format(seconds)}s)"
         settings.smsScanned(cursor, summary)
+        activity?.record(
+            ActivityEntry(
+                start, ActivitySource.SMS_SCAN, read = examined, relevant = bankMessages, added = report.inserted, merged = report.merged,
+                review = report.flagged, skipped = report.skipped, millis = System.currentTimeMillis() - start,
+            ),
+        )
         if (report.inserted + report.merged + report.flagged > 0) notifier.onTransactionsChanged()
-        return Result.success(workDataOf(KEY_SCANNED to bankMessages, KEY_FOUND to parsed, KEY_SUMMARY to summary))
+        return Result.success(workDataOf(KEY_SCANNED to bankMessages, KEY_CHECKED to examined, KEY_FOUND to parsed, KEY_SUMMARY to summary))
     }
 
     private suspend fun parseInParallel(batch: List<InboxSms>): List<IncomingMessage> = coroutineScope {
@@ -98,6 +118,8 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
         private const val MIN_SLICE = 50
         const val KEY_FULL = "full"
         const val KEY_SCANNED = "scanned"
+        /** All SMS examined, bank or not (output only). */
+        const val KEY_CHECKED = "sms_checked"
         const val KEY_FOUND = "found"
         const val KEY_SUMMARY = "summary"
         const val KEY_ERROR = "error"

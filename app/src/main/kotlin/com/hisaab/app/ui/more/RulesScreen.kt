@@ -58,6 +58,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.category.CategoriesViewModel
 import com.hisaab.app.ui.category.CategoryLook
 import com.hisaab.app.ui.category.IconBadge
@@ -137,12 +138,12 @@ fun RulesRoute(onBack: () -> Unit, vm: RulesViewModel = hiltViewModel(), cats: C
     fun remove(r: MerchantRuleEntity) {
         vm.delete(r)
         scope.launch {
-            val res = snackbar.showSnackbar("Rule for ${ruleTitle(r.merchantKey)} removed", actionLabel = "Undo", duration = SnackbarDuration.Short)
+            val res = snackbar.showSnackbar(t("Rule for {name} removed", "name" to ruleTitle(r.merchantKey)), actionLabel = t("Undo"), duration = SnackbarDuration.Short)
             if (res == SnackbarResult.ActionPerformed) vm.restore(r)
         }
     }
 
-    MoreScaffold("Rules", onBack, snackbar = snackbar) { inner ->
+    MoreScaffold(t("Rules"), onBack, snackbar = snackbar) { inner ->
         val list = rules ?: return@MoreScaffold
         val mine = list.filter { it.manual }
         val learned = list.filterNot { it.manual }
@@ -150,18 +151,17 @@ fun RulesRoute(onBack: () -> Unit, vm: RulesViewModel = hiltViewModel(), cats: C
             LazyColumn(contentPadding = listPadding(inner, bottomExtra = 96.dp), verticalArrangement = Arrangement.spacedBy(CardGap)) {
                 item("intro") {
                     Text(
-                        "Rules file a merchant's payments for you. Yours come first and override automatic categories; " +
-                            "Artha also learns one whenever you change a transaction's category.",
+                        t("Rules file a merchant's payments for you. Yours come first and override automatic categories; DhanKosh also learns one whenever you change a transaction's category."),
                         style = MaterialTheme.typography.bodyMedium, color = Hx.text2, modifier = Modifier.padding(horizontal = 4.dp),
                     )
                 }
                 if (list.isEmpty()) {
                     item("empty") {
                         HCard {
-                            Text("No rules yet", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Text(t("No rules yet"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                "Tap Add rule to file a merchant, or anything containing a word, under a category of your choice.",
+                                t("Tap Add rule to file a merchant, or anything containing a word, under a category of your choice."),
                                 fontSize = 13.sp, color = Hx.text2,
                             )
                         }
@@ -169,18 +169,18 @@ fun RulesRoute(onBack: () -> Unit, vm: RulesViewModel = hiltViewModel(), cats: C
                 }
                 if (mine.isNotEmpty()) {
                     item("mine") {
-                        RuleCard("Your rules · ${mine.size}", mine, custom, onOpen = { editing = RuleDraft(it) }, onDelete = ::remove)
+                        RuleCard(t("Your rules · {n}", "n" to mine.size), mine, custom, onOpen = { editing = RuleDraft(it) }, onDelete = ::remove)
                     }
                 }
                 if (learned.isNotEmpty()) {
                     item("learned") {
-                        RuleCard("Learned · ${learned.size}", learned, custom, onOpen = { editing = RuleDraft(it) }, onDelete = ::remove)
+                        RuleCard(t("Learned · {n}", "n" to learned.size), learned, custom, onOpen = { editing = RuleDraft(it) }, onDelete = ::remove)
                     }
                 }
                 if (list.isNotEmpty()) {
                     item("foot") {
                         Text(
-                            "Tap a rule to edit it. Removing a rule leaves past transactions as they are.",
+                            t("Tap a rule to edit it. Removing a rule leaves past transactions as they are."),
                             fontSize = 12.sp, color = Hx.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -188,7 +188,7 @@ fun RulesRoute(onBack: () -> Unit, vm: RulesViewModel = hiltViewModel(), cats: C
             }
             ExtendedFloatingActionButton(
                 onClick = { editing = RuleDraft(null) },
-                icon = { Icon(Icons.Filled.Add, null) }, text = { Text("Add rule") },
+                icon = { Icon(Icons.Filled.Add, null) }, text = { Text(t("Add rule")) },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = inner.calculateBottomPadding() + 16.dp),
             )
         }
@@ -203,8 +203,8 @@ fun RulesRoute(onBack: () -> Unit, vm: RulesViewModel = hiltViewModel(), cats: C
             onSaved = { key, changed ->
                 editing = null
                 scope.launch {
-                    val tail = if (changed > 0) " · $changed transaction${if (changed == 1) "" else "s"} updated" else ""
-                    snackbar.showSnackbar("Rule for ${ruleTitle(key)} saved$tail", duration = SnackbarDuration.Short)
+                    val tail = if (changed > 0) " · " + (if (changed == 1) t("{n} transaction updated", "n" to changed) else t("{n} transactions updated", "n" to changed)) else ""
+                    snackbar.showSnackbar(t("Rule for {name} saved", "name" to ruleTitle(key)) + tail, duration = SnackbarDuration.Short)
                 }
             },
             onDelete = { r -> editing = null; remove(r) },
@@ -243,17 +243,17 @@ private fun RuleRow(r: MerchantRuleEntity, custom: List<CustomCategoryEntity>, o
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Spacer(Modifier.width(6.dp))
-                if (r.manual) Tag("Yours", Hx.accent) else Tag("Learned", Hx.text2)
+                if (r.manual) Tag(t("Yours"), Hx.accent) else Tag(t("Learned"), Hx.text2)
             }
             Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("${r.matchType.label} → ", fontSize = 12.sp, color = Hx.text2, maxLines = 1)
+                Text("${t(r.matchType.label)} → ", fontSize = 12.sp, color = Hx.text2, maxLines = 1)
                 Text(
-                    look.name + (r.subcategory?.let { " › $it" } ?: ""),
+                    t(look.name) + (r.subcategory?.let { " › ${t(it)}" } ?: ""),
                     fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = look.color, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        IconButton(onClick = onDelete) { Icon(Icons.Filled.Close, "Remove rule", tint = Hx.text2, modifier = Modifier.size(18.dp)) }
+        IconButton(onClick = onDelete) { Icon(Icons.Filled.Close, t("Remove rule"), tint = Hx.text2, modifier = Modifier.size(18.dp)) }
     }
 }
 
@@ -295,37 +295,37 @@ private fun RuleEditor(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 20.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(if (original == null) "New rule" else "Edit rule", style = MaterialTheme.typography.titleLarge)
+            Text(if (original == null) t("New rule") else t("Edit rule"), style = MaterialTheme.typography.titleLarge)
 
-            SectionLabel("When merchant or UPI id")
-            Segmented(RuleMatch.entries.map { it.label }, RuleMatch.entries.indexOf(match), onSelect = { match = RuleMatch.entries[it] })
+            SectionLabel(t("When merchant or UPI id"))
+            Segmented(RuleMatch.entries.map { t(it.label) }, RuleMatch.entries.indexOf(match), onSelect = { match = RuleMatch.entries[it] })
             OutlinedTextField(
                 text, { text = it }, Modifier.fillMaxWidth(), singleLine = true,
-                placeholder = { Text(if (match == RuleMatch.CONTAINS) "e.g. swiggy" else "e.g. Swiggy or swiggy@icici") },
+                placeholder = { Text(if (match == RuleMatch.CONTAINS) t("e.g. swiggy") else t("e.g. Swiggy or swiggy@icici")) },
                 supportingText = when {
-                    replaces -> ({ Text("Replaces the existing rule for ${ruleTitle(key)}") })
-                    match == RuleMatch.CONTAINS -> ({ Text("Matches any merchant or UPI id containing this text") })
+                    replaces -> ({ Text(t("Replaces the existing rule for {name}", "name" to ruleTitle(key))) })
+                    match == RuleMatch.CONTAINS -> ({ Text(t("Matches any merchant or UPI id containing this text")) })
                     else -> null
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 shape = RoundedCornerShape(14.dp),
             )
 
-            SectionLabel("Set category")
+            SectionLabel(t("Set category"))
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { picking = true }.padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconBadge(look.icon, look.color, 40)
-                Text(look.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(start = 12.dp))
-                Text("Change", style = MaterialTheme.typography.labelLarge, color = Hx.accent)
+                Text(t(look.name), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(start = 12.dp))
+                Text(t("Change"), style = MaterialTheme.typography.labelLarge, color = Hx.accent)
             }
 
-            SectionLabel("Sub-category (optional)")
+            SectionLabel(t("Sub-category (optional)"))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill("Automatic", on = sub == null) { sub = null }
-                choices.forEach { s -> Pill(s.name, on = s.name == sub, leading = IconLibrary.get(s.icon)) { sub = s.name } }
-                Pill("New", leading = Icons.Filled.Add) { newSub = true }
+                Pill(t("Automatic"), on = sub == null) { sub = null }
+                choices.forEach { s -> Pill(t(s.name), on = s.name == sub, leading = IconLibrary.get(s.icon)) { sub = s.name } }
+                Pill(t("New"), leading = Icons.Filled.Add) { newSub = true }
             }
 
             Row(
@@ -334,18 +334,18 @@ private fun RuleEditor(
             ) {
                 Checkbox(checked = applyPast && valid, onCheckedChange = { applyPast = it }, enabled = valid)
                 Column(Modifier.weight(1f)) {
-                    Text("Also apply to past transactions ($count)", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(t("Also apply to past transactions ({n})", "n" to count), fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Text(
-                        if (count == 0) "No past transactions match yet" else "This will update $count transaction${if (count == 1) "" else "s"}",
+                        if (count == 0) t("No past transactions match yet") else if (count == 1) t("This will update {n} transaction", "n" to count) else t("This will update {n} transactions", "n" to count),
                         fontSize = 12.sp, color = Hx.text2,
                     )
                 }
             }
 
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (original != null) TextButton(onClick = { onDelete(original) }) { Text("Delete", color = Hx.neg) }
+                if (original != null) TextButton(onClick = { onDelete(original) }) { Text(t("Delete"), color = Hx.neg) }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Text(t("Cancel")) }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     enabled = valid && !saving,
@@ -357,7 +357,7 @@ private fun RuleEditor(
                         )
                         vm.save(rule, original?.merchantKey, applyPast && count > 0) { changed -> onSaved(key, changed) }
                     },
-                ) { Text("Save") }
+                ) { Text(t("Save")) }
             }
         }
     }
@@ -367,14 +367,14 @@ private fun RuleEditor(
             current = if (own == null) category else null,
             onPick = { c -> if (c != category || own != null) sub = null; category = c; customId = null },
             onDismiss = { picking = false },
-            title = "File under",
+            title = t("File under"),
             custom = custom, currentCustomId = own?.id,
             onPickCustom = { c -> if (c.id != own?.id) sub = null; customId = c.id; category = Category.OTHER },
             onCreateCustom = { name, icon, color -> cats.createCategory(name, icon, color) { id -> customId = id; category = Category.OTHER; sub = null } },
         )
     }
     if (newSub) {
-        NewItemDialog("New sub-category in ${look.name}", withColor = false, onDismiss = { newSub = false }) { name, icon, _ ->
+        NewItemDialog(t("New sub-category in {name}", "name" to t(look.name)), withColor = false, onDismiss = { newSub = false }) { name, icon, _ ->
             cats.createSub(look.key, name, icon)
             sub = name.trim()
             newSub = false

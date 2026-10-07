@@ -24,6 +24,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.hisaab.app.MainActivity
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.shared.db.TransactionDao
@@ -58,10 +59,10 @@ class SpendWidget : GlanceAppWidget() {
             modifier = GlanceModifier.fillMaxSize().cornerRadius(20.dp).background(GlanceTheme.colors.widgetBackground)
                 .padding(14.dp).clickable(actionStartActivity<MainActivity>()),
         ) {
-            Text("Spent today", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp))
+            Text(t("Spent today"), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp))
             Text(Money.format(today), style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 22.sp, fontWeight = FontWeight.Bold))
             Spacer(GlanceModifier.height(8.dp))
-            Text("This month", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp))
+            Text(t("This month"), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp))
             Text(Money.format(month), style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 16.sp, fontWeight = FontWeight.Medium))
         }
     }

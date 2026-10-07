@@ -2,6 +2,7 @@ package com.hisaab.app.ui.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.app.ui.theme.Hx
@@ -20,32 +21,33 @@ object TxStyle {
     private val DATE = DateTimeFormatter.ofPattern("d MMM")
 
     fun merchant(tx: TransactionEntity): String {
-        val raw = tx.merchant?.replace(GATEWAY, "")?.trim()?.takeIf { it.isNotEmpty() } ?: return tx.category.label
+        val raw = tx.merchant?.replace(GATEWAY, "")?.trim()?.takeIf { it.isNotEmpty() } ?: return t(tx.category.label)
         // "swiggy grocery" → "Swiggy Grocery"; names already in mixed case are kept as written.
         return if (raw == raw.lowercase()) raw.split(' ').joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } } else raw
     }
 
     /** "Card", "UPI", "Bank": how the money moved. */
     fun method(tx: TransactionEntity): String? = when {
-        tx.accountKind == AccountKind.CARD -> "Card"
-        tx.channel == Channel.UPI -> "UPI"
-        tx.channel == Channel.ATM -> "ATM"
+        tx.accountKind == AccountKind.CARD -> t("Card")
+        tx.channel == Channel.UPI -> t("UPI")
+        tx.channel == Channel.ATM -> t("ATM")
         tx.channel == Channel.NEFT || tx.channel == Channel.IMPS || tx.channel == Channel.RTGS -> tx.channel.name
-        tx.accountLast4 != null -> "Bank"
+        tx.accountLast4 != null -> t("Bank")
         else -> null
     }
 
     /** "Food & Dining › Food delivery", or just the category when there is no telling sub-category. */
     fun category(tx: TransactionEntity): String {
-        if (tx.type == TransactionType.TRANSFER || tx.category == Category.TRANSFER) return "Transfer"
+        if (tx.type == TransactionType.TRANSFER || tx.category == Category.TRANSFER) return t("Transfer")
         val sub = Subcategories.of(tx.category, tx.subcategory, tx.merchant, tx.upiId)
-        return if (sub == Subcategories.OTHER || sub.equals(tx.category.label, ignoreCase = true)) tx.category.label else "${tx.category.label} › $sub"
+        return if (sub == Subcategories.OTHER || sub.equals(tx.category.label, ignoreCase = true)) t(tx.category.label) else "${t(tx.category.label)} › ${t(sub)}"
     }
 
     fun subtitle(tx: TransactionEntity, showDate: Boolean = false): String {
         val time = Periods.time(tx.timestamp)
         val whenText = if (showDate) Periods.localDate(tx.timestamp).format(DATE) + ", " + time else time
-        return listOfNotNull(whenText, category(tx), method(tx)).joinToString(" · ")
+        // Payment method and sources show on the transaction's own page, not in lists.
+        return listOfNotNull(whenText, category(tx)).joinToString(" · ")
     }
 
     private fun isTransfer(tx: TransactionEntity) = tx.type == TransactionType.TRANSFER || tx.category == Category.TRANSFER

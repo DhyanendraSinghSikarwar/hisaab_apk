@@ -38,6 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.AccountAvatar
 import com.hisaab.app.ui.components.CategoryBadge
 import com.hisaab.app.ui.components.CategorySheet
@@ -63,7 +64,7 @@ class RecurringEditorViewModel @Inject constructor(private val dao: RecurringDao
 
 /**
  * Add or edit a recurring payment or income. [existing] edits one the user added; [prefill] starts from one
- * Artha detected, so it can be corrected and saved.
+ * DhanKosh detected, so it can be corrected and saved.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,31 +87,31 @@ fun RecurringSheet(existing: Recurring?, prefill: Recurring? = null, onDismiss: 
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(if (existing != null) "Edit recurring" else "Add a recurring payment or income", style = MaterialTheme.typography.titleLarge)
-            Text("A reminder and a plan. The real payment is still recorded from your SMS or email, so it is never counted twice.",
+            Text(if (existing != null) t("Edit recurring") else t("Add a recurring payment or income"), style = MaterialTheme.typography.titleLarge)
+            Text(t("A reminder and a plan. The real payment is still recorded from your SMS or email, so it is never counted twice."),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                SegmentedButton(!income, { income = false }, SegmentedButtonDefaults.itemShape(0, 2)) { Text("Expense") }
-                SegmentedButton(income, { income = true; if (category == Category.SUBSCRIPTIONS) category = Category.SALARY }, SegmentedButtonDefaults.itemShape(1, 2)) { Text("Income") }
+                SegmentedButton(!income, { income = false }, SegmentedButtonDefaults.itemShape(0, 2)) { Text(t("Expense")) }
+                SegmentedButton(income, { income = true; if (category == Category.SUBSCRIPTIONS) category = Category.SALARY }, SegmentedButtonDefaults.itemShape(1, 2)) { Text(t("Income")) }
             }
-            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(if (income) "From (e.g. Salary, Rent received)" else "Name (e.g. Netflix, Rent, Car EMI)") }, singleLine = true)
-            OutlinedTextField(amount, { amount = it }, Modifier.fillMaxWidth(), label = { Text("Amount") }, prefix = { Text("₹") }, singleLine = true,
+            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(if (income) t("From (e.g. Salary, Rent received)") else t("Name (e.g. Netflix, Rent, Car EMI)")) }, singleLine = true)
+            OutlinedTextField(amount, { amount = it }, Modifier.fillMaxWidth(), label = { Text(t("Amount")) }, prefix = { Text("₹") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                SegmentedButton(!yearly, { yearly = false }, SegmentedButtonDefaults.itemShape(0, 2)) { Text("Every month") }
-                SegmentedButton(yearly, { yearly = true }, SegmentedButtonDefaults.itemShape(1, 2)) { Text("Every year") }
+                SegmentedButton(!yearly, { yearly = false }, SegmentedButtonDefaults.itemShape(0, 2)) { Text(t("Every month")) }
+                SegmentedButton(yearly, { yearly = true }, SegmentedButtonDefaults.itemShape(1, 2)) { Text(t("Every year")) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(day, { day = it.filter(Char::isDigit).take(2) }, Modifier.weight(1f), label = { Text("Day") }, singleLine = true,
+                OutlinedTextField(day, { day = it.filter(Char::isDigit).take(2) }, Modifier.weight(1f), label = { Text(t("Day")) }, singleLine = true,
                     isError = dayNum == null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 if (yearly) {
                     Column(Modifier.weight(1f)) {
                         OutlinedCard(Modifier.fillMaxWidth().clickable { monthMenu = true }) {
-                            Text(Month.of(month).name.lowercase().replaceFirstChar { it.uppercase() }, Modifier.padding(16.dp))
+                            Text(t(Month.of(month).name.lowercase().replaceFirstChar { it.uppercase() }), Modifier.padding(16.dp))
                         }
                         DropdownMenu(monthMenu, { monthMenu = false }) {
                             Month.entries.forEach { m ->
-                                DropdownMenuItem(text = { Text(m.name.lowercase().replaceFirstChar { it.uppercase() }) }, onClick = { month = m.value; monthMenu = false })
+                                DropdownMenuItem(text = { Text(t(m.name.lowercase().replaceFirstChar { it.uppercase() })) }, onClick = { month = m.value; monthMenu = false })
                             }
                         }
                     }
@@ -120,8 +121,8 @@ fun RecurringSheet(existing: Recurring?, prefill: Recurring? = null, onDismiss: 
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     CategoryBadge(category, size = 32)
                     Spacer(Modifier.width(10.dp))
-                    Text(category.label, Modifier.weight(1f))
-                    Text("Change", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    Text(t(category.label), Modifier.weight(1f))
+                    Text(t("Change"), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                 }
             }
             Column {
@@ -130,22 +131,22 @@ fun RecurringSheet(existing: Recurring?, prefill: Recurring? = null, onDismiss: 
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (acc != null) { AccountAvatar(acc.bankName, acc.kind, acc.accountType, size = 28.dp); Spacer(Modifier.width(10.dp)) }
                         Column(Modifier.weight(1f)) {
-                            Text(if (income) "Paid into" else "Paid from", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(acc?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: "Any account")
+                            Text(if (income) t("Paid into") else t("Paid from"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(acc?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: t("Any account"))
                         }
                     }
                 }
                 DropdownMenu(accountMenu, { accountMenu = false }) {
-                    DropdownMenuItem(text = { Text("Any account") }, onClick = { accountId = null; accountMenu = false })
+                    DropdownMenuItem(text = { Text(t("Any account")) }, onClick = { accountId = null; accountMenu = false })
                     accounts.filter { !it.hidden }.forEach { a -> DropdownMenuItem(text = { Text("${a.nickname ?: a.bankName} ••${a.last4}") }, onClick = { accountId = a.id; accountMenu = false }) }
                 }
-                if (!income) Text("With an account set, you're warned 3 days before if its balance is too low.",
+                if (!income) Text(t("With an account set, you're warned 3 days before if its balance is too low."),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (existing?.manualId != null) TextButton(onClick = { vm.delete(existing.manualId!!); onDismiss() }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                if (existing?.manualId != null) TextButton(onClick = { vm.delete(existing.manualId!!); onDismiss() }) { Text(t("Delete"), color = MaterialTheme.colorScheme.error) }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Text(t("Cancel")) }
                 Button(
                     enabled = name.isNotBlank() && minor != null && dayNum != null,
                     onClick = {
@@ -156,7 +157,7 @@ fun RecurringSheet(existing: Recurring?, prefill: Recurring? = null, onDismiss: 
                         ))
                         onDismiss()
                     },
-                ) { Text("Save") }
+                ) { Text(t("Save")) }
             }
         }
     }

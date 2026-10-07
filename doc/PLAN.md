@@ -101,3 +101,36 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] Renamed to Artha (label, all visible text, welcome screen, release title/APK name); new logo as launcher icon and splash. Package id stays com.hisaab.app so updates keep data
 - [x] Themes: Rose Quartz, Lavender Bloom; Hero and Cinema groups; pure-black toggle; tab spring, count-up, shimmer, haptics
 - 2.4.0 built + all tests pass (DB v14); language text extraction and translations next
+
+## 2.5.0 (requested 2026-10-07)
+- [x] Language packs: 7 languages translated (lang/<code>.json), pushed so download works; help text removed
+- [x] Transaction rows: time · category › sub-category only; method/sources on detail
+- [x] Delete account/card (confirm; optional delete of its transactions)
+- [x] Never create accounts numbered like the user's mobile (••6810); remove existing at start
+- [x] Loans from NBFC lenders (Propelld, Aditya Birla Capital / ABCD …) detected into Deposits & loans
+- [x] Groww / MF holdings: invested, gain, value from statements and emails
+- [x] NPS from SMS and emails into Portfolio
+
+## 2.6.0 (requested 2026-10-07)
+- [x] Book (Personal/Business) chip back at the front beside the period chip; removed from More
+- [x] Home first (hero) card: keep it important but closer to the other cards
+- [x] Net worth bar: legend pins below the bar
+- [x] Credit cards: billed / unbilled amounts
+- [x] Transactions filters: bank (logos) + type (All, Income, Spends, Investments) + source (SMS, Email, Statement, App); drop Needs review chip
+- [x] Activity log: messages read, emails read, statements, last syncs, errors (More › Activity log)
+- [x] Merge duplicate accounts/cards (edit sheet "Merge into…", duplicate suggestions on Accounts)
+- [x] Tests: SMS / email / statement / fund flows end to end
+- [x] Home sync: progress bar with messages and mails read
+- [x] Market news: Today / Week / Month filter, newest first, current news (ET, Business Standard, Mint merged with Moneycontrol)
+- [x] Allocation donut animates once per tab open
+- [x] Portfolio values correct for INDmoney, Groww, NPS, EPF, PPF, RD, FD statements/messages; balance updates with a short "missing transactions" notification
+- [x] More tab: no blank first scroll; clear end of list
+- [x] Fold-style theme (minimal monochrome); second after DhanKosh
+- [x] Loans from Propelld, Aditya Birla Capital (ABCD) and other NBFC lenders appear in Deposits & loans with their EMIs
+- [x] New shield logo (transparent surround) as icon, splash, welcome mark
+- [x] DhanKosh palette from the logo (green → teal → blue) as default; Fold kept as option
+- [x] Lender loans: Propelld, ABCD and 15+ NBFCs → loan accounts with EMIs (tests added)
+- [x] Groww MF holdings (PDF/XLSX) and CAS carry invested + current value, so gains show
+- [x] NPS from CRA SMS/emails/Statement of Transaction: value, contributions as invested, PRAN ••1234 · Tier I in Portfolio
+- [x] Renamed to DhanKosh (label, all text, language packs, release title/APK); default palette named DhanKosh
+- 2.5.0 and 2.6.0 shipped together as 2.6.0: built, all tests pass (DB v14), not yet run on a device

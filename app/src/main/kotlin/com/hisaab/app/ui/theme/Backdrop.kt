@@ -31,7 +31,7 @@ fun Modifier.appBackdrop(): Modifier {
     val base = androidx.compose.material3.MaterialTheme.colorScheme.background
     val bottom = if (dark) palette.bottomDark else palette.bottomLight
     val (g1, g2, g3) = palette.glows
-    val k = if (dark) 1f else 0.62f
+    val k = (if (dark) 1f else 0.62f) * palette.glowStrength
     return drawWithCache {
         val w = size.width; val h = size.height
         val wash = Brush.verticalGradient(0f to base, 0.35f to base, 1f to bottom)

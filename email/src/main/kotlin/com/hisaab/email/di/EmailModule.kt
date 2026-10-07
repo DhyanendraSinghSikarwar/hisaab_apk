@@ -54,6 +54,7 @@ object EmailModule {
         override suspend fun alreadyProcessed(ids: List<String>) = repository.alreadyProcessedEmails(ids)
         override suspend fun store(messages: List<IncomingMessage>, processed: List<ProcessedEmailEntity>) =
             repository.ingestBatch(messages, processed)
+        override suspend fun loanStatus(status: com.hisaab.parser.bank.LoanStatus) = repository.applyLoanStatus(status)
     }
 
     @Provides

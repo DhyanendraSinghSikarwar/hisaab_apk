@@ -48,6 +48,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.hisaab.app.ApplicationScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.CardGap
 import com.hisaab.app.ui.components.HCard
 import com.hisaab.app.ui.components.SplitBar
@@ -180,7 +181,7 @@ object TaxMath {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The estimate, worked out only from what Artha tracked: bank credits, investment debits, insurance
+// The estimate, worked out only from what DhanKosh tracked: bank credits, investment debits, insurance
 // premiums and EPF passbook updates. Figures typed into the what-if calculator live only in TaxViewModel
 // for the current visit; nothing typed is ever saved.
 // ---------------------------------------------------------------------------------------------
@@ -208,9 +209,9 @@ data class TaxState(
     val oldRegime: RegimeTax = TaxMath.oldRegime(0, 0, 0),
     val loaded: Boolean = false,
 ) {
-    val fyLabel: String get() = "FY $fyStartYear-${(fyStartYear + 1) % 100}"
+    val fyLabel: String get() = t("FY {years}", "years" to "$fyStartYear-${(fyStartYear + 1) % 100}")
     /** "FY 2026-27" with a four-digit start and two-digit end, for the shared report. */
-    val fyLong: String get() = "FY $fyStartYear-${"%02d".format((fyStartYear + 1) % 100)}"
+    val fyLong: String get() = t("FY {years}", "years" to "$fyStartYear-${"%02d".format((fyStartYear + 1) % 100)}")
     val c80Calc: Long get() = items80C.sumOf { it.amountMinor }
     val d80Calc: Long get() = items80D.sumOf { it.amountMinor }
     val c80: Long get() = whatIf.c80 ?: c80Calc
@@ -352,11 +353,11 @@ fun TaxRoute(onBack: () -> Unit, vm: TaxViewModel = hiltViewModel()) {
     var editing by rememberSaveable { mutableStateOf(false) }
     var sharing by rememberSaveable { mutableStateOf(false) }
     MoreScaffold(
-        "Tax centre", onBack,
+        t("Tax centre"), onBack,
         actions = {
             if (s.loaded) {
-                IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Calculate, "What-if calculator") }
-                IconButton(onClick = { sharing = true }, enabled = s.hasIncome) { Icon(Icons.Outlined.Share, "Share estimate") }
+                IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Calculate, t("What-if calculator")) }
+                IconButton(onClick = { sharing = true }, enabled = s.hasIncome) { Icon(Icons.Outlined.Share, t("Share estimate")) }
             }
         },
     ) { inner ->
@@ -384,10 +385,10 @@ private fun WhatIfBanner(onEdit: () -> Unit, onReset: () -> Unit) {
         Icon(Icons.Outlined.Calculate, null, tint = Hx.accent, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text("What-if", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.accent)
-            Text("Tax for the figures you entered. Not saved.", fontSize = 12.sp, color = Hx.text2)
+            Text(t("What-if"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.accent)
+            Text(t("Tax for the figures you entered. Not saved."), fontSize = 12.sp, color = Hx.text2)
         }
-        TextButton(onClick = onReset) { Text("Back to calculated") }
+        TextButton(onClick = onReset) { Text(t("Back to calculated")) }
     }
 }
 
@@ -396,41 +397,41 @@ private fun Summary(s: TaxState, onShare: () -> Unit) {
     HCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(s.fyLabel, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            if (s.whatIf.any) { Tag("What-if", Hx.accent); Spacer(Modifier.width(6.dp)) }
-            Tag("Estimate", Hx.warn)
+            if (s.whatIf.any) { Tag(t("What-if"), Hx.accent); Spacer(Modifier.width(6.dp)) }
+            Tag(t("Estimate"), Hx.warn)
             com.hisaab.app.ui.components.InfoButton(
-                "About this estimate",
-                "Worked out from what Artha tracked this year, for a resident individual under 60.",
-                "It leaves out surcharge, capital gains and deductions Artha cannot see. Check with a tax professional before you file.",
+                t("About this estimate"),
+                t("Worked out from what DhanKosh tracked this year, for a resident individual under 60."),
+                t("It leaves out surcharge, capital gains and deductions DhanKosh cannot see. Check with a tax professional before you file."),
             )
         }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            RegimeTile("New regime", s.newRegime.total, best = s.newIsBetter && s.hasIncome && s.saving > 0, Modifier.weight(1f))
-            RegimeTile("Old regime", s.oldRegime.total, best = !s.newIsBetter && s.hasIncome, Modifier.weight(1f))
+            RegimeTile(t("New regime"), s.newRegime.total, best = s.newIsBetter && s.hasIncome && s.saving > 0, Modifier.weight(1f))
+            RegimeTile(t("Old regime"), s.oldRegime.total, best = !s.newIsBetter && s.hasIncome, Modifier.weight(1f))
         }
         Spacer(Modifier.height(12.dp))
         Text(
             when {
-                !s.hasIncome -> "No salary or income credits found for ${s.fyLabel} yet."
-                s.saving == 0L -> "Both regimes come to the same tax."
-                else -> "${if (s.newIsBetter) "New" else "Old"} regime saves ${Money.format(s.saving, showPaise = false)}"
+                !s.hasIncome -> t("No salary or income credits found for {fy} yet.", "fy" to s.fyLabel)
+                s.saving == 0L -> t("Both regimes come to the same tax.")
+                else -> if (s.newIsBetter) t("New regime saves {amount}", "amount" to Money.format(s.saving, showPaise = false)) else t("Old regime saves {amount}", "amount" to Money.format(s.saving, showPaise = false))
             },
             color = if (s.hasIncome && s.saving > 0) Hx.pos else Hx.text2, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
         )
         val top = max(s.newRegime.total, s.oldRegime.total)
         if (s.hasIncome && top > 0) {
             Spacer(Modifier.height(10.dp))
-            BarLine("New", s.newRegime.total.toFloat() / top, Hx.accent)
+            BarLine(t("New"), s.newRegime.total.toFloat() / top, Hx.accent)
             Spacer(Modifier.height(4.dp))
-            BarLine("Old", s.oldRegime.total.toFloat() / top, Hx.palette[1])
+            BarLine(t("Old"), s.oldRegime.total.toFloat() / top, Hx.palette[1])
         }
         if (s.hasIncome) {
             Spacer(Modifier.height(14.dp))
             OutlinedButton(onClick = onShare, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.Share, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Share this estimate")
+                Text(t("Share this estimate"))
             }
         }
     }
@@ -450,7 +451,7 @@ private fun RegimeTile(label: String, tax: Long, best: Boolean, modifier: Modifi
     Column(modifier.clip(RoundedCornerShape(12.dp)).background(if (best) Hx.accentSoft else Hx.surface2).padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 12.sp, color = Hx.text2, modifier = Modifier.weight(1f))
-            AnimatedVisibility(best) { Tag("Lower", Hx.pos) }
+            AnimatedVisibility(best) { Tag(t("Lower"), Hx.pos) }
         }
         AnimatedContent(tax, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "tax") { t ->
             Text(Money.format(t, showPaise = false), fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
@@ -460,85 +461,85 @@ private fun RegimeTile(label: String, tax: Long, best: Boolean, modifier: Modifi
 
 @Composable
 private fun IncomeCard(s: TaxState) {
-    HCard(title = "Income", titleInfo = {
+    HCard(title = t("Income"), titleInfo = {
         com.hisaab.app.ui.components.InfoButton(
-            "Salary", "Salary credits are what reached your bank, after TDS and PF, so your taxable salary is likely higher.",
-            "Use the calculator (top right) to try your gross salary. What-if figures are not saved.",
+            t("Salary"), t("Salary credits are what reached your bank, after TDS and PF, so your taxable salary is likely higher."),
+            t("Use the calculator (top right) to try your gross salary. What-if figures are not saved."),
         )
     }) {
-        ItemRow("Salary received", s.salarySoFar, if (s.salaryMonths > 0) "${s.salaryMonths} month${if (s.salaryMonths == 1) "" else "s"} so far" else "None found yet")
-        if (s.salaryMonths in 1..11) ItemRow("Projected for the year", s.salarySoFar * 12 / s.salaryMonths, "At the same monthly pay")
-        s.whatIf.salary?.let { ItemRow("Annual gross salary", it, "Calculated: ${Money.format(s.projectedSalary, showPaise = false)}", edited = true) }
+        ItemRow(t("Salary received"), s.salarySoFar, if (s.salaryMonths == 1) t("{n} month so far", "n" to s.salaryMonths) else if (s.salaryMonths > 0) t("{n} months so far", "n" to s.salaryMonths) else t("None found yet"))
+        if (s.salaryMonths in 1..11) ItemRow(t("Projected for the year"), s.salarySoFar * 12 / s.salaryMonths, t("At the same monthly pay"))
+        s.whatIf.salary?.let { ItemRow(t("Annual gross salary"), it, t("Calculated: {amount}", "amount" to Money.format(s.projectedSalary, showPaise = false)), edited = true) }
         val other = s.whatIf.otherIncome
-        if (other != null) ItemRow("Other income", other, "Calculated: ${Money.format(s.otherIncome, showPaise = false)}", edited = true)
-        else if (s.otherIncome > 0) ItemRow("Other income", s.otherIncome, null)
+        if (other != null) ItemRow(t("Other income"), other, t("Calculated: {amount}", "amount" to Money.format(s.otherIncome, showPaise = false)), edited = true)
+        else if (s.otherIncome > 0) ItemRow(t("Other income"), s.otherIncome, null)
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Hx.border)
-        ItemRow("Gross income used", s.income, null, bold = true)
+        ItemRow(t("Gross income used"), s.income, null, bold = true)
     }
 }
 
 @Composable
 private fun DeductionsCard(s: TaxState) {
-    HCard(title = "Deductions · old regime") {
+    HCard(title = t("Deductions · old regime")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("80C", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            if (s.whatIf.c80 != null) { Spacer(Modifier.width(6.dp)); Tag("What-if", Hx.accent) }
+            if (s.whatIf.c80 != null) { Spacer(Modifier.width(6.dp)); Tag(t("What-if"), Hx.accent) }
             Spacer(Modifier.weight(1f))
-            Text("${Money.format(min(s.c80, TaxMath.LIMIT_80C), showPaise = false)} of ₹1,50,000", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(t("{amount} of {limit}", "amount" to Money.format(min(s.c80, TaxMath.LIMIT_80C), showPaise = false), "limit" to "₹1,50,000"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(6.dp))
         val used by animateFloatAsState(min(s.c80, TaxMath.LIMIT_80C).toFloat() / TaxMath.LIMIT_80C, tween(700), label = "80c")
         SplitBar(listOf(used to Hx.pos), height = 6.dp)
         Text(
-            if (s.left80C > 0) "80C left ${Money.format(s.left80C, showPaise = false)}" else "80C used in full",
+            if (s.left80C > 0) t("80C left {amount}", "amount" to Money.format(s.left80C, showPaise = false)) else t("80C used in full"),
             fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (s.left80C > 0) Hx.warn else Hx.pos,
             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
         )
         if (s.whatIf.c80 != null) {
-            Text("What-if value. Calculated from tracked payments: ${Money.format(s.c80Calc, showPaise = false)}", fontSize = 12.sp, color = Hx.text2)
+            Text(t("What-if value. Calculated from tracked payments: {amount}", "amount" to Money.format(s.c80Calc, showPaise = false)), fontSize = 12.sp, color = Hx.text2)
         }
         if (s.items80C.isEmpty()) {
-            Text("No PPF, ELSS, life cover or EPF payments found this year.", fontSize = 12.sp, color = Hx.text2)
+            Text(t("No PPF, ELSS, life cover or EPF payments found this year."), fontSize = 12.sp, color = Hx.text2)
         } else {
-            s.items80C.forEach { ItemRow(it.label, it.amountMinor, null) }
+            s.items80C.forEach { ItemRow(t(it.label), it.amountMinor, null) }
         }
         if (s.otherInvested > 0) {
             Text(
-                "${Money.format(s.otherInvested, showPaise = false)} of other investments this year does not count for 80C.",
+                t("{amount} of other investments this year does not count for 80C.", "amount" to Money.format(s.otherInvested, showPaise = false)),
                 fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(top = 4.dp),
             )
         }
         HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Hx.border)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("80D", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            if (s.whatIf.d80 != null) { Spacer(Modifier.width(6.dp)); Tag("What-if", Hx.accent) }
+            if (s.whatIf.d80 != null) { Spacer(Modifier.width(6.dp)); Tag(t("What-if"), Hx.accent) }
             Spacer(Modifier.weight(1f))
-            Text("${Money.format(min(s.d80, TaxMath.LIMIT_80D), showPaise = false)} of ₹25,000", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(t("{amount} of {limit}", "amount" to Money.format(min(s.d80, TaxMath.LIMIT_80D), showPaise = false), "limit" to "₹25,000"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
         if (s.whatIf.d80 != null) {
             Text(
-                "What-if value. Calculated from tracked premiums: ${Money.format(s.d80Calc, showPaise = false)}",
+                t("What-if value. Calculated from tracked premiums: {amount}", "amount" to Money.format(s.d80Calc, showPaise = false)),
                 fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(top = 4.dp),
             )
         }
         if (s.items80D.isEmpty()) {
-            Text("No health insurance premiums found this year.", fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(top = 4.dp))
+            Text(t("No health insurance premiums found this year."), fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(top = 4.dp))
         } else {
-            s.items80D.forEach { ItemRow(it.label, it.amountMinor, null) }
+            s.items80D.forEach { ItemRow(t(it.label), it.amountMinor, null) }
         }
         val o = s.whatIf
         if (listOf(o.nps, o.homeLoan, o.hraOther, o.employerNps).any { it != null }) {
             HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Hx.border)
-            o.nps?.let { ItemRow("NPS 80CCD(1B)", min(it, TaxMath.LIMIT_NPS), capNote(it, TaxMath.LIMIT_NPS, "₹50,000"), edited = true) }
-            o.homeLoan?.let { ItemRow("Home-loan interest 24(b)", min(it, TaxMath.LIMIT_HOME_LOAN), capNote(it, TaxMath.LIMIT_HOME_LOAN, "₹2,00,000"), edited = true) }
-            o.hraOther?.let { ItemRow("HRA exemption / other", it, "Old regime only", edited = true) }
-            o.employerNps?.let { ItemRow("Employer NPS 80CCD(2)", it, "Counts in both regimes", edited = true) }
+            o.nps?.let { ItemRow(t("NPS 80CCD(1B)"), min(it, TaxMath.LIMIT_NPS), capNote(it, TaxMath.LIMIT_NPS, "₹50,000"), edited = true) }
+            o.homeLoan?.let { ItemRow(t("Home-loan interest 24(b)"), min(it, TaxMath.LIMIT_HOME_LOAN), capNote(it, TaxMath.LIMIT_HOME_LOAN, "₹2,00,000"), edited = true) }
+            o.hraOther?.let { ItemRow(t("HRA exemption / other"), it, t("Old regime only"), edited = true) }
+            o.employerNps?.let { ItemRow(t("Employer NPS 80CCD(2)"), it, t("Counts in both regimes"), edited = true) }
         }
     }
 }
 
 private fun capNote(entered: Long, cap: Long, capText: String): String =
-    if (entered > cap) "You entered ${Money.format(entered, showPaise = false)}; capped at $capText" else "Up to $capText · old regime only"
+    if (entered > cap) t("You entered {amount}; capped at {cap}", "amount" to Money.format(entered, showPaise = false), "cap" to capText) else t("Up to {cap} · old regime only", "cap" to capText)
 
 @Composable
 private fun ItemRow(label: String, amount: Long, sub: String?, bold: Boolean = false, edited: Boolean = false) {
@@ -546,7 +547,7 @@ private fun ItemRow(label: String, amount: Long, sub: String?, bold: Boolean = f
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(label, fontSize = 13.sp, fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f, fill = false))
-                if (edited) { Spacer(Modifier.width(6.dp)); Tag("What-if", Hx.accent) }
+                if (edited) { Spacer(Modifier.width(6.dp)); Tag(t("What-if"), Hx.accent) }
             }
             if (sub != null) Text(sub, fontSize = 11.sp, color = Hx.text2)
         }
@@ -556,28 +557,28 @@ private fun ItemRow(label: String, amount: Long, sub: String?, bold: Boolean = f
 
 @Composable
 private fun Breakdown(s: TaxState) {
-    HCard(title = "How it adds up") {
+    HCard(title = t("How it adds up")) {
         Row(Modifier.fillMaxWidth()) {
             Spacer(Modifier.weight(1.4f))
-            Text("New", fontSize = 12.sp, color = Hx.text2, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
-            Text("Old", fontSize = 12.sp, color = Hx.text2, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+            Text(t("New"), fontSize = 12.sp, color = Hx.text2, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+            Text(t("Old"), fontSize = 12.sp, color = Hx.text2, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
         }
         val n = s.newRegime
         val o = s.oldRegime
-        Line("Gross income", n.gross, o.gross)
-        Line("Standard deduction", -n.standardDeduction, -o.standardDeduction)
-        Line(if (s.whatIf.any || n.deductions > 0) "Deductions" else "80C and 80D", -n.deductions, -o.deductions)
+        Line(t("Gross income"), n.gross, o.gross)
+        Line(t("Standard deduction"), -n.standardDeduction, -o.standardDeduction)
+        Line(if (s.whatIf.any || n.deductions > 0) t("Deductions") else t("80C and 80D"), -n.deductions, -o.deductions)
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Hx.border)
-        Line("Taxable income", n.taxable, o.taxable, bold = true)
-        Line("Tax on slabs", n.slabTax, o.slabTax)
-        Line("Rebate u/s 87A", -n.rebate, -o.rebate)
-        Line("Cess 4%", n.cess, o.cess)
+        Line(t("Taxable income"), n.taxable, o.taxable, bold = true)
+        Line(t("Tax on slabs"), n.slabTax, o.slabTax)
+        Line(t("Rebate u/s 87A"), -n.rebate, -o.rebate)
+        Line(t("Cess 4%"), n.cess, o.cess)
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Hx.border)
-        Line("Tax payable", n.total, o.total, bold = true)
+        Line(t("Tax payable"), n.total, o.total, bold = true)
         Spacer(Modifier.height(8.dp))
         Text(
-            "New: nil to ₹4L, then 5% more for every ₹4L, up to 30% above ₹24L; no tax up to ₹12L taxable. " +
-                "Old: nil to ₹2.5L, 5% to ₹5L, 20% to ₹10L, 30% above; no tax up to ₹5L taxable.",
+            t("New: nil to ₹4L, then 5% more for every ₹4L, up to 30% above ₹24L; no tax up to ₹12L taxable.") + " " +
+                t("Old: nil to ₹2.5L, 5% to ₹5L, 20% to ₹10L, 30% above; no tax up to ₹5L taxable."),
             fontSize = 11.sp, color = Hx.text2,
         )
     }

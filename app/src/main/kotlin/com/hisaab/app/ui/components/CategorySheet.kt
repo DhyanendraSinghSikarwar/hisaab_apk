@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.theme.CategoryGroup
 import com.hisaab.app.ui.theme.color
 import com.hisaab.parser.model.Category
@@ -41,7 +42,7 @@ import com.hisaab.parser.model.Category
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategorySheet(
-    current: Category?, onPick: (Category) -> Unit, onDismiss: () -> Unit, title: String = "Choose a category",
+    current: Category?, onPick: (Category) -> Unit, onDismiss: () -> Unit, title: String = t("Choose a category"),
     custom: List<com.hisaab.shared.db.CustomCategoryEntity> = emptyList(),
     currentCustomId: Long? = null,
     /** Set to offer the user's own categories and a "New category" tile. */
@@ -55,11 +56,11 @@ fun CategorySheet(
             Text(title, style = MaterialTheme.typography.titleLarge)
             OutlinedTextField(
                 query, { query = it }, Modifier.fillMaxWidth().padding(top = 12.dp), singleLine = true,
-                placeholder = { Text("Search categories") }, leadingIcon = { Icon(Icons.Filled.Search, null) },
+                placeholder = { Text(t("Search categories")) }, leadingIcon = { Icon(Icons.Filled.Search, null) },
                 shape = RoundedCornerShape(28.dp),
             )
         }
-        val groups = CategoryGroup.entries.map { g -> g to g.members.filter { query.isBlank() || it.label.contains(query.trim(), ignoreCase = true) } }
+        val groups = CategoryGroup.entries.map { g -> g to g.members.filter { query.isBlank() || it.label.contains(query.trim(), ignoreCase = true) || t(it.label).contains(query.trim(), ignoreCase = true) } }
             .filter { it.second.isNotEmpty() }
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
@@ -69,7 +70,7 @@ fun CategorySheet(
             if (onPickCustom != null) {
                 item(key = "own", span = { GridItemSpan(maxLineSpan) }) {
                     Text(
-                        "YOUR CATEGORIES", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                        t("Your categories").uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 4.dp),
                     )
                 }
@@ -81,7 +82,7 @@ fun CategorySheet(
                 }
                 if (onCreateCustom != null) {
                     item(key = "new") {
-                        com.hisaab.app.ui.category.Tile(androidx.compose.material.icons.Icons.Filled.Add, "New category", MaterialTheme.colorScheme.primary, false) {
+                        com.hisaab.app.ui.category.Tile(androidx.compose.material.icons.Icons.Filled.Add, t("New category"), MaterialTheme.colorScheme.primary, false) {
                             creating = true
                         }
                     }
@@ -90,7 +91,7 @@ fun CategorySheet(
             groups.forEach { (group, members) ->
                 item(key = "g-${group.name}", span = { GridItemSpan(maxLineSpan) }) {
                     Text(
-                        group.label.uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                        t(group.label).uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 4.dp),
                     )
                 }
@@ -99,7 +100,7 @@ fun CategorySheet(
         }
     }
     if (creating && onCreateCustom != null) {
-        com.hisaab.app.ui.category.NewItemDialog("New category", withColor = true, onDismiss = { creating = false }) { name, icon, color ->
+        com.hisaab.app.ui.category.NewItemDialog(t("New category"), withColor = true, onDismiss = { creating = false }) { name, icon, color ->
             onCreateCustom(name, icon, color); creating = false; onDismiss()
         }
     }
@@ -116,6 +117,6 @@ private fun CategoryTile(c: Category, selected: Boolean, onClick: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CategoryBadge(c, size = 48)
-        Text(c.label, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, maxLines = 2, minLines = 2)
+        Text(t(c.label), style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, maxLines = 2, minLines = 2)
     }
 }

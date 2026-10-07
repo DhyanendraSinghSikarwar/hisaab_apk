@@ -49,6 +49,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.CategoryBadge
 import com.hisaab.app.ui.components.CategorySheet
 import com.hisaab.app.ui.components.signedAmount
@@ -92,18 +93,18 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
     var confirmDelete by remember { mutableStateOf(false) }
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(),
-            title = { Text("Transaction") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete") } },
+            title = { Text(t("Transaction")) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
+            actions = { IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, t("Delete")) } },
         )
     }) { inner ->
         if (confirmDelete) {
             AlertDialog(
                 onDismissRequest = { confirmDelete = false },
-                title = { Text("Delete this transaction?") },
-                text = { Text("It is removed from Artha and won't come back on a rescan. The message itself is not touched.") },
-                confirmButton = { TextButton(onClick = { confirmDelete = false; vm.delete(onBack) }) { Text("Delete") } },
-                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+                title = { Text(t("Delete this transaction?")) },
+                text = { Text(t("It is removed from DhanKosh and won't come back on a rescan. The message itself is not touched.")) },
+                confirmButton = { TextButton(onClick = { confirmDelete = false; vm.delete(onBack) }) { Text(t("Delete")) } },
+                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(t("Cancel")) } },
             )
         }
         val t = tx ?: return@Scaffold
@@ -112,15 +113,15 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
                 com.hisaab.app.ui.components.TransactionAvatar(t, size = 52.dp)
                 Spacer(Modifier.padding(6.dp))
                 Column {
-                    Text(t.merchant ?: t.category.label, style = MaterialTheme.typography.titleLarge)
+                    Text(t.merchant ?: com.hisaab.app.i18n.t(t.category.label), style = MaterialTheme.typography.titleLarge)
                     Text(signedAmount(t), style = MaterialTheme.typography.headlineMedium, color = signedAmountColor(t.type))
                 }
             }
             CategoryPicker(t, vm::setCategory)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Field("Type", t.type.name.lowercase().replaceFirstChar { it.uppercase() })
-                    if (t.currency != "INR") Field("In rupees", t.inrMinor?.let { "≈ " + Money.format(it) } ?: "Add a rate in Settings › Forex rates")
+                    Field("Type", com.hisaab.app.i18n.t(t.type.name.lowercase().replaceFirstChar { it.uppercase() }))
+                    if (t.currency != "INR") Field("In rupees", t.inrMinor?.let { "≈ " + Money.format(it) } ?: com.hisaab.app.i18n.t("Add a rate in Settings › Forex rates"))
                     Field("When", Periods.dateTime(t.timestamp))
                     Field(if (t.accountKind.name == "CARD") "Card" else "Account", "${t.bankName}${t.accountLast4?.let { " •• $it" }.orEmpty()}")
                     if (t.channel.name != "OTHER") Field("Channel", t.channel.name.replace('_', ' '))
@@ -132,11 +133,11 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
                 }
             }
             var note by remember(t.id) { mutableStateOf(t.note.orEmpty()) }
-            OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("Note") }, trailingIcon = {
-                if (note != t.note.orEmpty()) TextButton(onClick = { vm.setNote(note) }) { Text("Save") }
+            OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text(com.hisaab.app.i18n.t("Note")) }, trailingIcon = {
+                if (note != t.note.orEmpty()) TextButton(onClick = { vm.setNote(note) }) { Text(com.hisaab.app.i18n.t("Save")) }
             })
 
-            Text(if (sources.size > 1) "Messages (${sources.size})" else "Message", style = MaterialTheme.typography.titleMedium)
+            Text(if (sources.size > 1) com.hisaab.app.i18n.t("Messages ({n})", "n" to sources.size) else com.hisaab.app.i18n.t("Message"), style = MaterialTheme.typography.titleMedium)
             sources.forEach { s -> SourceCard(s, canSplit = sources.size > 1, onSplit = { vm.split(s) }) }
         }
     }
@@ -145,7 +146,7 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
 @Composable
 private fun Field(label: String, value: String) {
     Row {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(0.4f))
+        Text(t(label), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(0.4f))
         Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.6f))
     }
 }
@@ -169,20 +170,20 @@ private fun CategoryPicker(t: com.hisaab.shared.db.TransactionEntity, onPick: (C
         Row(Modifier.clickable { open = true }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             com.hisaab.app.ui.category.IconBadge(look.icon, look.color, 36)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text("Category", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(look.name, style = MaterialTheme.typography.bodyLarge)
+                Text(com.hisaab.app.i18n.t("Category"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(com.hisaab.app.i18n.t(look.name), style = MaterialTheme.typography.bodyLarge)
             }
-            Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(com.hisaab.app.i18n.t("Change"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
         Row(Modifier.clickable { subOpen = true }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             com.hisaab.app.ui.category.IconBadge(com.hisaab.app.ui.components.IconLibrary.get(subIcon), look.color, 36)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text("Sub-category" + if (t.subcategory == null && sub != null) " (automatic)" else "",
+                Text(if (t.subcategory == null && sub != null) com.hisaab.app.i18n.t("Sub-category (automatic)") else com.hisaab.app.i18n.t("Sub-category"),
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(sub ?: "None", style = MaterialTheme.typography.bodyLarge)
+                Text(sub?.let { com.hisaab.app.i18n.t(it) } ?: com.hisaab.app.i18n.t("None"), style = MaterialTheme.typography.bodyLarge)
             }
-            Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(com.hisaab.app.i18n.t("Change"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
     }
     if (open) {
@@ -209,17 +210,17 @@ private fun CategoryPicker(t: com.hisaab.shared.db.TransactionEntity, onPick: (C
 private fun SourceCard(s: TransactionSourceEntity, canSplit: Boolean, onSplit: () -> Unit) {
     com.hisaab.app.ui.components.MessageView(
         s,
-        footer = if (canSplit) ({ OutlinedButton(onClick = onSplit) { Text("Not the same transaction: split it out") } }) else null,
+        footer = if (canSplit) ({ OutlinedButton(onClick = onSplit) { Text(t("Not the same transaction: split it out")) } }) else null,
     )
 }
 
 private fun sourceLabel(s: TransactionSourceEntity): String = when (s.source) {
-    "SMS" -> "SMS from ${s.sender}"
-    "EMAIL" -> "Email from ${s.sender}"
-    "APP" -> "${s.sender} notification"
-    "SCREENSHOT" -> "Added from a screenshot"
-    "MANUAL" -> "Added by you"
-    "CSV" -> "Imported from CSV"
-    "STATEMENT" -> "Statement from ${s.sender.substringBefore('<').trim().ifEmpty { s.sender }}"
-    else -> "${s.source} from ${s.sender}"
+    "SMS" -> t("SMS from {sender}", "sender" to s.sender)
+    "EMAIL" -> t("Email from {sender}", "sender" to s.sender)
+    "APP" -> t("{sender} notification", "sender" to s.sender)
+    "SCREENSHOT" -> t("Added from a screenshot")
+    "MANUAL" -> t("Added by you")
+    "CSV" -> t("Imported from CSV")
+    "STATEMENT" -> t("Statement from {sender}", "sender" to s.sender.substringBefore('<').trim().ifEmpty { s.sender })
+    else -> t("{source} from {sender}", "source" to s.source, "sender" to s.sender)
 }

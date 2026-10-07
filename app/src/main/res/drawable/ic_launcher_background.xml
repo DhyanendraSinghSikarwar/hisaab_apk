@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Artha: a soft cream-to-mint wash behind the mark, as in the brand artwork. -->
+<!-- Artha: the logo's light cool-grey wash behind the shield. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <gradient android:angle="315" android:startColor="#FFF7E6" android:centerColor="#FDF6EA" android:endColor="#D9F2EA" android:type="linear" />
+    <gradient android:angle="315" android:startColor="#F7FAF8" android:centerColor="#F3F6F8" android:endColor="#E9EEF6" android:type="linear" />
 </shape>

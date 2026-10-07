@@ -12,6 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.hisaab.app.ApplicationScope
 import com.hisaab.app.MainActivity
 import com.hisaab.app.R
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.ui.format.Money
 import com.hisaab.parser.model.Category
@@ -53,7 +54,6 @@ class NewTransactionNotifier @Inject constructor(
         if (!manager.areNotificationsEnabled()) return
         ensureChannel()
 
-        val verb = if (tx.type == TransactionType.CREDIT) "received from" else "at"
         val who = tx.merchant ?: tx.bankName
         val open = PendingIntent.getActivity(
             context, id.toInt(),
@@ -63,8 +63,11 @@ class NewTransactionNotifier @Inject constructor(
         )
         val b = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_statement)
-            .setContentTitle("${Money.format(tx.amountMinor, tx.currency)} $verb $who")
-            .setContentText("${tx.category.label}${tx.accountLast4?.let { " · ••$it" }.orEmpty()} · expand to change")
+            .setContentTitle(
+                if (tx.type == TransactionType.CREDIT) t("{amount} received from {who}", "amount" to Money.format(tx.amountMinor, tx.currency), "who" to who)
+                else t("{amount} at {who}", "amount" to Money.format(tx.amountMinor, tx.currency), "who" to who),
+            )
+            .setContentText("${t(tx.category.label)}${tx.accountLast4?.let { " · ••$it" }.orEmpty()} · ${t("expand to change")}")
             .setContentIntent(open)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -75,7 +78,7 @@ class NewTransactionNotifier @Inject constructor(
                 Intent(context, CategoryActionReceiver::class.java).putExtra(EXTRA_ID, id).putExtra(EXTRA_CATEGORY, alt.name),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            b.addAction(0, alt.label, action)
+            b.addAction(0, t(alt.label), action)
         }
         try { manager.notify(NOTIFICATION_BASE + id.toInt(), b.build()) } catch (_: SecurityException) { }
     }
@@ -96,8 +99,8 @@ class NewTransactionNotifier @Inject constructor(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL) == null) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "New transactions", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Each new transaction, with buttons to change its category"
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, t("New transactions"), NotificationManager.IMPORTANCE_LOW).apply {
+                description = t("Each new transaction, with buttons to change its category")
             })
         }
     }
@@ -129,8 +132,8 @@ class CategoryActionReceiver : BroadcastReceiver() {
                 deps.repository().setCategory(listOf(id), category)
                 val n = NotificationCompat.Builder(context, NewTransactionNotifier.CHANNEL)
                     .setSmallIcon(R.drawable.ic_stat_statement)
-                    .setContentTitle("Saved as ${category.label}")
-                    .setContentText("Artha will use it for this merchant from now on.")
+                    .setContentTitle(t("Saved as {category}", "category" to t(category.label)))
+                    .setContentText(t("DhanKosh will use it for this merchant from now on."))
                     .setTimeoutAfter(4_000)
                     .setAutoCancel(true)
                     .build()

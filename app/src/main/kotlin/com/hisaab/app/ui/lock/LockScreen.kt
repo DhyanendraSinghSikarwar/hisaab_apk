@@ -15,14 +15,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 
 @Composable
 fun LockScreen(onUnlock: () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)) {
             Icon(Icons.Filled.Lock, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("Artha is locked", style = MaterialTheme.typography.titleLarge)
-            Button(onClick = onUnlock) { Text("Unlock") }
+            Text(t("DhanKosh is locked"), style = MaterialTheme.typography.titleLarge)
+            Button(onClick = onUnlock) { Text(t("Unlock")) }
         }
     }
 }

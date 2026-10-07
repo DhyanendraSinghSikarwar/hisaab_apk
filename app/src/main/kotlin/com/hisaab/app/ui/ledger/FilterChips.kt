@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.Pill
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.app.ui.theme.Hx
@@ -43,8 +46,8 @@ import javax.inject.Inject
 class FilterViewModel @Inject constructor(val store: ViewFilterStore) : ViewModel()
 
 /**
- * The global period chip ("Oct 2026 ▾"). It opens a sheet; the choice applies to every tab. The book (Personal,
- * Business, All) is not a chip: it is chosen once in More and applies to the whole app.
+ * The global filter chips: Book (Personal, Business, All; kept across launches) and Period ("Oct 2026 ▾"). Each opens
+ * a sheet; the choice applies to every tab.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,27 +55,45 @@ fun BookPeriodChips(modifier: Modifier = Modifier, vm: FilterViewModel = hiltVie
     val f by vm.store.filter.collectAsStateWithLifecycle()
     var sheet by remember { mutableStateOf(false) }
     var custom by remember { mutableStateOf(false) }
+    var books by remember { mutableStateOf(false) }
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Pill(f.label + " ▾") { sheet = true }
+        Pill(t(f.book.label) + " ▾", leading = Icons.Filled.Work) { books = true }
+        Pill(t(f.label) + " ▾", leading = Icons.Filled.CalendarMonth) { sheet = true }
+    }
+    if (books) {
+        ModalBottomSheet(onDismissRequest = { books = false }, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 28.dp)) {
+                Text(t("Book"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
+                val colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                listOf(Book.PERSONAL, Book.BUSINESS, Book.ALL).forEach { b ->
+                    ListItem(
+                        headlineContent = { Text(t(b.label)) }, colors = colors,
+                        trailingContent = { if (f.book == b) Icon(Icons.Filled.Check, null, tint = Hx.accent) },
+                        modifier = Modifier.fillMaxWidth().clickableRow { vm.store.setBook(b); books = false },
+                    )
+                }
+                Text(t("Applies to every tab."), style = MaterialTheme.typography.bodySmall, color = Hx.text2, modifier = Modifier.padding(top = 8.dp))
+            }
+        }
     }
     if (sheet) {
         ModalBottomSheet(onDismissRequest = { sheet = false }, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 28.dp)) {
-                Text("Period", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
+                Text(t("Period"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
                 val colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                 run {
                     val now = YearMonth.now(Periods.zone)
                     val options = listOf(
-                        "This week" to { vm.store.setKind(PeriodKind.THIS_WEEK) },
+                        t("This week") to { vm.store.setKind(PeriodKind.THIS_WEEK) },
                         Periods.month(now) to { vm.store.setMonth(now) },
-                        "Last month" to { vm.store.setKind(PeriodKind.LAST_MONTH) },
-                        "This FY" to { vm.store.setKind(PeriodKind.FY) },
-                        "Last FY" to { vm.store.setKind(PeriodKind.LAST_FY) },
-                        "Last 12 months" to { vm.store.setKind(PeriodKind.LAST_12) },
+                        t("Last month") to { vm.store.setKind(PeriodKind.LAST_MONTH) },
+                        t("This FY") to { vm.store.setKind(PeriodKind.FY) },
+                        t("Last FY") to { vm.store.setKind(PeriodKind.LAST_FY) },
+                        t("Last 12 months") to { vm.store.setKind(PeriodKind.LAST_12) },
                     )
                     options.forEach { (label, act) ->
-                        val on = label == f.label || (f.kind == PeriodKind.MONTH && f.month == now && label == Periods.month(now)) ||
-                            (label == "This FY" && f.kind == PeriodKind.FY) || (label == "Last FY" && f.kind == PeriodKind.LAST_FY)
+                        val on = label == t(f.label) || (f.kind == PeriodKind.MONTH && f.month == now && label == Periods.month(now)) ||
+                            (label == t("This FY") && f.kind == PeriodKind.FY) || (label == t("Last FY") && f.kind == PeriodKind.LAST_FY)
                         ListItem(
                             headlineContent = { Text(label) }, colors = colors,
                             trailingContent = { if (on) Icon(Icons.Filled.Check, null, tint = Hx.accent) },
@@ -80,12 +101,12 @@ fun BookPeriodChips(modifier: Modifier = Modifier, vm: FilterViewModel = hiltVie
                         )
                     }
                     ListItem(
-                        headlineContent = { Text("Custom…") }, colors = colors,
+                        headlineContent = { Text(t("Custom…")) }, colors = colors,
                         trailingContent = { if (f.kind == PeriodKind.CUSTOM) Icon(Icons.Filled.Check, null, tint = Hx.accent) },
                         modifier = Modifier.fillMaxWidth().clickableRow { sheet = false; custom = true },
                     )
                 }
-                Text("Applies to every tab.", style = MaterialTheme.typography.bodySmall, color = Hx.text2, modifier = Modifier.padding(top = 8.dp))
+                Text(t("Applies to every tab."), style = MaterialTheme.typography.bodySmall, color = Hx.text2, modifier = Modifier.padding(top = 8.dp))
             }
         }
     }
@@ -102,10 +123,10 @@ fun BookPeriodChips(modifier: Modifier = Modifier, vm: FilterViewModel = hiltVie
                     val s = Instant.ofEpochMilli(state.selectedStartDateMillis!!).atZone(ZoneOffset.UTC).toLocalDate()
                     val e = state.selectedEndDateMillis?.let { Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() } ?: s
                     vm.store.setCustom(s, e); custom = false
-                }) { Text("Apply") }
+                }) { Text(t("Apply")) }
             },
-            dismissButton = { TextButton(onClick = { custom = false }) { Text("Cancel") } },
-        ) { DateRangePicker(state, Modifier.weight(1f), title = { Text("Choose dates", Modifier.padding(start = 24.dp, top = 16.dp)) }) }
+            dismissButton = { TextButton(onClick = { custom = false }) { Text(t("Cancel")) } },
+        ) { DateRangePicker(state, Modifier.weight(1f), title = { Text(t("Choose dates"), Modifier.padding(start = 24.dp, top = 16.dp)) }) }
     }
 }
 

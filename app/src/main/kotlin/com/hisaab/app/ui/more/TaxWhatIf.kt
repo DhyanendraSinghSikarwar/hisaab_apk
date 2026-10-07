@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.CardTitle
 import com.hisaab.app.ui.components.Tag
 import com.hisaab.app.ui.format.Money
@@ -42,7 +43,7 @@ import com.hisaab.app.ui.theme.Hx
 import java.math.BigDecimal
 
 // ---------------------------------------------------------------------------------------------
-// What-if figures: amounts typed into the calculator to replace what Artha worked out, held only in
+// What-if figures: amounts typed into the calculator to replace what DhanKosh worked out, held only in
 // TaxViewModel for the current visit and never saved. All amounts are paise; null means "use the
 // calculated value".
 // ---------------------------------------------------------------------------------------------
@@ -69,7 +70,7 @@ data class TaxWhatIf(
 // The what-if calculator sheet.
 // ---------------------------------------------------------------------------------------------
 
-/** One editable figure: what Artha calculated, and a note on how it is used. */
+/** One editable figure: what DhanKosh calculated, and a note on how it is used. */
 private class Field(val label: String, val calculated: Long, val note: String?, initial: Long?) {
     var text by mutableStateOf(initial?.let(::toInput) ?: "")
     /** Blank means "use the calculated value". */
@@ -113,24 +114,23 @@ internal fun TaxEditSheet(
             Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("What-if calculator", style = MaterialTheme.typography.titleLarge)
+            Text(t("What-if calculator"), style = MaterialTheme.typography.titleLarge)
             Text(
-                "Try your own figures for ${s.fyLabel}. Leave a field blank to use what Artha calculated. " +
-                    "Nothing here is saved: the calculated estimate comes back when you leave the Tax centre.",
+                t("Try your own figures for {fy}. Leave a field blank to use what DhanKosh calculated. Nothing here is saved: the calculated estimate comes back when you leave the Tax centre.", "fy" to s.fyLabel),
                 fontSize = 13.sp, color = Hx.text2,
             )
-            CardTitle("Income", Modifier.padding(top = 6.dp))
+            CardTitle(t("Income"), Modifier.padding(top = 6.dp))
             fields.take(2).forEach { FieldInput(it) }
-            CardTitle("Deductions", Modifier.padding(top = 6.dp))
+            CardTitle(t("Deductions"), Modifier.padding(top = 6.dp))
             fields.drop(2).forEach { FieldInput(it) }
 
             Surface(shape = RoundedCornerShape(12.dp), color = Hx.surface2, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (preview == null) {
-                        Text("Fix the highlighted values to see the estimate.", fontSize = 13.sp, color = Hx.neg)
+                        Text(t("Fix the highlighted values to see the estimate."), fontSize = 13.sp, color = Hx.neg)
                     } else {
-                        PreviewFigure("New regime", preview.newRegime.total, Modifier.weight(1f))
-                        PreviewFigure("Old regime", preview.oldRegime.total, Modifier.weight(1f))
+                        PreviewFigure(t("New regime"), preview.newRegime.total, Modifier.weight(1f))
+                        PreviewFigure(t("Old regime"), preview.oldRegime.total, Modifier.weight(1f))
                     }
                 }
             }
@@ -139,11 +139,11 @@ internal fun TaxEditSheet(
                 TextButton(
                     onClick = { onReset(); onDismiss() },
                     enabled = o.any || fields.any { it.text.isNotBlank() },
-                ) { Text("Back to calculated") }
+                ) { Text(t("Back to calculated")) }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Text(t("Cancel")) }
                 Spacer(Modifier.width(4.dp))
-                Button(onClick = { draft?.let(onCalculate); onDismiss() }, enabled = draft != null) { Text("Calculate") }
+                Button(onClick = { draft?.let(onCalculate); onDismiss() }, enabled = draft != null) { Text(t("Calculate")) }
             }
         }
     }
@@ -162,18 +162,18 @@ private fun FieldInput(f: Field) {
     val calc = Money.format(f.calculated, showPaise = false)
     OutlinedTextField(
         f.text, { f.text = it }, Modifier.fillMaxWidth(), singleLine = true,
-        label = { Text(f.label) },
+        label = { Text(t(f.label)) },
         prefix = { Text("₹") },
         placeholder = { Text(toInput(f.calculated), color = Hx.text2) },
         isError = f.invalid,
-        trailingIcon = if (f.text.isNotEmpty()) ({ IconButton(onClick = { f.text = "" }) { Icon(Icons.Filled.Close, "Use calculated") } }) else null,
+        trailingIcon = if (f.text.isNotEmpty()) ({ IconButton(onClick = { f.text = "" }) { Icon(Icons.Filled.Close, t("Use calculated")) } }) else null,
         supportingText = {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (f.invalid) "Enter an amount like 150000 or 1234.50" else "Calculated: $calc", modifier = Modifier.weight(1f, fill = false))
-                    if (!f.invalid && f.value != null) { Spacer(Modifier.width(6.dp)); Tag("What-if", Hx.accent) }
+                    Text(if (f.invalid) t("Enter an amount like 150000 or 1234.50") else t("Calculated: {amount}", "amount" to calc), modifier = Modifier.weight(1f, fill = false))
+                    if (!f.invalid && f.value != null) { Spacer(Modifier.width(6.dp)); Tag(t("What-if"), Hx.accent) }
                 }
-                if (f.note != null && !f.invalid) Text(f.note, color = Hx.text2)
+                if (f.note != null && !f.invalid) Text(t(f.note), color = Hx.text2)
             }
         },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),

@@ -31,6 +31,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.security.AppLockGate
 import com.hisaab.email.imap.MailAuthException
 import com.hisaab.email.imap.MailConnector
@@ -70,21 +71,21 @@ class EmailConnectViewModel @Inject constructor(
     fun submitAddress(email: String) {
         val e = email.trim()
         if (!MailServers.isValidAddress(e)) {
-            _state.update { it.copy(error = "Enter a full email address, like name@gmail.com") }
+            _state.update { it.copy(error = t("Enter a full email address, like name@gmail.com")) }
             return
         }
         _state.update { it.copy(step = ConnectStep.SIGN_IN, email = e.lowercase(), server = MailServers.forAddress(e), error = null) }
     }
 
     fun signIn(password: String) = work {
-        if (password.isBlank()) throw IOException("Enter the app password")
+        if (password.isBlank()) throw IOException(t("Enter the app password"))
         connector.signInAndSendCode(_state.value.email, password)
-        _state.update { it.copy(step = ConnectStep.CODE, info = "We sent a 6-digit code to ${it.email}. Check your inbox (and spam).") }
+        _state.update { it.copy(step = ConnectStep.CODE, info = t("We sent a 6-digit code to {email}. Check your inbox (and spam).", "email" to it.email)) }
     }
 
     fun resend() = work {
         connector.resendCode()
-        _state.update { it.copy(info = "A new code is on its way to ${it.email}.") }
+        _state.update { it.copy(info = t("A new code is on its way to {email}.", "email" to it.email)) }
     }
 
     fun verify(code: String) = work {
@@ -94,10 +95,10 @@ class EmailConnectViewModel @Inject constructor(
                 GmailScheduler.syncNow(context)
                 _state.update { it.copy(step = ConnectStep.DONE) }
             }
-            VerificationCode.Result.WRONG -> throw IOException("That code doesn't match. Check the latest email from Artha.")
-            VerificationCode.Result.EXPIRED -> throw IOException("The code expired. Tap Resend code.")
-            VerificationCode.Result.TOO_MANY_ATTEMPTS -> throw IOException("Too many wrong tries. Tap Resend code for a new one.")
-            VerificationCode.Result.NONE -> throw IOException("Sign in again to get a code.")
+            VerificationCode.Result.WRONG -> throw IOException(t("That code doesn't match. Check the latest email from DhanKosh."))
+            VerificationCode.Result.EXPIRED -> throw IOException(t("The code expired. Tap Resend code."))
+            VerificationCode.Result.TOO_MANY_ATTEMPTS -> throw IOException(t("Too many wrong tries. Tap Resend code for a new one."))
+            VerificationCode.Result.NONE -> throw IOException(t("Sign in again to get a code."))
         }
     }
 
@@ -125,7 +126,7 @@ class EmailConnectViewModel @Inject constructor(
             } catch (e: MailAuthException) {
                 _state.update { it.copy(error = signInHelp(it.server, e.message)) }
             } catch (e: IOException) {
-                _state.update { it.copy(error = e.message ?: "Could not reach the mail server. Check your internet connection.") }
+                _state.update { it.copy(error = e.message ?: t("Could not reach the mail server. Check your internet connection.")) }
             } catch (e: IllegalStateException) {
                 _state.update { it.copy(error = e.message) }
             } finally {
@@ -135,8 +136,8 @@ class EmailConnectViewModel @Inject constructor(
     }
 
     private fun signInHelp(server: MailServer?, detail: String?): String {
-        val base = "Sign-in was refused" + (detail?.let { " ($it)" } ?: "") + "."
-        return if (server?.appPasswordUrl != null) "$base ${server.provider} needs an app password here, not your normal password." else base
+        val base = if (detail != null) t("Sign-in was refused ({detail}).", "detail" to detail) else t("Sign-in was refused.")
+        return if (server?.appPasswordUrl != null) "$base " + t("{provider} needs an app password here, not your normal password.", "provider" to server.provider) else base
     }
 }
 
@@ -154,10 +155,10 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, onConn
         title = {
             Text(
                 when (s.step) {
-                    ConnectStep.ADDRESS -> "Connect your email"
-                    ConnectStep.SIGN_IN -> "Sign in to ${s.server?.provider ?: "email"}"
-                    ConnectStep.CODE -> "Verify your email"
-                    ConnectStep.DONE -> "Email connected"
+                    ConnectStep.ADDRESS -> t("Connect your email")
+                    ConnectStep.SIGN_IN -> t("Sign in to {provider}", "provider" to (s.server?.provider ?: t("email")))
+                    ConnectStep.CODE -> t("Verify your email")
+                    ConnectStep.DONE -> t("Email connected")
                 },
             )
         },
@@ -166,16 +167,16 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, onConn
                 when (s.step) {
                     ConnectStep.ADDRESS -> {
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text("Artha reads bank alert emails and statements from your inbox, on this phone only.",
+                            Text(t("DhanKosh reads bank alert emails and statements from your inbox, on this phone only."),
                                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            com.hisaab.app.ui.components.InfoButton("Connecting email", *com.hisaab.app.ui.components.Info.EMAIL)
+                            com.hisaab.app.ui.components.InfoButton(t("Connecting email"), *com.hisaab.app.ui.components.Info.EMAIL)
                         }
                         OutlinedTextField(
-                            email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email address") }, singleLine = true,
+                            email, { email = it }, Modifier.fillMaxWidth(), label = { Text(t("Email address")) }, singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                         )
                         Text(
-                            "Next you'll sign in with an app password, not your normal one. It takes about a minute, and we'll show you exactly where to get it.",
+                            t("Next you'll sign in with an app password, not your normal one. It takes about a minute, and we'll show you exactly where to get it."),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -184,11 +185,11 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, onConn
                         AppPasswordGuide(s.server) { openUrl(context, it) }
                         val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
                         OutlinedTextField(
-                            password, { password = it }, Modifier.fillMaxWidth(), label = { Text("App password") }, singleLine = true,
+                            password, { password = it }, Modifier.fillMaxWidth(), label = { Text(t("App password")) }, singleLine = true,
                             visualTransformation = PasswordVisualTransformation(),
-                            supportingText = { Text("Spaces are fine: paste it exactly as shown.") },
+                            supportingText = { Text(t("Spaces are fine: paste it exactly as shown.")) },
                             trailingIcon = {
-                                TextButton(onClick = { clipboard.getText()?.text?.let { password = it.trim() } }) { Text("Paste") }
+                                TextButton(onClick = { clipboard.getText()?.text?.let { password = it.trim() } }) { Text(t("Paste")) }
                             },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                         )
@@ -196,35 +197,35 @@ fun EmailConnectDialog(onDismiss: () -> Unit, onUseGoogle: (() -> Unit)?, onConn
                     ConnectStep.CODE -> {
                         s.info?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                         OutlinedTextField(
-                            code, { code = it.filter(Char::isDigit).take(6) }, Modifier.fillMaxWidth(), label = { Text("6-digit code") }, singleLine = true,
+                            code, { code = it.filter(Char::isDigit).take(6) }, Modifier.fillMaxWidth(), label = { Text(t("6-digit code")) }, singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
                         )
-                        TextButton(onClick = vm::resend, enabled = !s.busy) { Text("Resend code") }
+                        TextButton(onClick = vm::resend, enabled = !s.busy) { Text(t("Resend code")) }
                     }
                     ConnectStep.DONE -> Text(
-                        "${s.email} is verified. Artha is fetching bank emails from the look-back period now, then checks every hour.",
+                        t("{email} is verified. DhanKosh is fetching bank emails from the look-back period now, then checks every hour.", "email" to s.email),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
                 if (s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 s.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (s.step == ConnectStep.ADDRESS && onUseGoogle != null) {
-                    TextButton(onClick = { vm.reset(); onUseGoogle() }) { Text("Advanced: Google sign-in (needs a Google Cloud OAuth client)") }
+                    TextButton(onClick = { vm.reset(); onUseGoogle() }) { Text(t("Advanced: Google sign-in (needs a Google Cloud OAuth client)")) }
                 }
             }
         },
         confirmButton = {
             when (s.step) {
-                ConnectStep.ADDRESS -> TextButton(onClick = { vm.submitAddress(email) }) { Text("Continue") }
-                ConnectStep.SIGN_IN -> TextButton(onClick = { vm.signIn(password) }, enabled = !s.busy) { Text("Sign in & send code") }
-                ConnectStep.CODE -> TextButton(onClick = { vm.verify(code) }, enabled = !s.busy && code.length == 6) { Text("Verify") }
-                ConnectStep.DONE -> TextButton(onClick = { onConnected?.invoke(s.email); close() }) { Text("Done") }
+                ConnectStep.ADDRESS -> TextButton(onClick = { vm.submitAddress(email) }) { Text(t("Continue")) }
+                ConnectStep.SIGN_IN -> TextButton(onClick = { vm.signIn(password) }, enabled = !s.busy) { Text(t("Sign in & send code")) }
+                ConnectStep.CODE -> TextButton(onClick = { vm.verify(code) }, enabled = !s.busy && code.length == 6) { Text(t("Verify")) }
+                ConnectStep.DONE -> TextButton(onClick = { onConnected?.invoke(s.email); close() }) { Text(t("Done")) }
             }
         },
         dismissButton = {
             when (s.step) {
-                ConnectStep.ADDRESS, ConnectStep.DONE -> if (s.step == ConnectStep.ADDRESS) TextButton(onClick = close) { Text("Cancel") }
-                else -> TextButton(onClick = vm::back, enabled = !s.busy) { Text("Back") }
+                ConnectStep.ADDRESS, ConnectStep.DONE -> if (s.step == ConnectStep.ADDRESS) TextButton(onClick = close) { Text(t("Cancel")) }
+                else -> TextButton(onClick = vm::back, enabled = !s.busy) { Text(t("Back")) }
             }
         },
     )

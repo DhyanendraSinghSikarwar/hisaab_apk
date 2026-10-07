@@ -62,6 +62,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.TabLayoutStore
 import com.hisaab.app.settings.TabLayouts
 import com.hisaab.app.ui.components.CardGap
@@ -150,6 +151,7 @@ fun InvestmentsRoute(
     var adding by remember { mutableStateOf(false) }
     // The asset class picked on the allocation donut; filters the holdings.
     var filterName by rememberSaveable { mutableStateOf<String?>(null) }
+    var donutPlayed by remember { mutableStateOf(false) }
     val filter = filterName?.let { n -> AssetClass.entries.firstOrNull { it.name == n } }
     var range by rememberSaveable { mutableStateOf(2) }
     val model = remember(nw) { PortfolioModel.of(nw) }
@@ -158,18 +160,18 @@ fun InvestmentsRoute(
         topBar = {
             TopAppBar(
                 colors = com.hisaab.app.ui.theme.clearTopBar(),
-                title = { Text("Portfolio") },
-                navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
+                title = { Text(t("Portfolio")) },
+                navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } } },
                 actions = {
                     // Market headlines. Statements live in More and behind Home's bell.
-                    IconButton(onClick = onOpenNews) { Icon(Icons.Filled.Newspaper, "Market news") }
+                    IconButton(onClick = onOpenNews) { Icon(Icons.Filled.Newspaper, t("Market news")) }
                 },
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { adding = true }, modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()),
-            ) { Icon(Icons.Filled.Add, "Add a holding") }
+            ) { Icon(Icons.Filled.Add, t("Add a holding")) }
         },
     ) { inner ->
         LazyColumn(
@@ -179,15 +181,18 @@ fun InvestmentsRoute(
         ) {
             if (nw.loaded && model.isEmpty) {
                 item(key = "empty") {
-                    EmptyState(Icons.Filled.PieChart, "No investments yet",
-                        "EPF from EPFO SMS; funds and shares from CAS and broker statements. Or tap + to add one.")
+                    EmptyState(Icons.Filled.PieChart, t("No investments yet"),
+                        t("EPF from EPFO SMS; funds and shares from CAS and broker statements. Or tap + to add one."))
                 }
             }
             sections.forEach { key ->
                 when (key) {
                     "value" -> if (!model.isEmpty) item(key = "value") { ValueCard(model, Modifier.animateItem()) } else Unit
                     "allocation" -> if (model.slices.isNotEmpty()) item(key = "allocation") {
-                        AllocationCard(model, filter, onFilter = { filterName = it?.name }, modifier = Modifier.animateItem())
+                        AllocationCard(
+                            model, filter, onFilter = { filterName = it?.name }, modifier = Modifier.animateItem(),
+                            animate = !donutPlayed, onAnimated = { donutPlayed = true },
+                        )
                     } else Unit
                     "networth" -> item(key = "networth") { NetWorthCard(nw, range, onRange = { range = it }, modifier = Modifier.animateItem()) }
                     "holdings" -> holdingsSection(model, filter, onClearFilter = { filterName = null },
@@ -218,31 +223,31 @@ private fun HoldingSheet(
     var units by remember { mutableStateOf(existing?.units?.toString().orEmpty()) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(if (existing == null) "Add an investment" else "Edit investment", style = MaterialTheme.typography.titleLarge)
+            Text(if (existing == null) t("Add an investment") else t("Edit investment"), style = MaterialTheme.typography.titleLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 HoldingKind.entries.forEach { k ->
-                    FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(k.label) }, leadingIcon = { Icon(k.icon, null, Modifier.size(18.dp)) })
+                    FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(t(k.label)) }, leadingIcon = { Icon(k.icon, null, Modifier.size(18.dp)) })
                 }
             }
-            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true)
-            OutlinedTextField(value, { value = it }, Modifier.fillMaxWidth(), label = { Text("Current value") }, prefix = { Text("₹") },
+            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(t("Name")) }, singleLine = true)
+            OutlinedTextField(value, { value = it }, Modifier.fillMaxWidth(), label = { Text(t("Current value")) }, prefix = { Text("₹") },
                 singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-            OutlinedTextField(invested, { invested = it }, Modifier.fillMaxWidth(), label = { Text("Amount invested (optional)") }, prefix = { Text("₹") },
+            OutlinedTextField(invested, { invested = it }, Modifier.fillMaxWidth(), label = { Text(t("Amount invested (optional)")) }, prefix = { Text("₹") },
                 singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-            OutlinedTextField(units, { units = it }, Modifier.fillMaxWidth(), label = { Text("Units or shares (optional)") },
+            OutlinedTextField(units, { units = it }, Modifier.fillMaxWidth(), label = { Text(t("Units or shares (optional)")) },
                 singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
             if (existing != null && existing.source != "MANUAL") {
-                Text("A newer SMS or statement will update the figures again.", style = MaterialTheme.typography.bodySmall,
+                Text(t("A newer SMS or statement will update the figures again."), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                onDelete?.let { TextButton(onClick = it) { Text("Delete", color = MaterialTheme.colorScheme.error) } }
+                onDelete?.let { TextButton(onClick = it) { Text(t("Delete"), color = MaterialTheme.colorScheme.error) } }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Text(t("Cancel")) }
                 Button(
                     onClick = { onSave(kind, name, Money.parseInput(value), Money.parseInput(invested), units.replace(",", "").toDoubleOrNull()) },
                     enabled = name.isNotBlank() && Money.parseInput(value) != null,
-                ) { Text("Save") }
+                ) { Text(t("Save")) }
             }
         }
     }

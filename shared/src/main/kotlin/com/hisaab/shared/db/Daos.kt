@@ -240,8 +240,16 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE id > :afterId ORDER BY id LIMIT :limit")
     suspend fun pageAfter(afterId: Long, limit: Int): List<TransactionEntity>
 
+    /** Every transaction booked on one account, for deleting the account with its history. */
+    @Query("SELECT id FROM transactions WHERE accountId = :accountId")
+    suspend fun idsForAccount(accountId: Long): List<Long>
+
     @Query("SELECT COUNT(*) FROM transactions WHERE accountId = :accountId")
     suspend fun countForAccount(accountId: Long): Int
+
+    /** Detaches every transaction from one account (no account at all). */
+    @Query("UPDATE transactions SET accountId = NULL, accountLast4 = NULL WHERE accountId = :from")
+    suspend fun detachAccount(from: Long)
 
     /** Moves every transaction of one account onto another. */
     @Query("UPDATE transactions SET accountId = :to, accountLast4 = :toLast4 WHERE accountId = :from")
@@ -351,7 +359,14 @@ interface ProcessedEmailDao {
 
     @Query("DELETE FROM processed_emails")
     suspend fun clear()
+
+    /** Statements recorded since [since], counted by status (PARSED, LOCKED...). For the activity log. */
+    @Query("SELECT status, COUNT(*) AS count FROM statements WHERE processedAt >= :since GROUP BY status")
+    suspend fun statementStatusSince(since: Long): List<StatusCount>
 }
+
+/** A status and how many rows have it. */
+data class StatusCount(val status: String, val count: Int)
 
 @Dao
 interface AccountDao {
@@ -459,6 +474,14 @@ interface AccountDao {
 
     @Query("DELETE FROM accounts WHERE id = :id")
     suspend fun delete(id: Long)
+
+    /** Merging accounts: debit cards linked to [from] now draw from [to]. */
+    @Query("UPDATE accounts SET linkedAccountId = :to WHERE linkedAccountId = :from")
+    suspend fun moveLinkedCards(from: Long, to: Long)
+
+    /** Merging accounts: recurring payments set on [from] move to [to]. */
+    @Query("UPDATE recurring SET accountId = :to WHERE accountId = :from")
+    suspend fun moveRecurring(from: Long, to: Long)
 }
 
 @Dao
@@ -471,4 +494,31 @@ interface BudgetDao {
 
     @Query("SELECT * FROM budgets")
     fun observeAll(): Flow<List<BudgetEntity>>
+}
+
+/** What the transactions did to an account's balance over a span, for checking a stated balance against them. */
+data class NetChange(
+    /** Credits minus spends (for a card: refunds and payments minus spends), in paise. */
+    val net: Long,
+    /** Transactions whose effect is not known: a bank-side transfer (in or out?) or a foreign amount with no rupee value. */
+    val unclear: Int,
+)
+
+@Dao
+interface ReconcileDao {
+    /**
+     * The net effect on account [id] (and the debit cards linked to it) of the transactions after [from] up to and
+     * including [to]. Transactions waiting in review are left out.
+     */
+    @Query(
+        """SELECT COALESCE(SUM(CASE WHEN t.type = 'CREDIT' THEN t.inrMinor
+                                    WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.inrMinor
+                                    WHEN t.type = 'TRANSFER' AND :card THEN t.inrMinor
+                                    ELSE 0 END), 0) AS net,
+                  COALESCE(SUM(CASE WHEN t.inrMinor IS NULL OR (t.type = 'TRANSFER' AND NOT :card) THEN 1 ELSE 0 END), 0) AS unclear
+           FROM transactions t
+           WHERE (t.accountId = :id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = :id))
+             AND t.timestamp > :from AND t.timestamp <= :to AND t.needsReview = 0""",
+    )
+    suspend fun netChange(id: Long, card: Boolean, from: Long, to: Long): NetChange
 }

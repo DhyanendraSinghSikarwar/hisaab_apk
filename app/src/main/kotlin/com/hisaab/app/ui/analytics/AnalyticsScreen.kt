@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.charts.ChartSlice
 import com.hisaab.app.ui.charts.DonutChart
 import com.hisaab.app.ui.charts.HeatGrid
@@ -101,9 +102,9 @@ fun AnalyticsRoute(
             .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = contentPadding.calculateBottomPadding() + 20.dp),
         verticalArrangement = Arrangement.spacedBy(CardGap),
     ) {
-        Text("Analysis", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 2.dp, top = 4.dp))
+        Text(t("Analysis"), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 2.dp, top = 4.dp))
         BookPeriodChips()
-        Segmented(SEGMENTS, segment, { segment = it })
+        Segmented(SEGMENTS.map { t(it) }, segment, { segment = it })
         Crossfade(targetState = segment, animationSpec = tween(220), label = "segment") { seg ->
             Column(verticalArrangement = Arrangement.spacedBy(CardGap)) {
                 when (seg) {
@@ -137,9 +138,9 @@ private fun SpendingSegment(
 ) {
     AnimatedVisibility(selected != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Pill("${(selected ?: Category.OTHER).label}  ✕", on = true) { onSelect(null) }
+            Pill("${t((selected ?: Category.OTHER).label)}  ✕", on = true) { onSelect(null) }
             Spacer(Modifier.width(8.dp))
-            Text("cross-filter active", fontSize = 12.sp, color = Hx.text2)
+            Text(t("cross-filter active"), fontSize = 12.sp, color = Hx.text2)
         }
     }
     sections.forEach { key ->
@@ -148,7 +149,7 @@ private fun SpendingSegment(
             "monthly" -> MonthlyCard(d, selected, onOpenCategoryKey)
             "when" -> WhenCard(d, selected)
             "merchants" -> MerchantsCard(d, selected, onOpenTransaction)
-            "budgets" -> BudgetsCard(d.budgets, d.slice.filter.label, selected, onOpenBudgets)
+            "budgets" -> BudgetsCard(d.budgets, t(d.slice.filter.label), selected, onOpenBudgets)
         }
     }
 }
@@ -157,20 +158,20 @@ private fun SpendingSegment(
 private fun CategoriesCard(d: AnalyticsData, selected: Category?, onSelect: (Category?) -> Unit, onOpenCategoryKey: (String) -> Unit) {
     val month = periodMonth(d)
     HCard(
-        title = "Spend by category",
-        action = if (selected != null) "Open ›" else null,
+        title = t("Spend by category"),
+        action = if (selected != null) t("Open ›") else null,
         onAction = selected?.let { c -> { onOpenCategoryKey(categoryKey(c, month)) } },
     ) {
         val saved = d.income - d.spent
         KpiRow(
-            Triple("Spent", Money.compact(d.spent), Hx.neg),
-            Triple("Income", Money.compact(d.income), Hx.pos),
-            Triple(if (saved >= 0) "Saved" else "Overspent", Money.compact(kotlin.math.abs(saved)), if (saved >= 0) Hx.accent else Hx.warn),
-            Triple("Per day", Money.compact(d.perDay), null),
+            Triple(t("Spent"), Money.compact(d.spent), Hx.neg),
+            Triple(t("Income"), Money.compact(d.income), Hx.pos),
+            Triple(if (saved >= 0) t("Saved") else t("Overspent"), Money.compact(kotlin.math.abs(saved)), if (saved >= 0) Hx.accent else Hx.warn),
+            Triple(t("Per day"), Money.compact(d.perDay), null),
         )
         Spacer(Modifier.height(14.dp))
         if (d.categories.isEmpty()) {
-            Note("No spending in ${d.slice.filter.label}.")
+            Note(t("No spending in {period}.", "period" to t(d.slice.filter.label)))
             return@HCard
         }
         var all by rememberSaveable { mutableStateOf(false) }
@@ -180,7 +181,7 @@ private fun CategoriesCard(d: AnalyticsData, selected: Category?, onSelect: (Cat
         Row(verticalAlignment = Alignment.CenterVertically) {
             DonutChart(
                 slices = slices, selected = selIndex, onSelect = { i -> onSelect(i?.let { d.categories[it].first }) },
-                centerLabel = "Spent", centerValue = { Money.compact(it) }, modifier = Modifier.width(136.dp), thickness = 16.dp,
+                centerLabel = t("Spent"), centerValue = { Money.compact(it) }, modifier = Modifier.width(136.dp), thickness = 16.dp,
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -198,12 +199,12 @@ private fun CategoriesCard(d: AnalyticsData, selected: Category?, onSelect: (Cat
                 }
             }
             Text(
-                if (all) "Show fewer" else "All ${d.categories.size} categories",
+                if (all) t("Show fewer") else t("All {n} categories", "n" to d.categories.size),
                 color = Hx.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                 modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).clickable { all = !all }.padding(4.dp),
             )
         }
-        Text("Tap to filter the cards below · long-press to open", fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 6.dp))
+        Text(t("Tap to filter the cards below · long-press to open"), fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -219,7 +220,7 @@ private fun CategoryLegend(c: Category, value: Long, total: Long, selected: Bool
     ) {
         Box(Modifier.size(9.dp).clip(RoundedCornerShape(3.dp)).background(c.color))
         Spacer(Modifier.width(6.dp))
-        Text(c.label, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+        Text(t(c.label), fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
             fontWeight = if (selected) FontWeight.SemiBold else null)
         Text("${value * 100 / total}%", fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(end = 6.dp))
         Text(Money.compact(value), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -231,9 +232,9 @@ private fun CategoryLegend(c: Category, value: Long, total: Long, selected: Bool
 private fun MonthlyCard(d: AnalyticsData, selected: Category?, onOpenCategoryKey: (String) -> Unit) {
     var open by rememberSaveable { mutableStateOf<Int?>(null) }
     val months = d.slice.months
-    HCard(title = "Monthly spend · 12 months") {
+    HCard(title = t("Monthly spend · 12 months")) {
         if (months.isEmpty() || d.monthly.all { it.spent == 0L }) {
-            Note("No spending in the last 12 months.")
+            Note(t("No spending in the last 12 months."))
             return@HCard
         }
         val catByMonth = remember(d.slice.year, selected) {
@@ -250,14 +251,14 @@ private fun MonthlyCard(d: AnalyticsData, selected: Category?, onOpenCategoryKey
         val avg = if (history.isEmpty()) null else history.sum() / history.size
         StackedMonthBars(
             labels = months.map { Periods.monthShort(it) }, stacks = stacks, colors = colors,
-            averageLabel = avg?.let { "avg ${Money.compact(it)}" }, average = avg,
+            averageLabel = avg?.let { t("avg {amount}", "amount" to Money.compact(it)) }, average = avg,
             onTap = { open = it }, selected = open,
         )
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (selected != null) { Swatch(selected.color, selected.label); Swatch(Hx.border, "Rest") }
-            else { Swatch(colors[0], "Essentials"); Swatch(colors[1], "Lifestyle"); Swatch(colors[2], "Other") }
+            if (selected != null) { Swatch(selected.color, t(selected.label)); Swatch(Hx.border, t("Rest")) }
+            else { Swatch(colors[0], t("Essentials")); Swatch(colors[1], t("Lifestyle")); Swatch(colors[2], t("Other")) }
             Spacer(Modifier.weight(1f))
-            Text("Tap a bar", fontSize = 11.sp, color = Hx.text2)
+            Text(t("Tap a bar"), fontSize = 11.sp, color = Hx.text2)
         }
 
         val i = open
@@ -284,13 +285,13 @@ private fun MonthSheet(d: AnalyticsData, m: YearMonth, average: Long, onCategory
             if (average > 0) {
                 val diff = total - average
                 val pct = (kotlin.math.abs(diff) * 100 / average)
-                Delta("${if (diff > 0) "▲" else "▼"} $pct% ${if (diff > 0) "above" else "below"} avg", good = diff <= 0)
+                Delta(if (diff > 0) t("▲ {pct}% above avg", "pct" to pct) else t("▼ {pct}% below avg", "pct" to pct), good = diff <= 0)
             }
         }
-        if (cats.isEmpty()) Note("No spending this month.")
+        if (cats.isEmpty()) Note(t("No spending this month."))
         cats.forEach { (c, v) ->
             HRow(
-                c.label, "${v * 100 / total.coerceAtLeast(1)}% of the month",
+                t(c.label), t("{pct}% of the month", "pct" to v * 100 / total.coerceAtLeast(1)),
                 leading = { CategoryIcon(c) }, onClick = { onCategory(c) },
             ) { Text(Money.format(v, showPaise = false), fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
         }
@@ -314,19 +315,19 @@ private fun WhenCard(d: AnalyticsData, selected: Category?) {
     var cell by remember(txs) { mutableStateOf<Pair<Int, Int>?>(null) }
     fun topCategory(r: Int, c: Int): Category? = txs.filter { cellOf(it) == r to c }
         .groupBy { it.category }.maxByOrNull { (_, l) -> l.sumOf(LedgerMath::rupees) }?.key
-    HCard(title = "When you spend") {
+    HCard(title = t("When you spend")) {
         val max = grid.maxOf { row -> row.max() }
         if (max == 0L) {
-            Note("No spends with a time of day in this period.")
+            Note(t("No spends with a time of day in this period."))
             return@HCard
         }
-        HeatGrid(grid, DAYS, SLOTS, onCell = { r, c -> cell = if (cell == r to c) null else r to c })
+        HeatGrid(grid, DAYS.map { t(it) }, SLOTS, onCell = { r, c -> cell = if (cell == r to c) null else r to c })
         AnimatedContent(cell, transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(100)) }, label = "cell") { sel ->
-            val text = if (sel == null) "Tap a cell for its amount"
+            val text = if (sel == null) t("Tap a cell for its amount")
             else {
                 val (r, c) = sel
-                val top = if (selected == null && grid[r][c] > 0) topCategory(r, c)?.let { " · mostly ${it.label}" }.orEmpty() else ""
-                "${DAYS[r]} ${SLOTS[c]}: ${Money.format(grid[r][c], showPaise = false)}$top"
+                val top = if (selected == null && grid[r][c] > 0) topCategory(r, c)?.let { t(" · mostly {category}", "category" to t(it.label)) }.orEmpty() else ""
+                "${t(DAYS[r])} ${SLOTS[c]}: ${Money.format(grid[r][c], showPaise = false)}$top"
             }
             Text(text, fontSize = 12.sp, color = if (sel == null) Hx.text2 else MaterialTheme.colorScheme.onSurface,
                 fontWeight = if (sel == null) null else FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
@@ -338,9 +339,9 @@ private fun WhenCard(d: AnalyticsData, selected: Category?) {
             var a = pr; var b = pr
             while (a > 0 && grid[a - 1][pc] * 10 >= grid[pr][pc] * 6) a--
             while (b < 6 && grid[b + 1][pc] * 10 >= grid[pr][pc] * 6) b++
-            val days = if (a == b) DAYS[a] else "${DAYS[a]}–${DAYS[b]}"
-            val top = if (selected == null) topCategory(pr, pc)?.let { ", mostly ${it.label}" }.orEmpty() else ""
-            "Peak: $days, ${SLOTS[pc]}–${SLOTS[(pc + 1) % 8]}$top"
+            val days = if (a == b) t(DAYS[a]) else "${t(DAYS[a])}–${t(DAYS[b])}"
+            val top = if (selected == null) topCategory(pr, pc)?.let { t(", mostly {category}", "category" to t(it.label)) }.orEmpty() else ""
+            t("Peak: {days}, {from}–{to}", "days" to days, "from" to SLOTS[pc], "to" to SLOTS[(pc + 1) % 8]) + top
         }
         Text(peak, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
     }
@@ -352,9 +353,9 @@ private fun MerchantsCard(d: AnalyticsData, selected: Category?, onOpenTransacti
     val spends = remember(d.slice.txs, selected) { d.slice.txs.filter { LedgerMath.isSpend(it) && (selected == null || it.category == selected) } }
     val top = remember(spends) { LedgerMath.byMerchant(spends).take(6) }
     var open by rememberSaveable { mutableStateOf<String?>(null) }
-    HCard(title = if (selected != null) "Top merchants · ${selected.label}" else "Top merchants") {
+    HCard(title = if (selected != null) t("Top merchants · {category}", "category" to t(selected.label)) else t("Top merchants")) {
         if (top.isEmpty()) {
-            Note(if (selected != null) "No ${selected.label.lowercase()} spends in this period." else "No spending in this period.")
+            Note(if (selected != null) t("No {category} spends in this period.", "category" to t(selected.label).lowercase()) else t("No spending in this period."))
             return@HCard
         }
         val max = top.first().total.coerceAtLeast(1)
@@ -381,17 +382,17 @@ private fun MerchantsCard(d: AnalyticsData, selected: Category?, onOpenTransacti
             Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 28.dp)) {
                 Text(name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "${list.size} payment${if (list.size == 1) "" else "s"} · ${Money.format(list.sumOf(LedgerMath::rupees), showPaise = false)} · ${d.slice.filter.label}",
+                    (if (list.size == 1) t("{n} payment", "n" to list.size) else t("{n} payments", "n" to list.size)) + " · ${Money.format(list.sumOf(LedgerMath::rupees), showPaise = false)} · ${t(d.slice.filter.label)}",
                     fontSize = 13.sp, color = Hx.text2, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
                 )
-                if (list.isEmpty()) Note("No payments in this period.")
+                if (list.isEmpty()) Note(t("No payments in this period."))
                 list.take(60).forEach { t ->
                     HRow(
-                        t.note?.takeIf { it.isNotBlank() } ?: t.category.label, Periods.dateTime(t.timestamp),
+                        t.note?.takeIf { it.isNotBlank() } ?: com.hisaab.app.i18n.t(t.category.label), Periods.dateTime(t.timestamp),
                         leading = { CategoryIcon(t.category) }, onClick = { open = null; onOpenTransaction(t.id) },
                     ) { Text(Money.format(LedgerMath.rupees(t), showPaise = false), fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
                 }
-                if (list.size > 60) Note("Showing the latest 60.")
+                if (list.size > 60) Note(t("Showing the latest 60."))
             }
         }
     }

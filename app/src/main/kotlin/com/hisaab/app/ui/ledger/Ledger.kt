@@ -47,7 +47,7 @@ enum class PeriodKind(val label: String) {
     THIS_WEEK("This week"), MONTH("Month"), LAST_MONTH("Last month"), FY("This FY"), LAST_FY("Last FY"), LAST_12("Last 12 months"), CUSTOM("Custom")
 }
 
-/** The global filter: the Book (chosen in More, kept across launches) and the Period (the chip on Home, Transactions and Analysis). */
+/** The global filter: the Book (the chip beside the period, kept across launches) and the Period (the chip on Home, Transactions and Analysis). */
 data class ViewFilter(
     val book: Book = Book.ALL,
     val kind: PeriodKind = PeriodKind.MONTH,

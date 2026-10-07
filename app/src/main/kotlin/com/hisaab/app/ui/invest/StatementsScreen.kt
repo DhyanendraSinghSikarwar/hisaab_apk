@@ -61,6 +61,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.security.AppLockGate
 import androidx.compose.foundation.clickable
 import com.hisaab.app.ui.components.Info
@@ -99,7 +100,7 @@ class StatementsViewModel @Inject constructor(
 
     private fun work(block: suspend () -> Unit) = viewModelScope.launch {
         busy.value = true
-        try { block() } catch (e: Exception) { _messages.trySend("Something went wrong: ${e.message}") } finally { busy.value = false }
+        try { block() } catch (e: Exception) { _messages.trySend(t("Something went wrong: {error}", "error" to e.message)) } finally { busy.value = false }
     }
 
     fun import(uri: Uri) = work {
@@ -120,15 +121,19 @@ class StatementsViewModel @Inject constructor(
                 // The same password often opens the bank's other locked statements too.
                 processor.retryLocked()
             }
-            UnlockResult.WrongPassword -> _messages.trySend("That password didn't open ${s.fileName}.")
-            UnlockResult.Missing -> _messages.trySend("The PDF is no longer on the phone. Import it again.")
+            UnlockResult.WrongPassword -> _messages.trySend(t("That password didn't open {file}.", "file" to s.fileName))
+            UnlockResult.Missing -> _messages.trySend(t("The PDF is no longer on the phone. Import it again."))
         }
     }
 
     fun addPassword(label: String, password: String) = work {
         passwords.add(label, password)
         val opened = processor.retryLocked()
-        _messages.trySend(if (opened > 0) "Password saved. It opened $opened locked statement${if (opened > 1) "s" else ""}." else "Password saved.")
+        _messages.trySend(
+            if (opened > 1) t("Password saved. It opened {n} locked statements.", "n" to opened)
+            else if (opened > 0) t("Password saved. It opened {n} locked statement.", "n" to opened)
+            else t("Password saved."),
+        )
     }
 
     fun removePassword(p: SavedPassword) = viewModelScope.launch { passwords.remove(p.id) }
@@ -136,19 +141,23 @@ class StatementsViewModel @Inject constructor(
     /** Tries every saved password on every locked statement again. */
     fun retryAll() = work {
         val opened = processor.retryLocked()
-        _messages.trySend(if (opened > 0) "Opened $opened statement${if (opened > 1) "s" else ""} with your saved passwords." else "No saved password opens the remaining statements.")
+        _messages.trySend(
+            if (opened > 1) t("Opened {n} statements with your saved passwords.", "n" to opened)
+            else if (opened > 0) t("Opened {n} statement with your saved passwords.", "n" to opened)
+            else t("No saved password opens the remaining statements."),
+        )
     }
     fun delete(s: StatementEntity) = viewModelScope.launch { processor.delete(s.id) }
 
     private fun describe(s: StatementEntity?): String = when (s?.status) {
-        StatementEntity.PARSED -> "Read ${s.fileName}: " + listOfNotNull(
-            s.transactionCount.takeIf { it > 0 }?.let { "$it transactions" }, s.holdingCount.takeIf { it > 0 }?.let { "$it holdings" },
-        ).joinToString(" and ")
-        StatementEntity.LOCKED -> "${s.fileName} needs a password. Tap Unlock."
-        StatementEntity.EMPTY -> "Read ${s.fileName}, but found no transactions or holdings in it."
-        StatementEntity.UNREADABLE -> if (s.kind == StatementProcessor.KIND_PROTECTED) "${s.fileName} is a protected spreadsheet. Save it without a password and import it again."
-        else "Couldn't read ${s.fileName}. It may be a scanned image."
-        else -> "Already imported."
+        StatementEntity.PARSED -> t("Read {file}: ", "file" to s.fileName) + listOfNotNull(
+            s.transactionCount.takeIf { it > 0 }?.let { t("{n} transactions", "n" to it) }, s.holdingCount.takeIf { it > 0 }?.let { t("{n} holdings", "n" to it) },
+        ).joinToString(t(" and "))
+        StatementEntity.LOCKED -> t("{file} needs a password. Tap Unlock.", "file" to s.fileName)
+        StatementEntity.EMPTY -> t("Read {file}, but found no transactions or holdings in it.", "file" to s.fileName)
+        StatementEntity.UNREADABLE -> if (s.kind == StatementProcessor.KIND_PROTECTED) t("{file} is a protected spreadsheet. Save it without a password and import it again.", "file" to s.fileName)
+        else t("Couldn't read {file}. It may be a scanned image.", "file" to s.fileName)
+        else -> t("Already imported.")
     }
 }
 
@@ -174,8 +183,8 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, 
         topBar = {
             TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
-                title = { Text("Statements") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text(t("Statements")) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -188,15 +197,15 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(onClick = { AppLockGate.skipNextLock(); picker.launch(IMPORT_TYPES) }, Modifier.fillMaxWidth(), enabled = !busy) {
-                    Icon(Icons.Filled.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("Import a statement (PDF, Excel or CSV)")
+                    Icon(Icons.Filled.UploadFile, null); Spacer(Modifier.width(8.dp)); Text(t("Import a statement (PDF, Excel or CSV)"))
                 }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             }
             LazyColumn(Modifier.fillMaxSize().clipToBounds(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (statements.isEmpty()) {
-                    item { Text("Statements", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
-                    item { Text("No statements yet.", style = MaterialTheme.typography.bodyMedium) }
+                    item { Text(t("Statements"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp)) }
+                    item { Text(t("No statements yet."), style = MaterialTheme.typography.bodyMedium) }
                 }
                 // Password-needed first, then one section per kind of statement.
                 val groups = statements.groupBy {
@@ -205,7 +214,7 @@ fun StatementsRoute(onBack: () -> Unit, onOpenStatement: (Long) -> Unit, unlockI
                 for (key in listOf("LOCKED", "CREDIT_CARD", "BANK", "INVESTMENT", "OTHER")) {
                     val group = groups[key] ?: continue
                     item(key = "sec-$key") {
-                        Text(SECTION_TITLES.getValue(key), style = MaterialTheme.typography.titleMedium,
+                        Text(t(SECTION_TITLES.getValue(key)), style = MaterialTheme.typography.titleMedium,
                             color = if (key == "LOCKED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(top = 12.dp))
                     }
@@ -252,18 +261,18 @@ private fun StatementRow(s: StatementEntity, onOpen: () -> Unit, onUnlock: () ->
                 Text(
                     when (s.status) {
                         StatementEntity.PARSED -> listOfNotNull(
-                            s.transactionCount.takeIf { it > 0 }?.let { "$it transactions" }, s.holdingCount.takeIf { it > 0 }?.let { "$it holdings" },
+                            s.transactionCount.takeIf { it > 0 }?.let { t("{n} transactions", "n" to it) }, s.holdingCount.takeIf { it > 0 }?.let { t("{n} holdings", "n" to it) },
                         ).joinToString(" · ")
                         StatementEntity.LOCKED -> ""
-                        StatementEntity.EMPTY -> "Nothing found in it"
-                        else -> if (s.kind == StatementProcessor.KIND_PROTECTED) "Protected spreadsheet: save it without a password, then import it"
-                            else "Couldn't be read (maybe a scanned image)"
+                        StatementEntity.EMPTY -> t("Nothing found in it")
+                        else -> if (s.kind == StatementProcessor.KIND_PROTECTED) t("Protected spreadsheet: save it without a password, then import it")
+                            else t("Couldn't be read (maybe a scanned image)")
                     },
                     style = MaterialTheme.typography.labelMedium, color = tint,
                 )
             }
-            if (s.status == StatementEntity.LOCKED) OutlinedButton(onClick = onUnlock) { Text("Unlock") }
-            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, "Remove from list") }
+            if (s.status == StatementEntity.LOCKED) OutlinedButton(onClick = onUnlock) { Text(t("Unlock")) }
+            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, t("Remove from list")) }
         }
         if (s.status == StatementEntity.LOCKED) EmailHint(s, Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
     }
@@ -283,7 +292,7 @@ private fun EmailHint(s: StatementEntity, modifier: Modifier = Modifier, lines: 
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = if (open) Int.MAX_VALUE else lines, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 4.dp))
-                Text(if (open) "Show less" else "Show full email", style = MaterialTheme.typography.labelMedium,
+                Text(if (open) t("Show less") else t("Show full email"), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 4.dp))
             }
         }
@@ -296,17 +305,17 @@ private fun UnlockDialog(s: StatementEntity, onDismiss: () -> Unit, onUnlock: (S
     var keep by remember { mutableStateOf(true) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Unlock statement") },
+        title = { Text(t("Unlock statement")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(s.fileName, style = MaterialTheme.typography.bodyMedium)
                 EmailHint(s, lines = 6)
-                OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("PDF password") }, singleLine = true,
+                OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text(t("PDF password")) }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation())
             }
         },
-        confirmButton = { TextButton(onClick = { onUnlock(password, keep) }, enabled = password.isNotEmpty()) { Text("Unlock") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onUnlock(password, keep) }, enabled = password.isNotEmpty()) { Text(t("Unlock")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t("Cancel")) } },
     )
 }
 
@@ -316,15 +325,15 @@ private fun AddPasswordDialog(onDismiss: () -> Unit, onAdd: (String, String) -> 
     var password by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add a statement password") },
+        title = { Text(t("Add a statement password")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text("Label, e.g. HDFC credit card or CAS") }, singleLine = true)
-                OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Password") }, singleLine = true,
+                OutlinedTextField(label, { label = it }, Modifier.fillMaxWidth(), label = { Text(t("Label, e.g. HDFC credit card or CAS")) }, singleLine = true)
+                OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text(t("Password")) }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation())
             }
         },
-        confirmButton = { TextButton(onClick = { onAdd(label, password) }, enabled = password.isNotEmpty()) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onAdd(label, password) }, enabled = password.isNotEmpty()) { Text(t("Save")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t("Cancel")) } },
     )
 }

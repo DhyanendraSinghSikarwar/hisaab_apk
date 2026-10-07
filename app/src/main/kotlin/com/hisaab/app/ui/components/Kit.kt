@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.theme.Hx
 import com.hisaab.app.ui.theme.LocalReduceMotion
 import androidx.compose.animation.core.Animatable
@@ -162,7 +163,7 @@ fun CollapsibleCard(
             CardTitle(title, Modifier.weight(1f))
             if (trailing != null) Text(trailing, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 8.dp))
             Icon(
-                androidx.compose.material.icons.Icons.Filled.KeyboardArrowDown, if (open) "Collapse" else "Expand",
+                androidx.compose.material.icons.Icons.Filled.KeyboardArrowDown, if (open) t("Collapse") else t("Expand"),
                 tint = Hx.text2, modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
             )
         }

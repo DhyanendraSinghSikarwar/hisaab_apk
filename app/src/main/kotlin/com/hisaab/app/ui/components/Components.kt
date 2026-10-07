@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.app.ui.theme.MoneyColors
@@ -84,7 +85,7 @@ fun TransactionRow(
     ) {
         if (selected) {
             Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Check, "Selected", tint = MaterialTheme.colorScheme.onPrimary)
+                Icon(Icons.Filled.Check, t("Selected"), tint = MaterialTheme.colorScheme.onPrimary)
             }
         } else {
             TransactionAvatar(tx)
@@ -105,7 +106,7 @@ fun TransactionRow(
             val (amt, color) = TxStyle.amount(tx)
             Text(amt, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = color)
             if (tx.needsReview) {
-                Text("Review", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                Text(t("Review"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
             }
         }
     }

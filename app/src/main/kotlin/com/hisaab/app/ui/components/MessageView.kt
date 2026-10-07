@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.shared.db.TransactionSourceEntity
 
@@ -78,7 +79,7 @@ fun MessageView(s: TransactionSourceEntity, modifier: Modifier = Modifier, colla
                 }
                 if (body != null) {
                     IconButton(onClick = { clipboard.setText(AnnotatedString(s.rawText.orEmpty())) }) {
-                        Icon(Icons.Filled.ContentCopy, "Copy text", Modifier.size(18.dp), tint = c.onSurfaceVariant)
+                        Icon(Icons.Filled.ContentCopy, t("Copy text"), Modifier.size(18.dp), tint = c.onSurfaceVariant)
                     }
                 }
             }
@@ -91,7 +92,7 @@ fun MessageView(s: TransactionSourceEntity, modifier: Modifier = Modifier, colla
                 Spacer(Modifier.padding(top = 8.dp))
             }
             if (body == null) {
-                Text("The original text wasn't kept for this one.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                Text(t("The original text wasn't kept for this one."), style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
             } else {
                 val bubble = s.source != "EMAIL"
                 val lines = body.count { it == '\n' } + 1
@@ -107,7 +108,7 @@ fun MessageView(s: TransactionSourceEntity, modifier: Modifier = Modifier, colla
                 }
                 if (long) {
                     Text(
-                        if (expanded) "Show less" else if (s.source == "EMAIL") "Show full email" else "Show all",
+                        if (expanded) t("Show less") else if (s.source == "EMAIL") t("Show full email") else t("Show all"),
                         style = MaterialTheme.typography.labelLarge, color = c.primary,
                         modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).clickable { expanded = !expanded }.padding(horizontal = 4.dp, vertical = 4.dp),
                     )
@@ -130,13 +131,13 @@ private fun iconFor(source: String): ImageVector = when (source) {
 }
 
 private fun title(s: TransactionSourceEntity): String = when (s.source) {
-    "SMS" -> "SMS · ${s.sender}"
+    "SMS" -> t("SMS · {sender}", "sender" to s.sender)
     "EMAIL" -> senderName(s.sender)
-    "APP" -> "${s.sender} notification"
-    "SCREENSHOT" -> "From a screenshot"
-    "MANUAL" -> "Added by you"
-    "CSV" -> "Imported from CSV"
-    "STATEMENT" -> "Statement · ${senderName(s.sender)}"
+    "APP" -> t("{sender} notification", "sender" to s.sender)
+    "SCREENSHOT" -> t("From a screenshot")
+    "MANUAL" -> t("Added by you")
+    "CSV" -> t("Imported from CSV")
+    "STATEMENT" -> t("Statement · {sender}", "sender" to senderName(s.sender))
     else -> "${s.source} · ${s.sender}"
 }
 

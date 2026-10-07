@@ -19,7 +19,7 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 /** The colour palette the whole app is drawn in. Colours live in ui/theme; this is only the choice. */
 enum class ThemePalette(val label: String, val group: PaletteGroup = PaletteGroup.CLASSIC) {
-    CLASSIC("Classic"), EMERALD("Emerald"), GRAPHITE("Graphite"), INDIGO("Indigo Night"), SAFFRON("Saffron"), OCEAN("Ocean"),
+    DHANKOSH("DhanKosh"), FOLD("Fold"), CLASSIC("Classic"), EMERALD("Emerald"), GRAPHITE("Graphite"), INDIGO("Indigo Night"), SAFFRON("Saffron"), OCEAN("Ocean"),
     ROSE_QUARTZ("Rose Quartz"), LAVENDER_BLOOM("Lavender Bloom"),
     MIDNIGHT("Midnight Knight", PaletteGroup.HERO), ARC_RED("Arc Red", PaletteGroup.HERO), STAR_SHIELD("Star Shield", PaletteGroup.HERO),
     THUNDER("Thunder", PaletteGroup.HERO), GAMMA("Gamma", PaletteGroup.HERO), VIBRANIUM("Vibranium", PaletteGroup.HERO),
@@ -43,7 +43,7 @@ enum class TextSize(val label: String, val factor: Float) {
     }
 }
 
-/** Who uses this copy of Artha. Stays on the phone; nothing here is sent anywhere. */
+/** Who uses this copy of DhanKosh. Stays on the phone; nothing here is sent anywhere. */
 data class Profile(
     val name: String? = null,
     val email: String? = null,
@@ -81,7 +81,7 @@ data class AppSettings(
     /** Look for a newer version on GitHub, at most once a day. */
     val checkUpdates: Boolean = true,
     val lastUpdateCheck: Long? = null,
-    val palette: ThemePalette = ThemePalette.CLASSIC,
+    val palette: ThemePalette = ThemePalette.DHANKOSH,
     /** Dark mode draws on true black (AMOLED), whatever the palette. */
     val pureBlack: Boolean = false,
     /** In-app text size factor (0.9, 1.0, 1.1, 1.2). */
@@ -115,7 +115,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
             profile = Profile(p[DISPLAY_NAME], p[PROFILE_EMAIL], p[PROFILE_PHONE], p[PROFILE_OCCUPATION], p[PROFILE_PHOTO]),
             profilePromptDismissed = p[PROFILE_PROMPT_DISMISSED] ?: false,
             lastUpdateCheck = p[LAST_UPDATE_CHECK],
-            palette = p[THEME_PALETTE]?.let { runCatching { ThemePalette.valueOf(it) }.getOrNull() } ?: ThemePalette.CLASSIC,
+            palette = p[THEME_PALETTE]?.let { runCatching { ThemePalette.valueOf(it) }.getOrNull() } ?: ThemePalette.DHANKOSH,
             textScale = p[TEXT_SCALE] ?: 1f,
             pureBlack = p[PURE_BLACK] ?: false,
         )

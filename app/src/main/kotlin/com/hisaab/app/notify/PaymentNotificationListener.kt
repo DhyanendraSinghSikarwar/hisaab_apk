@@ -37,6 +37,7 @@ class PaymentNotificationListener : NotificationListenerService() {
         fun notifier(): TransactionsChangedNotifier
         fun settings(): AppSettingsStore
         fun newTransactions(): NewTransactionNotifier
+        fun activity(): com.hisaab.app.log.ActivityLog
         @ApplicationScope fun scope(): CoroutineScope
     }
 
@@ -60,6 +61,13 @@ class PaymentNotificationListener : NotificationListenerService() {
             // The same notification is often re-posted (updated); its key plus text identifies it.
             val id = "app:" + sha("${sbn.packageName}|${sbn.key}|$raw")
             val outcome = deps.repository().ingest(IncomingMessage(tx, id, raw, sourceName = "APP"))
+            deps.activity().record(
+                com.hisaab.app.log.ActivityEntry(
+                    System.currentTimeMillis(), com.hisaab.app.log.ActivitySource.NOTIFICATIONS, read = 1, relevant = 1,
+                    added = if (outcome == IngestOutcome.INSERTED) 1 else 0, merged = if (outcome == IngestOutcome.MERGED) 1 else 0,
+                    review = if (outcome == IngestOutcome.FLAGGED_FOR_REVIEW) 1 else 0, skipped = if (outcome == IngestOutcome.ALREADY_PROCESSED) 1 else 0,
+                ),
+            )
             if (outcome != IngestOutcome.ALREADY_PROCESSED) deps.notifier().onTransactionsChanged()
             deps.newTransactions().onIngested(outcome, "APP", id)
         }

@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.theme.clearTopBar
 
 /** The frame every More detail screen shares: a clear top bar with a back arrow, on the app backdrop. */
@@ -38,7 +39,7 @@ internal fun MoreScaffold(
             TopAppBar(
                 colors = clearTopBar(),
                 title = { Text(title) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
                 actions = actions,
             )
         },

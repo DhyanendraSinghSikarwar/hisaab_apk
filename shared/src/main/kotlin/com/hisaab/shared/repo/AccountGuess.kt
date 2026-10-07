@@ -1,5 +1,6 @@
 package com.hisaab.shared.repo
 
+import com.hisaab.parser.bank.Lenders
 import com.hisaab.parser.model.AccountKind
 import com.hisaab.parser.model.ParsedTransaction
 import com.hisaab.shared.db.AccountType
@@ -34,6 +35,8 @@ object AccountGuess {
                 else -> null
             }
             AccountKind.ACCOUNT -> when {
+                // Every account at a lender (Propelld, Aditya Birla Capital, ...) is a loan.
+                Lenders.isLender(tx.bankName) -> AccountType.LOAN
                 RD.containsMatchIn(text) -> AccountType.RD
                 FD.containsMatchIn(text) -> AccountType.FD
                 PPF.containsMatchIn(text) -> AccountType.PPF

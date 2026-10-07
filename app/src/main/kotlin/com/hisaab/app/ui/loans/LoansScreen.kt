@@ -61,6 +61,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.charts.StackedMonthBars
 import com.hisaab.app.ui.components.AccountAvatar
 import com.hisaab.app.ui.components.BrandMark
@@ -109,7 +110,7 @@ private fun rupees(minor: Long?) = minor?.let { Money.format(it, showPaise = fal
 
 private fun dueText(d: LocalDate?): String? = d?.let {
     val days = ChronoUnit.DAYS.between(LocalDate.now(Periods.zone), it)
-    when (days) { 0L -> "today"; 1L -> "tomorrow"; else -> "in $days days" }
+    when (days) { 0L -> t("today"); 1L -> t("tomorrow"); else -> t("in {n} days", "n" to days) }
 }
 
 /** The lender's logo, with the "Loan" badge for a loan account. */
@@ -134,8 +135,8 @@ class LoansViewModel @Inject constructor(source: LoanSource) : ViewModel() {
 fun LoansRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit, vm: LoansViewModel = hiltViewModel()) {
     val s by vm.snapshot.collectAsStateWithLifecycle()
     Scaffold(containerColor = Color.Transparent, topBar = {
-        TopAppBar(colors = clearTopBar(), title = { Text("Loans") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+        TopAppBar(colors = clearTopBar(), title = { Text(t("Loans")) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } })
     }) { inner ->
         val accounts = s.loans.filter { !it.detected }
         val detected = s.loans.filter { it.detected }
@@ -149,8 +150,8 @@ fun LoansRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit, vm: LoansViewMo
         ) {
             if (s.loaded && s.loans.isEmpty()) {
                 item {
-                    EmptyState(Icons.Filled.Payments, "No loans yet",
-                        "Loans appear from loan account messages and EMI debits. Or set an account's type to Loan.")
+                    EmptyState(Icons.Filled.Payments, t("No loans yet"),
+                        t("Loans appear from loan account messages and EMI debits. Or set an account's type to Loan."))
                 }
                 return@LazyColumn
             }
@@ -158,7 +159,7 @@ fun LoansRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit, vm: LoansViewMo
             items(accounts, key = { it.key }) { l -> LoanCard(l, Modifier.animateItem().enterOnce(0)) { onOpenLoan(l.key) } }
             if (detected.isNotEmpty()) {
                 item(key = "detected-h") {
-                    Text("Detected EMIs", style = MaterialTheme.typography.titleSmall, color = Hx.text2,
+                    Text(t("Detected EMIs"), style = MaterialTheme.typography.titleSmall, color = Hx.text2,
                         modifier = Modifier.padding(top = 8.dp, start = 4.dp))
                 }
                 items(detected, key = { it.key }) { l -> LoanCard(l, Modifier.animateItem()) { onOpenLoan(l.key) } }
@@ -171,13 +172,13 @@ fun LoansRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit, vm: LoansViewMo
 private fun LoansHero(s: LoansSnapshot) {
     val next = s.active.filter { it.nextDue != null }.minByOrNull { it.nextDue!! }
     HeroCard {
-        Text("Outstanding", fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
+        Text(t("Outstanding"), fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
         Text(rupees(s.outstandingMinor), fontSize = 30.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
-            HeroFigure("EMIs a month", rupees(s.monthlyEmiMinor), Modifier.weight(1f))
-            HeroFigure("Loans", "${s.active.size}", Modifier.weight(1f))
-            HeroFigure("Next EMI", next?.nextDue?.format(SHORT) ?: "—", Modifier.weight(1f))
+            HeroFigure(t("EMIs a month"), rupees(s.monthlyEmiMinor), Modifier.weight(1f))
+            HeroFigure(t("Loans"), "${s.active.size}", Modifier.weight(1f))
+            HeroFigure(t("Next EMI"), next?.nextDue?.format(SHORT) ?: "—", Modifier.weight(1f))
         }
     }
 }
@@ -199,26 +200,26 @@ private fun LoanCard(l: Loan, modifier: Modifier = Modifier, onClick: () -> Unit
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(l.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
-                    if (l.detected) { Spacer(Modifier.width(6.dp)); Tag("Detected", Hx.warn) }
-                    if (l.closed) { Spacer(Modifier.width(6.dp)); Tag("Closed", Hx.pos) }
+                    if (l.detected) { Spacer(Modifier.width(6.dp)); Tag(t("Detected"), Hx.warn) }
+                    if (l.closed) { Spacer(Modifier.width(6.dp)); Tag(t("Closed"), Hx.pos) }
                 }
                 Text(
-                    listOfNotNull(l.emiMinor?.let { "EMI ${rupees(it)}" }, l.nextDue?.let { "next ${it.format(SHORT)}" }).joinToString(" · ").ifEmpty { "No EMI found yet" },
+                    listOfNotNull(l.emiMinor?.let { t("EMI {amount}", "amount" to rupees(it)) }, l.nextDue?.let { t("next {date}", "date" to it.format(SHORT)) }).joinToString(" · ").ifEmpty { t("No EMI found yet") },
                     fontSize = 12.sp, color = Hx.text2, maxLines = 1,
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(rupees(l.outstandingMinor), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text("outstanding", fontSize = 11.sp, color = Hx.text2)
+                Text(t("outstanding"), fontSize = 11.sp, color = Hx.text2)
             }
         }
         l.progress?.let { p ->
             Spacer(Modifier.height(12.dp))
             SplitBar(listOf(p to Hx.pos), height = 6.dp)
             Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                Text("${(p * 100).toInt()}% repaid", fontSize = 11.sp, color = Hx.text2, modifier = Modifier.weight(1f))
+                Text(t("{pct}% repaid", "pct" to (p * 100).toInt()), fontSize = 11.sp, color = Hx.text2, modifier = Modifier.weight(1f))
                 Text(
-                    l.totalEmis?.let { "${l.paidCount} of $it EMIs" } ?: l.remainingEmis?.let { "about $it EMIs left" }.orEmpty(),
+                    l.totalEmis?.let { t("{paid} of {total} EMIs", "paid" to l.paidCount, "total" to it) } ?: l.remainingEmis?.let { t("about {n} EMIs left", "n" to it) }.orEmpty(),
                     fontSize = 11.sp, color = Hx.text2,
                 )
             }
@@ -279,13 +280,13 @@ fun LoanDetailRoute(
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
             colors = clearTopBar(),
-            title = { Text(l?.name ?: "Loan", maxLines = 1) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = { if (l?.accountId != null) IconButton(onClick = { editing = true }) { Icon(Icons.Filled.Edit, "Edit loan details") } },
+            title = { Text(l?.name ?: t("Loan"), maxLines = 1) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
+            actions = { if (l?.accountId != null) IconButton(onClick = { editing = true }) { Icon(Icons.Filled.Edit, t("Edit loan details")) } },
         )
     }) { inner ->
         if (l == null) {
-            if (snap.loaded) EmptyState(Icons.Filled.Payments, "Loan not found", "It may have been removed or renamed.", Modifier.padding(inner))
+            if (snap.loaded) EmptyState(Icons.Filled.Payments, t("Loan not found"), t("It may have been removed or renamed."), Modifier.padding(inner))
             return@Scaffold
         }
         LazyColumn(
@@ -310,9 +311,9 @@ fun LoanDetailRoute(
                 item(key = "prompt") {
                     HCard(onClick = { editing = true }) {
                         HRow(
-                            "Add loan details for payoff date", "Amount, interest rate, tenure and first EMI",
+                            t("Add loan details for payoff date"), t("Amount, interest rate, tenure and first EMI"),
                             leading = { Icon(Icons.Filled.PostAdd, null, tint = Hx.accent) },
-                        ) { Pill("Add", on = true) { editing = true } }
+                        ) { Pill(t("Add"), on = true) { editing = true } }
                     }
                 }
             }
@@ -339,72 +340,72 @@ private fun LoanHero(l: Loan) {
             LoanAvatar(l, 36.dp)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(if (l.closed) "Repaid" else "Outstanding", fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
+                Text(if (l.closed) t("Repaid") else t("Outstanding"), fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
                 Text(rupees(l.outstandingMinor), fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
         Text(
             when {
-                l.outstandingMinor == null -> "Not stated by the bank yet"
-                l.outstandingFromBank -> "As stated by the bank"
-                else -> "By the repayment schedule"
+                l.outstandingMinor == null -> t("Not stated by the bank yet")
+                l.outstandingFromBank -> t("As stated by the bank")
+                else -> t("By the repayment schedule")
             },
             fontSize = 11.sp, color = Color.White.copy(alpha = 0.7f),
         )
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth()) {
-            HeroFigure("EMI", rupees(l.emiMinor), Modifier.weight(1f))
-            HeroFigure("Next due", l.nextDue?.format(SHORT) ?: "—", Modifier.weight(1f))
-            HeroFigure("Due", dueText(l.nextDue) ?: "—", Modifier.weight(1f))
+            HeroFigure(t("EMI"), rupees(l.emiMinor), Modifier.weight(1f))
+            HeroFigure(t("Next due"), l.nextDue?.format(SHORT) ?: "—", Modifier.weight(1f))
+            HeroFigure(t("Due"), dueText(l.nextDue) ?: "—", Modifier.weight(1f))
         }
         l.progress?.let { p ->
             Spacer(Modifier.height(14.dp))
             SplitBar(listOf(p to Color.White), height = 6.dp)
-            Text("${(p * 100).toInt()}% repaid", fontSize = 11.sp, color = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 6.dp))
+            Text(t("{pct}% repaid", "pct" to (p * 100).toInt()), fontSize = 11.sp, color = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 6.dp))
         }
     }
 }
 
 @Composable
 private fun RepaymentCard(l: Loan) {
-    HCard(title = "Repayment") {
+    HCard(title = t("Repayment")) {
         val total = l.totalEmis ?: l.remainingEmis?.let { l.paidCount + it }
         if (total != null && total > 0) {
             val paid = l.paidCount.coerceAtMost(total)
             SplitBar(listOf(paid.toFloat() / total to Hx.pos), height = 10.dp)
             Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                LegendDot(Hx.pos); Text("  $paid paid", fontSize = 12.sp, color = Hx.text2, modifier = Modifier.weight(1f))
-                LegendDot(Hx.surface2); Text("  ${total - paid} left", fontSize = 12.sp, color = Hx.text2)
+                LegendDot(Hx.pos); Text("  " + t("{n} paid", "n" to paid), fontSize = 12.sp, color = Hx.text2, modifier = Modifier.weight(1f))
+                LegendDot(Hx.surface2); Text("  " + t("{n} left", "n" to total - paid), fontSize = 12.sp, color = Hx.text2)
             }
         }
         KpiRow(
-            Triple("EMIs paid", l.totalEmis?.let { "${l.paidCount} of $it" } ?: "${l.paidCount}", null),
-            Triple("Total paid", rupees(l.totalPaidMinor), null),
-            Triple("Remaining", l.remainingEmis?.let { "$it EMIs" } ?: "—", null),
+            Triple(t("EMIs paid"), l.totalEmis?.let { t("{paid} of {total}", "paid" to l.paidCount, "total" to it) } ?: "${l.paidCount}", null),
+            Triple(t("Total paid"), rupees(l.totalPaidMinor), null),
+            Triple(t("Remaining"), l.remainingEmis?.let { t("{n} EMIs", "n" to it) } ?: "—", null),
         )
         Spacer(Modifier.height(12.dp))
         val terms = l.terms
         if (terms != null) {
             KpiRow(
-                Triple("Principal paid", rupees(l.principalPaidMinor), Hx.pos),
-                Triple("Interest paid", rupees(l.interestPaidMinor), Hx.neg),
-                Triple("Total interest", rupees(l.totalInterestMinor), null),
+                Triple(t("Principal paid"), rupees(l.principalPaidMinor), Hx.pos),
+                Triple(t("Interest paid"), rupees(l.interestPaidMinor), Hx.neg),
+                Triple(t("Total interest"), rupees(l.totalInterestMinor), null),
             )
             Spacer(Modifier.height(12.dp))
             KpiRow(
-                Triple("Borrowed", rupees(terms.principalMinor), null),
-                Triple("Rate", "%.2f%%".format(terms.rateBps / 100.0), null),
-                Triple("Payoff", l.payoffDate?.format(MONTH) ?: "—", null),
+                Triple(t("Borrowed"), rupees(terms.principalMinor), null),
+                Triple(t("Rate"), "%.2f%%".format(terms.rateBps / 100.0), null),
+                Triple(t("Payoff"), l.payoffDate?.format(MONTH) ?: "—", null),
             )
         } else {
             KpiRow(
-                Triple("First EMI seen", l.firstPaid?.format(SHORT) ?: "—", null),
-                Triple("Last paid", l.lastPaid?.format(SHORT) ?: "—", null),
-                Triple("Payoff", l.payoffDate?.let { "~" + it.format(MONTH) } ?: "—", null),
+                Triple(t("First EMI seen"), l.firstPaid?.format(SHORT) ?: "—", null),
+                Triple(t("Last paid"), l.lastPaid?.format(SHORT) ?: "—", null),
+                Triple(t("Payoff"), l.payoffDate?.let { "~" + it.format(MONTH) } ?: "—", null),
             )
         }
         l.emiDay?.let {
-            Text("EMI on the ${ordinal(it)} of every month · in Bills & subscriptions", fontSize = 11.sp, color = Hx.text2,
+            Text(t("EMI on the {day} of every month · in Bills & subscriptions", "day" to ordinal(it)), fontSize = 11.sp, color = Hx.text2,
                 modifier = Modifier.padding(top = 12.dp))
         }
     }
@@ -412,12 +413,12 @@ private fun RepaymentCard(l: Loan) {
 
 @Composable
 private fun DetectedCard(hasLoanAccounts: Boolean, onTrack: () -> Unit, onLink: () -> Unit) {
-    HCard(title = "Detected from EMI payments") {
-        Text("Track it as a loan to add its amount, rate and tenure.", fontSize = 13.sp, color = Hx.text2)
+    HCard(title = t("Detected from EMI payments")) {
+        Text(t("Track it as a loan to add its amount, rate and tenure."), fontSize = 13.sp, color = Hx.text2)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Pill("Track as loan", on = true, leading = Icons.Filled.PostAdd, onClick = onTrack)
-            if (hasLoanAccounts) Pill("Link to a loan", leading = Icons.Filled.Link, onClick = onLink)
+            Pill(t("Track as loan"), on = true, leading = Icons.Filled.PostAdd, onClick = onTrack)
+            if (hasLoanAccounts) Pill(t("Link to a loan"), leading = Icons.Filled.Link, onClick = onLink)
         }
     }
 }
@@ -427,7 +428,7 @@ private fun ScheduleCard(l: Loan) {
     val rows = l.upcoming
     val principal = Hx.accent
     val interest = Hx.warn
-    HCard(title = "Next ${rows.size} EMIs") {
+    HCard(title = t("Next {n} EMIs", "n" to rows.size)) {
         StackedMonthBars(
             labels = rows.map { r -> r.due?.format(DateTimeFormatter.ofPattern("MMM")) ?: "#${r.number}" },
             stacks = rows.map { listOf(it.principalMinor, it.interestMinor) },
@@ -435,15 +436,15 @@ private fun ScheduleCard(l: Loan) {
             averageLabel = null, average = null, onTap = {},
         )
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(verticalAlignment = Alignment.CenterVertically) { LegendDot(principal); Text("  Principal", fontSize = 12.sp, color = Hx.text2) }
-            Row(verticalAlignment = Alignment.CenterVertically) { LegendDot(interest); Text("  Interest", fontSize = 12.sp, color = Hx.text2) }
+            Row(verticalAlignment = Alignment.CenterVertically) { LegendDot(principal); Text("  " + t("Principal"), fontSize = 12.sp, color = Hx.text2) }
+            Row(verticalAlignment = Alignment.CenterVertically) { LegendDot(interest); Text("  " + t("Interest"), fontSize = 12.sp, color = Hx.text2) }
         }
     }
     Spacer(Modifier.height(CardGap))
-    CollapsibleCard("Schedule", trailing = "${rows.size} EMIs", initiallyExpanded = false) {
+    CollapsibleCard(t("Schedule"), trailing = t("{n} EMIs", "n" to rows.size), initiallyExpanded = false) {
         Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
             listOf("Date", "Principal", "Interest", "Balance").forEachIndexed { i, h ->
-                Text(h, fontSize = 11.sp, color = Hx.text2, fontWeight = FontWeight.Medium, modifier = Modifier.weight(if (i == 0) 0.8f else 1f))
+                Text(t(h), fontSize = 11.sp, color = Hx.text2, fontWeight = FontWeight.Medium, modifier = Modifier.weight(if (i == 0) 0.8f else 1f))
             }
         }
         rows.forEach { r ->
@@ -460,9 +461,9 @@ private fun ScheduleCard(l: Loan) {
 
 @Composable
 private fun PaymentsCard(l: Loan, accounts: Map<Long, AccountWithActivity>, onOpen: (Long) -> Unit) {
-    HCard(title = "Payments · ${l.payments.size}") {
+    HCard(title = t("Payments · {n}", "n" to l.payments.size)) {
         if (l.payments.isEmpty()) {
-            Text("No EMI debits found yet.", fontSize = 13.sp, color = Hx.text2)
+            Text(t("No EMI debits found yet."), fontSize = 13.sp, color = Hx.text2)
             return@HCard
         }
         l.payments.take(60).forEachIndexed { i, t ->
@@ -477,7 +478,7 @@ private fun PaymentsCard(l: Loan, accounts: Map<Long, AccountWithActivity>, onOp
                 val extra = emi != null && t.amountMinor > emi + emi / 5
                 Column(horizontalAlignment = Alignment.End) {
                     Text(rupees(t.amountMinor), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    if (extra) Text("prepayment", fontSize = 11.sp, color = Hx.pos)
+                    if (extra) Text(com.hisaab.app.i18n.t("prepayment"), fontSize = 11.sp, color = Hx.pos)
                 }
             }
         }
@@ -521,41 +522,41 @@ private fun TermsSheet(l: Loan, onDismiss: () -> Unit, onSave: (LoanTerms?) -> U
                 LoanAvatar(l, 44.dp)
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text("Loan details", style = MaterialTheme.typography.titleLarge)
+                    Text(com.hisaab.app.i18n.t("Loan details"), style = MaterialTheme.typography.titleLarge)
                     Text(l.name, style = MaterialTheme.typography.bodyMedium, color = Hx.text2)
                 }
             }
             OutlinedTextField(
-                principal, { principal = it }, Modifier.fillMaxWidth(), label = { Text("Loan amount") }, prefix = { Text("₹") },
+                principal, { principal = it }, Modifier.fillMaxWidth(), label = { Text(com.hisaab.app.i18n.t("Loan amount")) }, prefix = { Text("₹") },
                 singleLine = true, isError = badP, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
-                    rate, { rate = it.filter { c -> c.isDigit() || c == '.' }.take(6) }, Modifier.weight(1f), label = { Text("Interest rate") },
-                    suffix = { Text("% p.a.") }, singleLine = true, isError = badR, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    rate, { rate = it.filter { c -> c.isDigit() || c == '.' }.take(6) }, Modifier.weight(1f), label = { Text(com.hisaab.app.i18n.t("Interest rate")) },
+                    suffix = { Text(com.hisaab.app.i18n.t("% p.a.")) }, singleLine = true, isError = badR, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
                 OutlinedTextField(
-                    tenure, { tenure = it.filter(Char::isDigit).take(3) }, Modifier.weight(1f), label = { Text("Tenure") },
-                    suffix = { Text("months") }, singleLine = true, isError = badN, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    tenure, { tenure = it.filter(Char::isDigit).take(3) }, Modifier.weight(1f), label = { Text(com.hisaab.app.i18n.t("Tenure")) },
+                    suffix = { Text(com.hisaab.app.i18n.t("months")) }, singleLine = true, isError = badN, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
             }
-            DateField("First EMI", start) { start = it }
+            DateField(com.hisaab.app.i18n.t("First EMI"), start) { start = it }
             if (emi != null) {
                 HCard(container = Hx.surface2, padding = 12.dp) {
                     KpiRow(
-                        Triple("EMI by these terms", rupees(emi), null),
-                        Triple("EMI debited", rupees(l.emiMinor), null),
+                        Triple(com.hisaab.app.i18n.t("EMI by these terms"), rupees(emi), null),
+                        Triple(com.hisaab.app.i18n.t("EMI debited"), rupees(l.emiMinor), null),
                     )
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                if (t != null) TextButton(onClick = { onSave(null) }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                if (t != null) TextButton(onClick = { onSave(null) }) { Text(com.hisaab.app.i18n.t("Clear"), color = MaterialTheme.colorScheme.error) }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Text(com.hisaab.app.i18n.t("Cancel")) }
                 Button(
                     onClick = { onSave(LoanTerms(p!!, Math.round(r!! * 100).toInt(), n!!, start)) },
                     enabled = complete,
-                ) { Text("Save") }
+                ) { Text(com.hisaab.app.i18n.t("Save")) }
             }
         }
     }
@@ -582,9 +583,9 @@ private fun DateField(label: String, day: LocalDate?, onDay: (LocalDate?) -> Uni
                 TextButton(onClick = {
                     onDay(state.selectedDateMillis?.let { java.time.Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() })
                     picking = false
-                }) { Text("Done") }
+                }) { Text(t("Done")) }
             },
-            dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text(t("Cancel")) } },
         ) { DatePicker(state, Modifier.padding(top = 8.dp)) }
     }
 }
@@ -595,12 +596,12 @@ private fun DateField(label: String, day: LocalDate?, onDay: (LocalDate?) -> Uni
 private fun LinkSheet(accounts: List<AccountWithActivity>, onDismiss: () -> Unit, onPick: (AccountWithActivity) -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 32.dp)) {
-            Text("Link to a loan", style = MaterialTheme.typography.titleLarge)
-            Text("The loan is renamed after this EMI's payee so its payments match.", fontSize = 12.sp, color = Hx.text2,
+            Text(t("Link to a loan"), style = MaterialTheme.typography.titleLarge)
+            Text(t("The loan is renamed after this EMI's payee so its payments match."), fontSize = 12.sp, color = Hx.text2,
                 modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
             accounts.forEach { a ->
                 HRow(
-                    a.nickname ?: a.bankName, a.last4.takeIf { it.isNotBlank() }?.let { "Loan ••$it" } ?: "Loan",
+                    a.nickname ?: a.bankName, a.last4.takeIf { it.isNotBlank() }?.let { t("Loan") + " ••$it" } ?: t("Loan"),
                     leading = { AccountAvatar(a.bankName, a.kind, a.accountType, size = 36.dp) },
                     onClick = { onPick(a) },
                 )

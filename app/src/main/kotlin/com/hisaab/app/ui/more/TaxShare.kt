@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.format.AmountPrivacy
 import com.hisaab.app.ui.theme.Hx
 import kotlinx.coroutines.Dispatchers
@@ -67,10 +68,10 @@ internal fun TaxShareFlow(s: TaxState, onDone: () -> Unit) {
         AlertDialog(
             onDismissRequest = onDone,
             icon = { Icon(Icons.Outlined.Visibility, null) },
-            title = { Text("Share with amounts?") },
-            text = { Text("Amounts are hidden on screen. The shared estimate will show your real income, deductions and tax figures.") },
-            confirmButton = { TextButton(onClick = { confirmed = true }) { Text("Share with amounts") } },
-            dismissButton = { TextButton(onClick = onDone) { Text("Cancel") } },
+            title = { Text(t("Share with amounts?")) },
+            text = { Text(t("Amounts are hidden on screen. The shared estimate will show your real income, deductions and tax figures.")) },
+            confirmButton = { TextButton(onClick = { confirmed = true }) { Text(t("Share with amounts")) } },
+            dismissButton = { TextButton(onClick = onDone) { Text(t("Cancel")) } },
         )
         return
     }
@@ -92,22 +93,22 @@ internal fun TaxShareFlow(s: TaxState, onDone: () -> Unit) {
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Share estimate", style = MaterialTheme.typography.titleLarge)
+            Text(t("Share estimate"), style = MaterialTheme.typography.titleLarge)
             Text(
-                "A clean summary of ${s.fyLabel}${if (s.whatIf.any) " with your what-if figures" else ""}: income, deductions, " +
-                    "both regimes with the slab breakdown, and the recommended regime.",
+                if (s.whatIf.any) t("A clean summary of {fy} with your what-if figures: income, deductions, both regimes with the slab breakdown, and the recommended regime.", "fy" to s.fyLabel)
+                else t("A clean summary of {fy}: income, deductions, both regimes with the slab breakdown, and the recommended regime.", "fy" to s.fyLabel),
                 fontSize = 13.sp, color = Hx.text2,
             )
             Spacer(Modifier.size(2.dp))
             FormatOption(
-                Icons.Outlined.Image, "Image (HD)", "PNG, 1440 px wide · best for WhatsApp and chats",
+                Icons.Outlined.Image, t("Image (HD)"), t("PNG, 1440 px wide · best for WhatsApp and chats"),
                 busy == TaxShareFormat.IMAGE, enabled = busy == null,
             ) { start(TaxShareFormat.IMAGE) }
             FormatOption(
-                Icons.Outlined.PictureAsPdf, "PDF", "A4 document with selectable text · for email or your CA",
+                Icons.Outlined.PictureAsPdf, t("PDF"), t("A4 document with selectable text · for email or your CA"),
                 busy == TaxShareFormat.PDF, enabled = busy == null,
             ) { start(TaxShareFormat.PDF) }
-            if (failed) Text("Couldn't create the file. Please try again.", fontSize = 13.sp, color = Hx.neg)
+            if (failed) Text(t("Couldn't create the file. Please try again."), fontSize = 13.sp, color = Hx.neg)
         }
     }
 }
@@ -137,12 +138,12 @@ private fun shareFile(context: Context, file: File, format: TaxShareFormat, s: T
     val send = Intent(Intent.ACTION_SEND).apply {
         type = format.mime
         putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_SUBJECT, "Tax estimate · ${s.fyLong}")
-        putExtra(Intent.EXTRA_TEXT, "Tax estimate · ${s.fyLong}, made with Artha")
+        putExtra(Intent.EXTRA_SUBJECT, t("Tax estimate · {fy}", "fy" to s.fyLong))
+        putExtra(Intent.EXTRA_TEXT, t("Tax estimate · {fy}, made with DhanKosh", "fy" to s.fyLong))
         clipData = ClipData.newRawUri(file.name, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    val chooser = Intent.createChooser(send, "Share tax estimate").apply {
+    val chooser = Intent.createChooser(send, t("Share tax estimate")).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         if (context !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }

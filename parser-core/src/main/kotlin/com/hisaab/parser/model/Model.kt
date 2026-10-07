@@ -21,6 +21,11 @@ data class HoldingSnapshot(
     val valueMinor: Long?,
     val investedMinor: Long?,
     val asOf: Long,
+    /**
+     * A contribution this message reports on top of the value (EPFO: "Contribution of Rs. 12,345 ... received"). Adds to
+     * the amount invested when [investedMinor] is not stated.
+     */
+    val contributionMinor: Long? = null,
 )
 
 enum class TransactionType {

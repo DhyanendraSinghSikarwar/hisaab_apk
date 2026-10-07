@@ -193,7 +193,15 @@ object Loans {
         val text = listOfNotNull(t.merchant, t.upiId, t.note).joinToString(" ").lowercase()
         if (text.isBlank()) return false
         return (a.last4.length >= 4 && text.contains(a.last4)) ||
-            listOfNotNull(a.nickname, a.bankName).any { n -> n.isNotBlank() && t.merchant?.trim().equals(n.trim(), ignoreCase = true) }
+            listOfNotNull(a.nickname, a.bankName).any { n -> sameName(t.merchant, n) }
+    }
+
+    /** "Propelld" names "Propelld Technologies" and the reverse; short names must match exactly. */
+    private fun sameName(merchant: String?, name: String): Boolean {
+        val m = merchant?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
+        val n = name.trim().lowercase().takeIf { it.isNotEmpty() } ?: return false
+        if (m == n) return true
+        return minOf(m.length, n.length) >= 5 && (m.startsWith("$n ") || n.startsWith("$m "))
     }
 
     fun termsOf(a: AccountWithActivity): LoanTerms? {

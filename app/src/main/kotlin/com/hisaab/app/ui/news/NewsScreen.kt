@@ -55,11 +55,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.HCard
 import com.hisaab.app.ui.components.Segmented
 import com.hisaab.app.ui.theme.Hx
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -69,30 +73,80 @@ import org.xmlpull.v1.XmlPullParser
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Duration
+import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /** A headline from a public feed. Tapping it opens the article in the browser. */
-data class Headline(val title: String, val link: String, val published: ZonedDateTime?)
+data class Headline(val title: String, val link: String, val published: ZonedDateTime?, val source: String)
 
-/** Moneycontrol's public RSS feeds. Only the feed itself is downloaded; nothing about the user is sent. */
-enum class NewsFeed(val label: String, val url: String) {
-    MARKETS("Markets", "https://www.moneycontrol.com/rss/marketreports.xml"),
-    LATEST("Latest", "https://www.moneycontrol.com/rss/latestnews.xml"),
-    BUSINESS("Business", "https://www.moneycontrol.com/rss/business.xml"),
-    STOCKS("Stocks", "https://www.moneycontrol.com/rss/buzzingstocks.xml"),
+/** A public RSS feed and the publication it belongs to. */
+data class FeedSource(val source: String, val url: String)
+
+private const val MC = "Moneycontrol"
+private const val ET = "Economic Times"
+private const val BS = "Business Standard"
+private const val MINT = "Mint"
+
+/**
+ * A news tab. Each one merges several public RSS feeds, newest first. Only the feeds themselves are
+ * downloaded; nothing about the user is sent. Moneycontrol's feeds stopped updating, so current
+ * publications are merged in alongside them.
+ */
+enum class NewsFeed(val label: String, val sources: List<FeedSource>) {
+    LATEST("Latest", listOf(
+        FeedSource(BS, "https://www.business-standard.com/rss/latest.rss"),
+        FeedSource(ET, "https://economictimes.indiatimes.com/rssfeedsdefault.cms"),
+        FeedSource(MC, "https://www.moneycontrol.com/rss/latestnews.xml"),
+        FeedSource(MC, "https://www.moneycontrol.com/rss/MCtopnews.xml"),
+    )),
+    MARKETS("Markets", listOf(
+        FeedSource(ET, "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"),
+        FeedSource(BS, "https://www.business-standard.com/rss/markets-106.rss"),
+        FeedSource(MINT, "https://www.livemint.com/rss/markets"),
+        FeedSource(MC, "https://www.moneycontrol.com/rss/marketreports.xml"),
+    )),
+    BUSINESS("Business", listOf(
+        FeedSource(BS, "https://www.business-standard.com/rss/companies-101.rss"),
+        FeedSource(BS, "https://www.business-standard.com/rss/economy-102.rss"),
+        FeedSource(ET, "https://economictimes.indiatimes.com/news/economy/rssfeeds/1373380680.cms"),
+        FeedSource(MC, "https://www.moneycontrol.com/rss/business.xml"),
+    )),
+    STOCKS("Stocks", listOf(
+        FeedSource(ET, "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"),
+        FeedSource(MC, "https://www.moneycontrol.com/rss/buzzingstocks.xml"),
+    )),
+}
+
+/** How far back the list reaches. Today starts at local midnight. */
+enum class NewsRange(val label: String) {
+    TODAY("Today"), WEEK("Week"), MONTH("Month");
+
+    /** The earliest publication time this range shows. */
+    fun since(now: ZonedDateTime = ZonedDateTime.now()): Instant = when (this) {
+        TODAY -> now.toLocalDate().atStartOfDay(now.zone)
+        WEEK -> now.minusDays(7)
+        MONTH -> now.minusDays(30)
+    }.toInstant()
 }
 
 data class NewsState(
-    val feed: NewsFeed = NewsFeed.MARKETS,
+    val feed: NewsFeed = NewsFeed.LATEST,
+    val range: NewsRange = NewsRange.TODAY,
     val items: List<Headline> = emptyList(),
     val loading: Boolean = false,
     val failed: Boolean = false,
-)
+) {
+    /** Headlines published since [r] began, newest first (items are kept sorted). */
+    fun within(r: NewsRange): List<Headline> {
+        val since = r.since()
+        return items.filter { h -> h.published?.toInstant()?.let { !it.isBefore(since) } == true }
+    }
+}
 
-/** Fetches a feed and keeps it for 10 minutes, so switching tabs or coming back is instant. */
+/** Fetches a tab's feeds in parallel, merges and dedupes them, and keeps the result for 10 minutes. */
 @Singleton
 class NewsRepository @Inject constructor() {
     private val cache = HashMap<NewsFeed, Pair<Long, List<Headline>>>()
@@ -100,7 +154,17 @@ class NewsRepository @Inject constructor() {
     suspend fun load(feed: NewsFeed, force: Boolean): List<Headline> {
         val hit = cache[feed]
         if (!force && hit != null && System.currentTimeMillis() - hit.first < 10 * 60_000) return hit.second
-        val items = withContext(Dispatchers.IO) { parse(fetch(feed.url)) }
+        val results = withContext(Dispatchers.IO) {
+            coroutineScope {
+                feed.sources.map { src -> async { runCatching { parse(fetch(src.url), src.source) }.getOrNull() } }.awaitAll()
+            }
+        }
+        if (results.all { it == null }) error("No feed reachable")
+        val items = results.filterNotNull().flatten()
+            .sortedByDescending { it.published?.toInstant() ?: Instant.EPOCH }
+            .distinctBy { it.link }
+            .distinctBy { it.title.lowercase().filter(Char::isLetterOrDigit) }
+            .take(200)
         cache[feed] = System.currentTimeMillis() to items
         return items
     }
@@ -108,7 +172,7 @@ class NewsRepository @Inject constructor() {
     private fun fetch(url: String): ByteArray {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10_000; readTimeout = 15_000
-            setRequestProperty("User-Agent", "Mozilla/5.0 (Android) Artha")
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Android) DhanKosh")
         }
         try {
             if (c.responseCode !in 200..299) error("HTTP ${c.responseCode}")
@@ -118,7 +182,7 @@ class NewsRepository @Inject constructor() {
         }
     }
 
-    private fun parse(bytes: ByteArray): List<Headline> {
+    private fun parse(bytes: ByteArray, source: String): List<Headline> {
         val p = Xml.newPullParser().apply { setInput(bytes.inputStream(), null) }
         val out = ArrayList<Headline>()
         var title: String? = null; var link: String? = null; var date: String? = null
@@ -138,19 +202,19 @@ class NewsRepository @Inject constructor() {
                     if (p.name == "item") {
                         inItem = false
                         val t = title?.let(::clean)
-                        if (!t.isNullOrBlank() && !link.isNullOrBlank()) out += Headline(t, link!!, date?.let(::parseDate))
+                        if (!t.isNullOrBlank() && !link.isNullOrBlank()) out += Headline(t, link!!, date?.let(::parseDate), source)
                     }
                     tag = null
                 }
             }
         }
-        return out.distinctBy { it.title }.take(60)
+        return out
     }
 
     private fun clean(s: String) = s.replace(Regex("<[^>]+>"), "").replace("&amp;", "&").replace("&quot;", "\"")
         .replace("&#39;", "'").replace("&apos;", "'").replace(Regex("\\s+"), " ").trim()
 
-    private fun parseDate(s: String): ZonedDateTime? = runCatching { ZonedDateTime.parse(s, DateTimeFormatter.RFC_1123_DATE_TIME) }.getOrNull()
+    private fun parseDate(s: String): ZonedDateTime? = runCatching { ZonedDateTime.parse(s.trim(), DateTimeFormatter.RFC_1123_DATE_TIME) }.getOrNull()
 }
 
 @HiltViewModel
@@ -162,6 +226,8 @@ class NewsViewModel @Inject constructor(private val repo: NewsRepository) : View
 
     fun select(feed: NewsFeed) { if (feed != _state.value.feed) { _state.update { it.copy(feed = feed, items = emptyList()) }; load(false) } }
 
+    fun range(r: NewsRange) = _state.update { it.copy(range = r) }
+
     fun load(force: Boolean) = viewModelScope.launch {
         val feed = _state.value.feed
         _state.update { it.copy(loading = true, failed = false) }
@@ -170,7 +236,7 @@ class NewsViewModel @Inject constructor(private val repo: NewsRepository) : View
     }
 }
 
-/** Market headlines from Moneycontrol. A tap opens the story in the browser, outside Artha. */
+/** Market headlines from public Indian business feeds, newest first. A tap opens the story in the browser, outside DhanKosh. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewsRoute(onBack: () -> Unit, vm: NewsViewModel = hiltViewModel()) {
@@ -186,19 +252,26 @@ fun NewsRoute(onBack: () -> Unit, vm: NewsViewModel = hiltViewModel()) {
                 colors = com.hisaab.app.ui.theme.clearTopBar(),
                 title = {
                     Column {
-                        Text("Market news")
-                        Text("Moneycontrol", fontSize = 12.sp, color = Hx.text2)
+                        Text(t("Market news"))
+                        Text(SOURCES, fontSize = 12.sp, color = Hx.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
             )
         },
     ) { inner ->
         Column(Modifier.padding(top = inner.calculateTopPadding()).fillMaxSize()) {
             Segmented(
-                NewsFeed.entries.map { it.label }, NewsFeed.entries.indexOf(s.feed), { vm.select(NewsFeed.entries[it]) },
-                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                NewsFeed.entries.map { t(it.label) }, NewsFeed.entries.indexOf(s.feed), { vm.select(NewsFeed.entries[it]) },
+                Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
             )
+            Segmented(
+                NewsRange.entries.map { t(it.label) }, NewsRange.entries.indexOf(s.range), { vm.range(NewsRange.entries[it]) },
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp).width(240.dp),
+            )
+            val inRange = s.within(s.range)
+            val fallback = inRange.isEmpty() && s.range == NewsRange.TODAY
+            val shown = if (fallback) s.within(NewsRange.WEEK) else inRange
             PullToRefreshBox(isRefreshing = s.loading && s.items.isNotEmpty(), onRefresh = { vm.load(true) }, modifier = Modifier.fillMaxSize()) {
                 AnimatedContent(
                     targetState = when { s.items.isNotEmpty() -> 0; s.failed -> 1; else -> 2 },
@@ -213,20 +286,20 @@ fun NewsRoute(onBack: () -> Unit, vm: NewsViewModel = hiltViewModel()) {
                             ),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            itemsIndexed(s.items, key = { _, h -> h.link }) { i, h -> HeadlineCard(h, lead = i == 0) { open(h) } }
-                            item {
+                            if (fallback || shown.isEmpty()) item(key = "note") {
                                 Text(
-                                    "Headlines from Moneycontrol's public feed. Stories open in your browser.",
-                                    fontSize = 11.sp, color = Hx.text2, modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    if (fallback) t("No stories today") else t("No stories in this period"),
+                                    fontSize = 12.sp, color = Hx.text2, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 )
                             }
+                            itemsIndexed(shown, key = { _, h -> h.link }) { i, h -> HeadlineCard(h, lead = i == 0 && !fallback) { open(h) } }
                         }
                         1 -> Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                             Icon(Icons.Filled.CloudOff, null, tint = Hx.text2, modifier = Modifier.size(40.dp))
                             Spacer(Modifier.height(12.dp))
-                            Text("Couldn't load headlines", style = MaterialTheme.typography.titleMedium)
-                            Text("Check your connection and try again.", color = Hx.text2, fontSize = 13.sp)
-                            TextButton(onClick = { vm.load(true) }) { Text("Try again") }
+                            Text(t("Couldn't load headlines"), style = MaterialTheme.typography.titleMedium)
+                            Text(t("Check your connection and try again."), color = Hx.text2, fontSize = 13.sp)
+                            TextButton(onClick = { vm.load(true) }) { Text(t("Try again")) }
                         }
                         else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(6) { SkeletonCard() }
@@ -238,7 +311,9 @@ fun NewsRoute(onBack: () -> Unit, vm: NewsViewModel = hiltViewModel()) {
     }
 }
 
-/** One headline: an accent rule, the title, and how long ago it was published. The first one is set larger. */
+private val SOURCES = NewsFeed.entries.flatMap { f -> f.sources.map { it.source } }.distinct().joinToString(" · ")
+
+/** One headline: an accent rule, the title, its source, and how long ago it was published. The first one is set larger. */
 @Composable
 private fun HeadlineCard(h: Headline, lead: Boolean, onClick: () -> Unit) {
     HCard(onClick = onClick, padding = 14.dp) {
@@ -251,8 +326,8 @@ private fun HeadlineCard(h: Headline, lead: Boolean, onClick: () -> Unit) {
                     maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = if (lead) 23.sp else 20.sp,
                 )
                 Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(listOfNotNull("Moneycontrol", h.published?.let(::ago)).joinToString(" · "), fontSize = 12.sp, color = Hx.text2, modifier = Modifier.weight(1f))
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, "Open in browser", tint = Hx.text2, modifier = Modifier.size(14.dp))
+                    Text(listOfNotNull(h.source, h.published?.let(::ago)).joinToString(" · "), fontSize = 12.sp, color = Hx.text2, modifier = Modifier.weight(1f))
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, t("Open in browser"), tint = Hx.text2, modifier = Modifier.size(14.dp))
                 }
             }
         }
@@ -271,11 +346,11 @@ private fun SkeletonCard() {
 }
 
 private fun ago(t: ZonedDateTime): String {
-    val d = Duration.between(t.toInstant(), java.time.Instant.now())
+    val d = Duration.between(t.toInstant(), Instant.now())
     return when {
-        d.toMinutes() < 1 -> "just now"
-        d.toMinutes() < 60 -> "${d.toMinutes()}m ago"
-        d.toHours() < 24 -> "${d.toHours()}h ago"
-        else -> "${d.toDays()}d ago"
+        d.toMinutes() < 1 -> t("just now")
+        d.toMinutes() < 60 -> t("{n}m ago", "n" to d.toMinutes())
+        d.toHours() < 24 -> t("{n}h ago", "n" to d.toHours())
+        else -> t("{n}d ago", "n" to d.toDays())
     }
 }

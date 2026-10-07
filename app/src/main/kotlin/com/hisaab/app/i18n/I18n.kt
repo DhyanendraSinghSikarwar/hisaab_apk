@@ -22,7 +22,7 @@ import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Languages Artha can show. English is built in; the others are downloaded when the user picks them. */
+/** Languages DhanKosh can show. English is built in; the others are downloaded when the user picks them. */
 enum class Language(val code: String, val english: String, val native: String) {
     ENGLISH("en", "English", "English"),
     HINDI("hi", "Hindi", "हिन्दी"),

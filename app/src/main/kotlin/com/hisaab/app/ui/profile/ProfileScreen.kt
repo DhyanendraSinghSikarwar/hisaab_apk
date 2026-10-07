@@ -74,6 +74,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.settings.Profile
 import com.hisaab.app.ui.components.HCard
@@ -226,8 +227,8 @@ fun ProfileRoute(
 
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
-            colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Profile") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(t("Profile")) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
         )
     }) { inner ->
         Column(
@@ -237,25 +238,25 @@ fun ProfileRoute(
             ProfileHeader(
                 name = name, photoPath = p.photoPath,
                 subtitle = listOfNotNull(
-                    "$count transactions",
-                    vm.since.value?.let { "tracking since ${Periods.month(java.time.YearMonth.from(Periods.localDate(it)))}" },
+                    t("{n} transactions", "n" to count),
+                    vm.since.value?.let { t("tracking since {month}", "month" to Periods.month(java.time.YearMonth.from(Periods.localDate(it)))) },
                 ).joinToString(" · "),
                 onPickPhoto = launchPick, onRemovePhoto = vm::removePhoto,
             )
 
-            HCard(title = "Personal") {
+            HCard(title = t("Personal")) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Field(name, { name = it }, "Full name (as per bank)", Icons.Filled.Person,
+                    Field(name, { name = it }, t("Full name (as per bank)"), Icons.Filled.Person,
                         KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
-                        error = if (name.isBlank() && changed) "Your name is needed to save" else null)
-                    Field(email, { email = it }, "Email (optional)", Icons.Filled.Email, KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next))
-                    Field(phone, { phone = it }, "Mobile (as per bank)", Icons.Filled.Phone, KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next))
-                    Field(occupation, { occupation = it }, "Occupation (optional)", Icons.Filled.Work,
+                        error = if (name.isBlank() && changed) t("Your name is needed to save") else null)
+                    Field(email, { email = it }, t("Email (optional)"), Icons.Filled.Email, KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next))
+                    Field(phone, { phone = it }, t("Mobile (as per bank)"), Icons.Filled.Phone, KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next))
+                    Field(occupation, { occupation = it }, t("Occupation (optional)"), Icons.Filled.Work,
                         KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next))
                 }
             }
 
-            HCard(title = "For locked statements") {
+            HCard(title = t("For locked statements")) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     AlternateFields(altName, { altName = it }, altPhone, { altPhone = it })
                     StatementDetailsFields(dob, { dob = it }, pan, { pan = it })
@@ -270,7 +271,7 @@ fun ProfileRoute(
             ) {
                 Icon(Icons.Filled.Check, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.size(8.dp))
-                Text(if (changed) "Save profile" else "Saved", style = MaterialTheme.typography.titleSmall)
+                Text(if (changed) t("Save profile") else t("Saved"), style = MaterialTheme.typography.titleSmall)
             }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp),
@@ -279,7 +280,7 @@ fun ProfileRoute(
                 Icon(Icons.Filled.Lock, null, tint = Hx.text2, modifier = Modifier.size(13.dp))
                 Spacer(Modifier.size(6.dp))
                 Text(
-                    "Stays on this phone. Artha has no server and never uploads it.",
+                    t("Stays on this phone. DhanKosh has no server and never uploads it."),
                     style = MaterialTheme.typography.labelSmall, color = Hx.text2, textAlign = TextAlign.Center,
                 )
             }
@@ -318,23 +319,23 @@ fun ProfileSetupSheet(onDone: () -> Unit, vm: ProfileViewModel = hiltViewModel()
             Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Create your profile", style = MaterialTheme.typography.headlineSmall)
+            Text(t("Create your profile"), style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Add your name so Artha feels like yours. It stays on this phone.",
+                t("Add your name so DhanKosh feels like yours. It stays on this phone."),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
             )
-            ProfileAvatar(name.ifBlank { "You" }, profile?.photoPath, 88.dp,
+            ProfileAvatar(name.ifBlank { t("You") }, profile?.photoPath, 88.dp,
                 Modifier.clickable { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
             TextButton(onClick = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                Text(if (profile?.photoPath == null) "Add a photo" else "Change photo")
+                Text(if (profile?.photoPath == null) t("Add a photo") else t("Change photo"))
             }
-            Field(name, { name = it }, "Full name (as per bank)", Icons.Filled.Person, KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
-            Field(email, { email = it }, "Email (optional)", Icons.Filled.Email, KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done))
+            Field(name, { name = it }, t("Full name (as per bank)"), Icons.Filled.Person, KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
+            Field(email, { email = it }, t("Email (optional)"), Icons.Filled.Email, KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done))
             // Keeps any mobile and occupation already saved; the full profile edits those.
             Button(onClick = { vm.save(name, email, profile?.phone.orEmpty(), profile?.occupation.orEmpty(), then = onDone) }, enabled = name.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                Text("Continue")
+                Text(t("Continue"))
             }
-            TextButton(onClick = { vm.dismissPrompt(); onDone() }) { Text("Later") }
+            TextButton(onClick = { vm.dismissPrompt(); onDone() }) { Text(t("Later")) }
         }
     }
 }

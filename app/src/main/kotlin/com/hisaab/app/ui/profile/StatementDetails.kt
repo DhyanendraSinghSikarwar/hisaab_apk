@@ -37,6 +37,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -57,14 +58,14 @@ fun AlternateFields(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(
-            altName, onAltName, Modifier.fillMaxWidth(), label = { Text("Alternate name (optional)") },
+            altName, onAltName, Modifier.fillMaxWidth(), label = { Text(t("Alternate name (optional)")) },
             leadingIcon = { Icon(Icons.Filled.PersonOutline, null) }, singleLine = true, shape = MaterialTheme.shapes.medium,
-            supportingText = { Text("Name on another bank or card, or a spelling variant") },
+            supportingText = { Text(t("Name on another bank or card, or a spelling variant")) },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
         )
         OutlinedTextField(
             altPhone, { v -> onAltPhone(if (phonePrefix != null) v.filter(Char::isDigit).take(10) else v) }, Modifier.fillMaxWidth(),
-            label = { Text("Alternate mobile (optional)") }, leadingIcon = { Icon(Icons.Filled.PhoneAndroid, null) },
+            label = { Text(t("Alternate mobile (optional)")) }, leadingIcon = { Icon(Icons.Filled.PhoneAndroid, null) },
             prefix = if (phonePrefix != null) ({ Text(phonePrefix) }) else null, singleLine = true, shape = MaterialTheme.shapes.medium,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
         )
@@ -82,21 +83,21 @@ fun StatementDetailsFields(dob: LocalDate?, onDob: (LocalDate?) -> Unit, pan: St
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(
             dob?.format(DateTimeFormatter.ofPattern("d MMM yyyy")).orEmpty(), {}, Modifier.fillMaxWidth(), readOnly = true,
-            label = { Text("Date of birth") }, leadingIcon = { Icon(Icons.Filled.Cake, null) }, singleLine = true,
+            label = { Text(t("Date of birth")) }, leadingIcon = { Icon(Icons.Filled.Cake, null) }, singleLine = true,
             shape = MaterialTheme.shapes.medium, interactionSource = press,
         )
         OutlinedTextField(
             pan, { onPan(it.uppercase().filter(Char::isLetterOrDigit).take(10)) }, Modifier.fillMaxWidth(),
-            label = { Text("PAN") }, leadingIcon = { Icon(Icons.Filled.Badge, null) }, singleLine = true,
+            label = { Text(t("PAN")) }, leadingIcon = { Icon(Icons.Filled.Badge, null) }, singleLine = true,
             isError = !validPan(pan), shape = MaterialTheme.shapes.medium,
-            supportingText = if (!validPan(pan)) ({ Text("Like ABCDE1234F") }) else null,
+            supportingText = if (!validPan(pan)) ({ Text(t("Like ABCDE1234F")) }) else null,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Done),
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
             Spacer(Modifier.size(8.dp))
             Text(
-                "Banks lock statements with these. Artha tries them to open your PDFs. Encrypted on this phone.",
+                t("Banks lock statements with these. DhanKosh tries them to open your PDFs. Encrypted on this phone."),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -111,9 +112,9 @@ fun StatementDetailsFields(dob: LocalDate?, onDob: (LocalDate?) -> Unit, pan: St
                 TextButton(onClick = {
                     onDob(state.selectedDateMillis?.let { Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() })
                     picking = false
-                }) { Text("Done") }
+                }) { Text(t("Done")) }
             },
-            dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text(t("Cancel")) } },
         ) { DatePicker(state, Modifier.padding(top = 8.dp), showModeToggle = true) }
     }
 }

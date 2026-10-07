@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +18,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.WorthPoint
 import com.hisaab.app.ui.charts.ChartSlice
 import com.hisaab.app.ui.charts.DonutChart
@@ -55,7 +62,6 @@ import com.hisaab.app.ui.components.CollapsibleCard
 import com.hisaab.app.ui.components.HeroCard
 import com.hisaab.app.ui.components.HRow
 import com.hisaab.app.ui.components.KpiRow
-import com.hisaab.app.ui.components.LegendDot
 import com.hisaab.app.ui.components.LegendItem
 import com.hisaab.app.ui.components.Pill
 import com.hisaab.app.ui.components.Segmented
@@ -84,6 +90,14 @@ val AssetClass.color: Color
             AssetClass.GOLD -> 5; AssetClass.CASH -> 6; AssetClass.OTHER -> 7
         },
     ]
+
+/** "PRAN ••1234 · Tier I" for an NPS holding read from a CRA SMS, email or statement; null for anything else. */
+internal fun npsLabel(h: HoldingEntity): String? {
+    if (h.kind != com.hisaab.parser.model.HoldingKind.NPS || !h.identifier.startsWith("NPS:")) return null
+    val parts = h.identifier.split(':')
+    val last4 = parts.getOrNull(1)?.takeIf { it.length == 4 } ?: return null
+    return t("PRAN ••{last4} · {tier}", "last4" to last4, "tier" to t(if (parts.getOrNull(2) == "T2") "Tier II" else "Tier I"))
+}
 
 /** A row in the holdings section: a holding (editable) or an account that counts towards a class. */
 internal data class PortfolioLine(
@@ -120,7 +134,7 @@ internal class PortfolioModel(
             val holdingLines = nw.holdings.sortedByDescending { it.valueMinor ?: 0 }.map { h ->
                 PortfolioLine(
                     key = "h-${h.id}", title = h.name,
-                    subtitle = h.units?.let { "${"%,.3f".format(it)} units · ${h.kind.label}" } ?: h.kind.label,
+                    subtitle = npsLabel(h) ?: h.units?.let { t("{units} units · {kind}", "units" to "%,.3f".format(it), "kind" to t(h.kind.label)) } ?: t(h.kind.label),
                     valueMinor = h.valueMinor, investedMinor = h.investedMinor, previousMinor = h.previousValueMinor,
                     cls = AssetClass.of(h.kind), icon = h.kind.icon, holding = h,
                 )
@@ -135,7 +149,7 @@ internal class PortfolioModel(
                     else -> return@mapNotNull null
                 }
                 PortfolioLine(
-                    key = "a-${a.id}", title = a.displayName, subtitle = listOfNotNull(type?.label ?: "Bank account", a.last4.takeIf { it.isNotBlank() }?.let { "••$it" }).joinToString(" · "),
+                    key = "a-${a.id}", title = a.displayName, subtitle = listOfNotNull(type?.label?.let { t(it) } ?: t("Bank account"), a.last4.takeIf { it.isNotBlank() }?.let { "••$it" }).joinToString(" · "),
                     valueMinor = bal, investedMinor = null, previousMinor = null, cls = cls,
                     icon = when (cls) { AssetClass.DEBT -> Icons.Filled.Lock; AssetClass.RETIREMENT -> Icons.Filled.Savings; else -> Icons.Filled.AccountBalance },
                     accountTab = if (cls == AssetClass.CASH) 0 else 2,
@@ -152,7 +166,7 @@ internal class PortfolioModel(
                 investedMinor = invested,
                 gainMinor = withCost.sumOf { it.valueMinor!! } - invested,
                 classes = classes,
-                slices = classes.map { ChartSlice(it.label, nw.byClass[it] ?: 0, it.color) },
+                slices = classes.map { ChartSlice(t(it.label), nw.byClass[it] ?: 0, it.color) },
             )
         }
     }
@@ -171,18 +185,18 @@ private val shortDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM
 @Composable
 internal fun ValueCard(m: PortfolioModel, modifier: Modifier = Modifier) {
     HeroCard(modifier) {
-        Text("PORTFOLIO VALUE", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.7.sp, color = Color.White.copy(alpha = 0.8f))
+        Text(t("PORTFOLIO VALUE"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.7.sp, color = Color.White.copy(alpha = 0.8f))
         com.hisaab.app.ui.components.AnimatedAmount(
             m.valueMinor, Modifier.padding(top = 4.dp), style = androidx.compose.ui.text.TextStyle(fontSize = 32.sp),
             fontWeight = FontWeight.Bold, format = { Money.format(it, showPaise = false) },
         )
         Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (m.investedMinor > 0) {
-                Delta("${if (m.gainMinor >= 0) "▲" else "▼"} ${Money.compact(abs(m.gainMinor))} overall", good = m.gainMinor >= 0)
+                Delta(t("{arrow} {amount} overall", "arrow" to if (m.gainMinor >= 0) "▲" else "▼", "amount" to Money.compact(abs(m.gainMinor))), good = m.gainMinor >= 0)
                 Spacer(Modifier.width(8.dp))
             }
             Text(
-                if (m.depositsMinor > 0) "Holdings ${Money.compact(m.holdingsValueMinor)} · Deposits ${Money.compact(m.depositsMinor)}" else "Across your holdings",
+                if (m.depositsMinor > 0) t("Holdings {holdings} · Deposits {deposits}", "holdings" to Money.compact(m.holdingsValueMinor), "deposits" to Money.compact(m.depositsMinor)) else t("Across your holdings"),
                 fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f), maxLines = 1,
             )
         }
@@ -190,9 +204,9 @@ internal fun ValueCard(m: PortfolioModel, modifier: Modifier = Modifier) {
         val gainColor = if (m.gainMinor >= 0) Color(0xFF9DF2C9) else Color(0xFFFFB3AB)
         Row(Modifier.fillMaxWidth()) {
             listOf(
-                Triple("Invested", if (m.investedMinor > 0) Money.format(m.investedMinor, showPaise = false) else "—", Color.White),
-                Triple("Gain", if (m.investedMinor > 0) signed(m.gainMinor) else "—", if (m.investedMinor > 0) gainColor else Color.White),
-                Triple("Return", m.returnPct?.let { pct(it) } ?: "—", if (m.investedMinor > 0) gainColor else Color.White),
+                Triple(t("Invested"), if (m.investedMinor > 0) Money.format(m.investedMinor, showPaise = false) else "—", Color.White),
+                Triple(t("Gain"), if (m.investedMinor > 0) signed(m.gainMinor) else "—", if (m.investedMinor > 0) gainColor else Color.White),
+                Triple(t("Return"), m.returnPct?.let { pct(it) } ?: "—", if (m.investedMinor > 0) gainColor else Color.White),
             ).forEach { (l, v, c) ->
                 Column(Modifier.weight(1f)) {
                     Text(l, fontSize = 11.sp, color = Color.White.copy(alpha = 0.75f))
@@ -201,7 +215,7 @@ internal fun ValueCard(m: PortfolioModel, modifier: Modifier = Modifier) {
             }
         }
         if (m.investedMinor > 0 && (m.depositsMinor > 0 || m.lines.any { it.holding != null && it.investedMinor == null })) {
-            Text("Gain and return cover holdings with a purchase cost.", fontSize = 11.sp, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(top = 10.dp))
+            Text(t("Gain and return cover holdings with a purchase cost."), fontSize = 11.sp, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(top = 10.dp))
         }
     }
 }
@@ -209,18 +223,27 @@ internal fun ValueCard(m: PortfolioModel, modifier: Modifier = Modifier) {
 // ---- 2. Asset allocation ----
 
 @Composable
-internal fun AllocationCard(m: PortfolioModel, filter: AssetClass?, onFilter: (AssetClass?) -> Unit, modifier: Modifier = Modifier) {
+internal fun AllocationCard(
+    m: PortfolioModel,
+    filter: AssetClass?,
+    onFilter: (AssetClass?) -> Unit,
+    modifier: Modifier = Modifier,
+    animate: Boolean = true,
+    onAnimated: () -> Unit = {},
+) {
     val total = m.slices.sumOf { it.value }.coerceAtLeast(1)
-    HCard(modifier, title = "Asset allocation") {
+    if (animate && m.slices.isNotEmpty()) LaunchedEffect(Unit) { onAnimated() }
+    HCard(modifier, title = t("Asset allocation")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             DonutChart(
                 slices = m.slices,
                 selected = filter?.let { m.classes.indexOf(it) }?.takeIf { it >= 0 },
                 onSelect = { i -> onFilter(i?.let { m.classes.getOrNull(it) }) },
-                centerLabel = if (m.classes.size == 1) "1 class" else "${m.classes.size} classes",
+                centerLabel = if (m.classes.size == 1) t("1 class") else t("{n} classes", "n" to m.classes.size),
                 centerValue = { Money.compact(it) },
                 modifier = Modifier.size(140.dp),
                 thickness = 18.dp,
+                animate = animate,
             )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -228,14 +251,14 @@ internal fun AllocationCard(m: PortfolioModel, filter: AssetClass?, onFilter: (A
                     val v = m.slices[i].value
                     val p = v * 100.0 / total
                     LegendItem(
-                        c.color, c.label, if (p < 1.0 && v > 0) "<1%" else "%.0f%%".format(p),
+                        c.color, t(c.label), if (p < 1.0 && v > 0) "<1%" else "%.0f%%".format(p),
                         selected = filter == c, onClick = { onFilter(if (filter == c) null else c) },
                     )
                 }
             }
         }
         Text(
-            filter?.let { "Showing ${it.label} in holdings · tap again to clear" } ?: "Tap a slice to filter holdings",
+            filter?.let { t("Showing {class} in holdings · tap again to clear", "class" to t(it.label)) } ?: t("Tap a slice to filter holdings"),
             fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 8.dp),
         )
     }
@@ -261,20 +284,20 @@ internal fun NetWorthCard(nw: NetWorth, range: Int, onRange: (Int) -> Unit, modi
     val days = RANGES.getOrNull(range)?.second
     val points: List<WorthPoint> = remember(nw.history, days) { rangePoints(nw.history, days) }
     val change = if (points.size >= 2) points.last().netMinor - points.first().netMinor else null
-    HCard(modifier, title = "Net worth" + if (nw.book != Book.ALL) " · ${nw.book.label}" else "") {
+    HCard(modifier, title = t("Net worth") + if (nw.book != Book.ALL) " · ${t(nw.book.label)}" else "") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(Money.format(nw.netMinor, showPaise = false), fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f, fill = false))
             if (change != null) {
                 Spacer(Modifier.width(8.dp))
-                Delta("${if (change >= 0) "▲" else "▼"} ${Money.compact(abs(change))} · ${RANGES[range].first}", good = change >= 0)
+                Delta("${if (change >= 0) "▲" else "▼"} ${Money.compact(abs(change))} · ${t(RANGES[range].first)}", good = change >= 0)
             }
         }
         Spacer(Modifier.height(12.dp))
-        Segmented(RANGES.map { it.first }, range, onRange)
+        Segmented(RANGES.map { t(it.first) }, range, onRange)
         Spacer(Modifier.height(12.dp))
         when {
-            nw.history.size < 2 -> Note("Your net worth chart builds a point each day you open Artha, and earlier months are estimated from transactions.")
-            points.size < 2 -> Note("Not enough history for this range yet. Try a longer one.")
+            nw.history.size < 2 -> Note(t("Your net worth chart builds a point each day you open DhanKosh, and earlier months are estimated from transactions."))
+            points.size < 2 -> Note(t("Not enough history for this range yet. Try a longer one."))
             else -> {
                 val first = points.first()
                 val last = points.last()
@@ -289,7 +312,7 @@ internal fun NetWorthCard(nw: NetWorth, range: Int, onRange: (Int) -> Unit, modi
                 }
                 nw.estimatedBefore?.takeIf { first.day.isBefore(it) }?.let { until ->
                     Text(
-                        "Estimated from transactions until ${until.format(shortDateFmt)}; recorded after.",
+                        t("Estimated from transactions until {date}; recorded after.", "date" to until.format(shortDateFmt)),
                         fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 2.dp),
                     )
                 }
@@ -299,9 +322,9 @@ internal fun NetWorthCard(nw: NetWorth, range: Int, onRange: (Int) -> Unit, modi
         WorthBreakdown(nw)
         Spacer(Modifier.height(10.dp))
         KpiRow(
-            Triple("Assets", Money.compact(nw.assetsMinor), Hx.pos),
-            Triple("Liabilities", Money.compact(nw.liabilitiesMinor), if (nw.liabilitiesMinor > 0) Hx.neg else null),
-            Triple("Net", Money.compact(nw.netMinor), null),
+            Triple(t("Assets"), Money.compact(nw.assetsMinor), Hx.pos),
+            Triple(t("Liabilities"), Money.compact(nw.liabilitiesMinor), if (nw.liabilitiesMinor > 0) Hx.neg else null),
+            Triple(t("Net"), Money.compact(nw.netMinor), null),
         )
         CardLimits(nw)
     }
@@ -334,8 +357,9 @@ private fun worthSegments(nw: NetWorth, onHero: Boolean): List<Pair<WorthPart, C
 
 /**
  * Assets and liabilities as one bar split by account and asset (each bank account, deposits, each holdings class,
- * then loans and card dues), with a compact two-column legend. Used by Portfolio and the Home hero card.
+ * then loans and card dues), with a pin per segment below it (dot, name, amount). Used by Portfolio and Home.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WorthBreakdown(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean = false) {
     val segs = worthSegments(nw, onHero)
@@ -343,6 +367,7 @@ fun WorthBreakdown(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean 
     val gross = segs.sumOf { it.first.amountMinor }.coerceAtLeast(1)
     val dim = if (onHero) Color.White.copy(alpha = 0.75f) else Hx.text2
     val strong = if (onHero) Color.White else MaterialTheme.colorScheme.onSurface
+    val pinBg = if (onHero) Color.White.copy(alpha = 0.12f) else Hx.surface2
     Column(modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
@@ -353,28 +378,34 @@ fun WorthBreakdown(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean 
                 if (f > 0f) Box(Modifier.weight(f.coerceAtLeast(0.004f)).height(10.dp).background(c))
             }
         }
-        Spacer(Modifier.height(8.dp))
-        segs.chunked(2).forEach { row ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { (p, c) ->
-                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                        LegendDot(c)
-                        Spacer(Modifier.width(6.dp))
-                        Text(p.label, fontSize = 12.sp, color = dim, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            (if (p.liability) "−" else "") + Money.compact(p.amountMinor), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                            color = strong, maxLines = 1,
-                        )
-                    }
+        Spacer(Modifier.height(10.dp))
+        // Pins: one rounded chip per segment, wrapping under the bar.
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            segs.forEach { (p, c) ->
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).background(pinBg)
+                        .border(1.dp, if (onHero) Color.White.copy(alpha = 0.18f) else Hx.border.copy(alpha = 0.7f), RoundedCornerShape(50))
+                        .padding(start = 8.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(c))
+                    Spacer(Modifier.width(6.dp))
+                    Text(t(p.label), fontSize = 12.sp, color = dim, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        (if (p.liability) "−" else "") + Money.compact(p.amountMinor), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        color = strong, maxLines = 1,
+                    )
                 }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
 }
 
-/** Every credit card's available limit (and total limit when a statement gave it). Not part of net worth. */
+/**
+ * Every credit card's available limit (and total limit when a statement gave it), with Billed (the latest statement's
+ * total due) and Unbilled (spends since that statement) when known. Not part of net worth.
+ */
 @Composable
 fun CardLimits(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean = false) {
     if (nw.cards.isEmpty()) return
@@ -392,11 +423,11 @@ fun CardLimits(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean = fa
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Credit cards · ${nw.cards.size}", Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                t("Credit cards · {n}", "n" to nw.cards.size), Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.4.sp, color = dim,
             )
             Icon(
-                Icons.Filled.KeyboardArrowDown, if (open) "Collapse" else "Expand", tint = dim,
+                Icons.Filled.KeyboardArrowDown, if (open) t("Collapse") else t("Expand"), tint = dim,
                 modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = turn },
             )
         }
@@ -411,11 +442,18 @@ fun CardLimits(nw: NetWorth, modifier: Modifier = Modifier, onHero: Boolean = fa
                 Spacer(Modifier.width(8.dp))
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        c.availableMinor?.let { Money.format(it, showPaise = false) } ?: "Limit unknown",
+                        c.availableMinor?.let { Money.format(it, showPaise = false) } ?: t("Limit unknown"),
                         fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = strong, maxLines = 1,
                     )
-                    c.limitMinor?.let { lim -> Text("of ${Money.format(lim, showPaise = false)}", fontSize = 11.sp, color = dim, maxLines = 1) }
+                    c.limitMinor?.let { lim -> Text(t("of {amount}", "amount" to Money.format(lim, showPaise = false)), fontSize = 11.sp, color = dim, maxLines = 1) }
                 }
+            }
+            val dues = listOfNotNull(
+                c.billedMinor?.let { t("Billed {amount}", "amount" to Money.format(it, showPaise = false)) },
+                c.unbilledMinor?.let { t("Unbilled {amount}", "amount" to Money.format(it, showPaise = false)) },
+            )
+            if (dues.isNotEmpty()) {
+                Text(dues.joinToString("  ·  "), fontSize = 11.sp, color = dim, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 3.dp))
             }
             val avail = c.availableMinor
             val lim = c.limitMinor
@@ -453,20 +491,20 @@ internal fun LazyListScope.holdingsSection(
     item(key = "holdings-filter") {
         AnimatedVisibility(filter != null, Modifier.animateItem(), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Pill("Showing ${filter?.label.orEmpty()}", on = true, leading = Icons.Filled.Close, onClick = onClearFilter)
+                Pill(t("Showing {class}", "class" to filter?.label?.let { t(it) }.orEmpty()), on = true, leading = Icons.Filled.Close, onClick = onClearFilter)
             }
         }
     }
     if (shown.isEmpty() && filter != null) {
         item(key = "holdings-none") {
-            HCard(Modifier.animateItem(), title = filter.label) { Note("Nothing here is held as individual holdings.") }
+            HCard(Modifier.animateItem(), title = t(filter.label)) { Note(t("Nothing here is held as individual holdings.")) }
         }
     }
     shown.forEach { cls ->
         val lines = groups[cls].orEmpty()
         item(key = "group-${cls.name}") {
             CollapsibleCard(
-                "${cls.label} · ${lines.size}", Modifier.animateItem(),
+                "${t(cls.label)} · ${lines.size}", Modifier.animateItem(),
                 trailing = Money.format(lines.sumOf { it.valueMinor ?: 0 }, showPaise = false),
                 initiallyExpanded = false,
             ) {
@@ -487,7 +525,9 @@ private fun LineRow(line: PortfolioLine, onClick: () -> Unit) {
     val tone = if ((gain ?: 0) >= 0) Hx.pos else Hx.neg
     HRow(
         title = line.title, onClick = onClick,
-        subtitle = if (line.holding != null && line.investedMinor != null) "Invested ${Money.format(line.investedMinor, showPaise = false)}" else line.subtitle,
+        subtitle = if (line.holding != null && line.investedMinor != null) {
+            listOfNotNull(npsLabel(line.holding), t("Invested {amount}", "amount" to Money.format(line.investedMinor, showPaise = false))).joinToString(" · ")
+        } else line.subtitle,
         leading = {
             Box(
                 Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(line.cls.color.copy(alpha = 0.14f)),
@@ -518,11 +558,11 @@ internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Uni
     Column(modifier) {
     if (loans.isNotEmpty()) {
         // Liabilities: each loan opens its tracker.
-        HCard(Modifier.padding(bottom = CardGap), title = "Loans · ${loans.size}") {
+        HCard(Modifier.padding(bottom = CardGap), title = t("Loans · {n}", "n" to loans.size)) {
             loans.forEachIndexed { i, a ->
                 if (i > 0) HorizontalDivider(color = Hx.border.copy(alpha = 0.6f))
                 HRow(
-                    title = a.displayName, subtitle = listOfNotNull("Loan", a.last4.takeIf { it.isNotBlank() }?.let { "••$it" }).joinToString(" · "),
+                    title = a.displayName, subtitle = listOfNotNull(t("Loan"), a.last4.takeIf { it.isNotBlank() }?.let { "••$it" }).joinToString(" · "),
                     leading = { com.hisaab.app.ui.components.AccountAvatar(a.bankName, a.kind, a.accountType, size = 36.dp) },
                     onClick = { onOpenLoan(a.id) },
                 ) {
@@ -538,9 +578,9 @@ internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Uni
             .mapNotNull { a -> a.maturityDay?.let { LocalDate.ofEpochDay(it) }?.takeIf { !it.isBefore(today) && !it.isAfter(end) }?.let { a to it } }
             .sortedBy { it.second }
     }
-    CollapsibleCard("Maturity calendar · 12 months", Modifier, trailing = if (due.isEmpty()) null else "${due.size}", initiallyExpanded = false) {
+    CollapsibleCard(t("Maturity calendar · 12 months"), Modifier, trailing = if (due.isEmpty()) null else "${due.size}", initiallyExpanded = false) {
         if (due.isEmpty()) {
-            Note("No deposits mature in the next 12 months.")
+            Note(t("No deposits mature in the next 12 months."))
             return@CollapsibleCard
         }
         due.forEachIndexed { i, (a, date) ->
@@ -550,13 +590,13 @@ internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Uni
             val soon = days <= 30
             HRow(
                 title = a.displayName,
-                subtitle = listOfNotNull(date.format(dateFmt), a.maturityAction?.label ?: a.accountType?.label).joinToString(" · "),
+                subtitle = listOfNotNull(date.format(dateFmt), (a.maturityAction?.label ?: a.accountType?.label)?.let { t(it) }).joinToString(" · "),
                 onClick = onOpen,
             ) {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(a.currentBalanceMinor?.let { Money.format(it, showPaise = false) } ?: "—", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        when { days == 0L -> "Today"; days < 31 -> "in $days days"; months == 1L -> "in 1 month"; else -> "in ${months.coerceAtLeast(2)} months" },
+                        when { days == 0L -> t("Today"); days < 31 -> t("in {n} days", "n" to days); months == 1L -> t("in 1 month"); else -> t("in {n} months", "n" to months.coerceAtLeast(2)) },
                         fontSize = 12.sp, color = if (soon) Hx.warn else Hx.text2,
                     )
                 }
@@ -564,8 +604,8 @@ internal fun MaturityCard(accounts: List<AccountWithActivity>, onOpen: () -> Uni
             SplitBar(listOf((months.coerceIn(0, 12) / 12f).coerceAtLeast(0.02f) to if (soon) Hx.warn else Hx.accent), Modifier.padding(bottom = 10.dp), height = 5.dp)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Bar shows months remaining out of 12.", Modifier.weight(1f), fontSize = 11.sp, color = Hx.text2, style = MaterialTheme.typography.bodySmall)
-            Pill("Deposits ›", onClick = onOpen)
+            Text(t("Bar shows months remaining out of 12."), Modifier.weight(1f), fontSize = 11.sp, color = Hx.text2, style = MaterialTheme.typography.bodySmall)
+            Pill(t("Deposits ›"), onClick = onOpen)
         }
     }
     }

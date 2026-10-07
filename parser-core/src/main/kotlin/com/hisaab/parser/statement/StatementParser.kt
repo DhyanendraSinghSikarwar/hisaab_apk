@@ -1,6 +1,9 @@
 package com.hisaab.parser.statement
 
 import com.hisaab.parser.ParserConfig
+import com.hisaab.parser.bank.DepositKind
+import com.hisaab.parser.bank.DepositParser
+import com.hisaab.parser.bank.LoanStatus
 import com.hisaab.parser.extract.AccountExtractor
 import com.hisaab.parser.extract.ChannelDetector
 import com.hisaab.parser.extract.Money
@@ -13,6 +16,7 @@ import com.hisaab.parser.model.HoldingSnapshot
 import com.hisaab.parser.model.ParsedTransaction
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.model.TransactionType
+import com.hisaab.parser.text.TextNormalizer
 import com.hisaab.parser.text.rx
 import java.time.LocalDate
 import java.time.LocalTime
@@ -31,6 +35,8 @@ data class StatementResult(
     val lines: List<String> = emptyList(),
     val statementKind: StatementKind = StatementKind.OTHER,
     val summary: StatementSummary = StatementSummary(),
+    /** FD, RD or PPF accounts the statement or advice describes (see [LoanStatus.deposit]); their rows are not transactions. */
+    val deposits: List<LoanStatus> = emptyList(),
 )
 
 enum class StatementKind(val label: String) { CREDIT_CARD("Credit card"), BANK("Bank account"), INVESTMENT("Investments"), OTHER("Other") }
@@ -67,8 +73,9 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         val isCard = CARD_STATEMENT.containsMatchIn(header)
         val last4 = MASKED_NUMBER.find(header)?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() } ?: AccountExtractor.extract(header)?.last4
         val bank = BANKS.firstOrNull { it.first.containsMatchIn(header) }?.second ?: sender.substringBefore('<').trim().ifEmpty { "Statement" }
+        depositKind(header)?.let { return deposit(lines, header, it, bank, last4, sender, receivedAt) }
         val holdings = holdings(lines, receivedAt)
-        val rows = if (holdings.isNotEmpty()) emptyList() else rows(lines, bank, last4, isCard, sender, receivedAt)
+        val rows = if (holdings.isNotEmpty() || EpfPassbook.isEpf(lines)) emptyList() else rows(lines, bank, last4, isCard, sender, receivedAt)
         val kind = when {
             holdings.isNotEmpty() || INVESTMENT_STATEMENT.containsMatchIn(header) || INVESTMENT_SENDER.containsMatchIn(sender) -> StatementKind.INVESTMENT
             isCard -> StatementKind.CREDIT_CARD
@@ -123,6 +130,41 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
             total, min, due, limit, stmt,
             openingMinor = found["opening"], closingMinor = found["closing"], debitsMinor = found["debits"],
             creditsMinor = found["credits"], availableMinor = found["available"],
+        )
+    }
+
+    // Deposits: a PPF or RD account statement, or an FD advice/receipt.
+
+    private fun depositKind(header: String): DepositKind? {
+        if (CARD_STATEMENT.containsMatchIn(header) || SAVINGS_STATEMENT.containsMatchIn(header)) return null
+        return when {
+            PPF_STATEMENT.containsMatchIn(header) -> DepositKind.PPF
+            RD_STATEMENT.containsMatchIn(header) -> DepositKind.RD
+            FD_ADVICE.containsMatchIn(header) -> DepositKind.FD
+            else -> null
+        }
+    }
+
+    /**
+     * The deposit's balance (the summary's closing balance, else the last running balance, else an FD's principal), its
+     * maturity and what happens then. Deposits into a PPF or RD came from a savings account, which has its own record
+     * of them, so the rows are not returned as transactions.
+     */
+    private fun deposit(lines: List<String>, header: String, kind: DepositKind, bank: String, last4: String?, sender: String, receivedAt: Long): StatementResult {
+        val sum = summary(lines)
+        val top = lines.take(SUMMARY_LINES).joinToString("\n")
+        val number = DepositParser.numbered(TextNormalizer.normalize(header))?.second ?: last4
+        val rows = rows(lines, bank, number, false, sender, receivedAt)
+        val at = sum.statementDate?.atTime(NOON)?.atZone(config.zone)?.toInstant()?.toEpochMilli() ?: asOfDate(lines, receivedAt)
+        val stated = DepositParser.status(top, bank, at)
+        val info = DepositParser.info(TextNormalizer.normalize(top), kind)
+        val balance = sum.closingMinor ?: rows.lastOrNull { it.first.balanceMinor != null }?.first?.balanceMinor
+            ?: DEPOSIT_AMOUNT.find(top)?.let { Money.parse(it.groupValues[1])?.minor }
+            ?: stated?.outstandingMinor
+        val principal = DEPOSIT_AMOUNT.find(top)?.let { Money.parse(it.groupValues[1])?.minor } ?: stated?.principalMinor
+        val deposits = if (number == null) emptyList() else listOf(LoanStatus(stated?.lender ?: bank, number, principal, balance, at, info))
+        return StatementResult(
+            bank, number, AccountKind.ACCOUNT, emptyList(), emptyList(), statementKind = StatementKind.INVESTMENT, summary = sum, deposits = deposits,
         )
     }
 
@@ -189,6 +231,9 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
 
     private fun holdings(lines: List<String>, receivedAt: Long): List<HoldingSnapshot> {
         val asOf = asOfDate(lines, receivedAt)
+        // EPFO member passbook: no ISINs, its rows are contributions, not bank transactions.
+        if (EpfPassbook.isEpf(lines)) return EpfPassbook.read(lines, asOf)
+        val usd = usdRate(lines)
         val out = LinkedHashMap<String, HoldingSnapshot>()
         // Rows whose figures were cross-checked (units x price = value); a later checked row beats an earlier unchecked one.
         val checked = HashSet<String>()
@@ -257,10 +302,25 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
             val key = isin.value
             if (key in fromClosing) continue
             if (key in out && (key in checked || !r.consistent)) continue
-            out[key] = HoldingSnapshot(kindOf(key, name), name, key, r.units, r.valueMinor, r.investedMinor, asOf)
+            // A foreign ISIN (a US stock) is priced in dollars: converted at the statement's rate, or left out.
+            val fx = if (key.startsWith("IN")) 1.0 else usd ?: continue
+            out[key] = HoldingSnapshot(
+                if (fx == 1.0) kindOf(key, name) else HoldingKind.STOCK, name, key, r.units,
+                r.valueMinor?.let { Math.round(it * fx) }, r.investedMinor?.let { Math.round(it * fx) }, asOf,
+            )
             if (r.consistent) checked += key
         }
-        return out.values.filter { (it.valueMinor ?: 0) > 0 }
+        val found = out.values.filter { (it.valueMinor ?: 0) > 0 }
+        // NPS Statement of Transaction: per-tier value and contributions, no ISINs.
+        if (NpsStatement.isNps(lines)) return found + NpsStatement.read(lines, asOf)
+        // App statements without ISINs (Groww "Holdings statement"): a table of units, invested and current value.
+        if (found.isEmpty()) return HoldingTable.read(lines, asOf, usd) { ISIN.containsMatchIn(it) }
+        return found
+    }
+
+    /** Rupees per US dollar printed on the statement ("USD/INR: 83.50", "Exchange rate 1 USD = INR 83.50"), or null. */
+    private fun usdRate(lines: List<String>): Double? = lines.firstNotNullOfOrNull { l ->
+        USD_RATE.find(l)?.groupValues?.get(1)?.toDoubleOrNull()?.takeIf { it in 40.0..200.0 }
     }
 
     /** "Holdings as on 31-May-2026" / "Statement for the period ... to 31-05-2026": when the values were true. */
@@ -297,9 +357,21 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
             "debits" to rx("""total\s+(?:debits?|withdrawals?)\b|(?<!no\.\s)(?<!no\s)\bdebits\b|\bwithdrawals\b"""),
             "credits" to rx("""total\s+(?:credits?|deposits?)\b|(?<!no\.\s)(?<!no\s)\bcredits\b|\bdeposits\b"""),
         )
+        val SAVINGS_STATEMENT = rx("""(?:savings|current)\s+(?:bank\s+)?account\s+statement|statement\s+of\s+(?:your\s+)?(?:savings|current)\s+account""")
+        val PPF_STATEMENT = rx("""public\s+provident\s+fund|\bPPF\s+(?:account|a/c|statement|passbook)\b|\bPPF\b.{0,30}\bstatement\b""")
+        val RD_STATEMENT = rx("""recurring\s+deposit|\bRD\s+(?:account|a/c|statement|passbook|advice)\b""")
+        val FD_ADVICE = rx(
+            """(?:fixed|term)\s+deposit\s+(?:advice|receipt|confirmation|certificate|statement|account\s+statement)|deposit\s+(?:advice|receipt|confirmation)""" +
+                """|\bFD\s+(?:advice|receipt|confirmation|certificate)|\bTDR\b|\bFDR\b""",
+        )
+        val DEPOSIT_AMOUNT = rx("""\b(?:deposit|principal)\s+amount\s*(?:\(\s*(?:INR|Rs\.?|₹)\s*\))?\s*[:\-]?\s*(?:INR|Rs\.?|₹)?\s*(\d[\d,]*(?:\.\d{1,2})?)""")
+        val USD_RATE = rx(
+            """(?:USD\s*/\s*INR|USD\s*-\s*INR|\bUSDINR\b|exchange\s+rate|conversion\s+rate|FX\s+rate|1\s*(?:USD|US\$|\$)\s*=)""" +
+                """\s*(?:\(\s*\w+\s*\))?\s*[:=@]?\s*(?:1\s*USD\s*=\s*)?(?:INR|Rs\.?|₹)?\s*(\d{2,3}(?:\.\d{1,4})?)""",
+        )
         val TABLE_HEADER = rx("""\b(?:narration|particulars|description|chq|cheque|value\s+dt|txn\s+date|tran\s+date)\b""")
-        val INVESTMENT_STATEMENT = rx("""consolidated\s+account\s+statement|\bCAS\b|demat|holding\s+statement|portfolio|mutual\s+fund|\bfolio\b|US\s+stocks""")
-        val INVESTMENT_SENDER = rx("""camsonline|kfintech|karvy|nsdl|cdsl|indmoney|zerodha|groww|upstox|angelone|dhan\.co|kuvera""")
+        val INVESTMENT_STATEMENT = rx("""consolidated\s+account\s+statement|\bCAS\b|demat|holding\s+statement|portfolio|mutual\s+fund|\bfolio\b|US\s+stocks|statement\s+of\s+transaction|\bPRAN\b|\bNPS\b""")
+        val INVESTMENT_SENDER = rx("""camsonline|kfintech|karvy|nsdl|cdsl|indmoney|zerodha|groww|upstox|angelone|dhan\.co|kuvera|proteantech|npscra|kfintech-cra|camsnps|npstrust""")
         val BANK_STATEMENT = rx("""account\s+statement|statement\s+of\s+account|savings\s+account|current\s+account""")
         val NOON: LocalTime = LocalTime.NOON
         val CARD_STATEMENT = rx("""\bcredit\s+card\b|\bcard\s+statement\b|\bminimum\s+amount\s+due\b|\btotal\s+amount\s+due\b""")
@@ -320,7 +392,7 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         val CLOSING_UNITS = rx("""closing\s+unit\s+balance\s*:?\s*([\d,]+\.?\d*)""")
         val NAV_ON = rx("""\bNAV\s+on\s+[^:]{4,20}:\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
         val MARKET_VALUE = rx("""(?:market\s+value|valuation)\s+on\s+[^:]{4,20}:\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
-        val COST = rx("""(?:total\s+)?cost\s+value\s*:?\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
+        val COST = rx("""(?:total\s+)?cost\s+value\s*(?:\(\s*(?:INR|Rs\.?|₹)\s*\))?\s*:?\s*(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)""")
         val AS_ON = rx("""\b(?:holdings?|statement|valuation|portfolio|balances?)\b.{0,40}?\bas\s+(?:on|of|at)\s*:?\s*(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{1,2}[\s-][A-Za-z]{3}[a-z]*[\s,-]+\d{4})""")
         val TABLE_WORDS = rx("""\b(?:ISIN|scheme\s+name|folio|security|closing\s+bal|NAV|valuation|market\s+(?:price|value)|units?)\b""")
         val ETF_NAME = rx("""\bETF\b|\bBEES\b""")
@@ -331,7 +403,7 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
             rx("""\bAxis\b""") to "Axis Bank", rx("""\bKotak\b""") to "Kotak Mahindra Bank", rx("""\bIDFC\b""") to "IDFC FIRST Bank",
             rx("""\bYes\s+Bank\b""") to "Yes Bank", rx("""\bIndusInd\b""") to "IndusInd Bank", rx("""\bAmerican\s+Express\b""") to "American Express",
             rx("""\bHSBC\b""") to "HSBC", rx("""\bRBL\b""") to "RBL Bank", rx("""\bAU\s+Small\s+Finance\b""") to "AU Small Finance Bank",
-            rx("""\bFederal\s+Bank\b""") to "Federal Bank", rx("""\bStandard\s+Chartered\b""") to "Standard Chartered",
+            rx("""\bFederal\s+Bank\b""") to "Federal Bank", rx("""\bIndia\s+Post\b|department\s+of\s+posts""") to "India Post", rx("""\bStandard\s+Chartered\b""") to "Standard Chartered",
         )
         private fun fmt(p: String): DateTimeFormatter = DateTimeFormatterBuilder().parseCaseInsensitive().appendPattern(p).toFormatter(Locale.ENGLISH)
         val DATE_FORMATS = listOf(

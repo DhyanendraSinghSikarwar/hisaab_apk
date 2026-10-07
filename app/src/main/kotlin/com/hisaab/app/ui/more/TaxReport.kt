@@ -13,6 +13,7 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.format.Periods
 import java.io.File
 import java.text.NumberFormat
@@ -53,17 +54,14 @@ internal object TaxReport {
     private val POS = 0xFF13895A.toInt()
     private val POS_SOFT = 0xFFE3F4EC.toInt()
 
-    private const val DISCLAIMER =
-        "This is an estimate, not tax advice. It is worked out from the transactions Artha tracked (and any what-if " +
-            "figures entered) for a resident individual under 60, using the slabs, standard deduction, 87A rebate and 4% cess " +
-            "for the year. It leaves out surcharge, capital gains and deductions Artha cannot see; salary credits are after " +
-            "TDS and PF, so taxable salary may be higher. Check with a tax professional before you file."
+    private val disclaimer: String
+        get() = t("This is an estimate, not tax advice. It is worked out from the transactions DhanKosh tracked (and any what-if figures entered) for a resident individual under 60, using the slabs, standard deduction, 87A rebate and 4% cess for the year. It leaves out surcharge, capital gains and deductions DhanKosh cannot see; salary credits are after TDS and PF, so taxable salary may be higher. Check with a tax professional before you file.")
 
     /** Writes the summary to cacheDir/shared/ and returns the file. Runs off the main thread. */
     fun export(context: Context, s: TaxState, format: TaxShareFormat): File {
         val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-        dir.listFiles()?.filter { it.name.startsWith("Artha-tax-estimate") }?.forEach { it.delete() }
-        val file = File(dir, "Artha-tax-estimate-${s.fyLong.removePrefix("FY ")}.${format.ext}")
+        dir.listFiles()?.filter { it.name.startsWith("DhanKosh-tax-estimate") }?.forEach { it.delete() }
+        val file = File(dir, "DhanKosh-tax-estimate-${s.fyStartYear}-${"%02d".format((s.fyStartYear + 1) % 100)}.${format.ext}")
         when (format) {
             TaxShareFormat.IMAGE -> writePng(s, file)
             TaxShareFormat.PDF -> writePdf(s, file)
@@ -107,9 +105,9 @@ internal object TaxReport {
                 val c = page.canvas
                 list.forEach { (b, top) -> b.draw(c, top) }
                 val foot = text(8f, INK2)
-                c.drawText("Artha · Tax estimate · ${s.fyLong}", PDF_MARGIN, PDF_H - PDF_MARGIN + 4f, foot)
+                c.drawText("DhanKosh · " + t("Tax estimate · {fy}", "fy" to s.fyLong), PDF_MARGIN, PDF_H - PDF_MARGIN + 4f, foot)
                 foot.textAlign = Paint.Align.RIGHT
-                c.drawText("Page ${i + 1} of ${pages.size}", PDF_W - PDF_MARGIN, PDF_H - PDF_MARGIN + 4f, foot)
+                c.drawText(t("Page {n} of {total}", "n" to i + 1, "total" to pages.size), PDF_W - PDF_MARGIN, PDF_H - PDF_MARGIN + 4f, foot)
                 doc.finishPage(page)
             }
             file.outputStream().use { doc.writeTo(it) }
@@ -139,11 +137,11 @@ internal object TaxReport {
         val generated = LocalDate.now(Periods.zone).format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH))
         add(header(s, x, w, generated))
         add(result(s, x, w))
-        add(card("Income", x, w, emptyList(), incomeRows(s)))
-        add(card("Deductions", x, w, emptyList(), deductionRows(s)))
-        add(card("How it adds up", x, w, listOf("New", "Old"), sumRows(s)))
-        add(slabCard("New regime · slab breakdown", s.newRegime, TaxMath.NEW, x, w))
-        add(slabCard("Old regime · slab breakdown", s.oldRegime, TaxMath.OLD, x, w))
+        add(card(t("Income"), x, w, emptyList(), incomeRows(s)))
+        add(card(t("Deductions"), x, w, emptyList(), deductionRows(s)))
+        add(card(t("How it adds up"), x, w, listOf(t("New"), t("Old")), sumRows(s)))
+        add(slabCard(t("New regime · slab breakdown"), s.newRegime, TaxMath.NEW, x, w))
+        add(slabCard(t("Old regime · slab breakdown"), s.oldRegime, TaxMath.OLD, x, w))
         add(footer(x, w, generated, pdf))
     }
 
@@ -160,10 +158,11 @@ internal object TaxReport {
 
         val brand = text(10f, 0xCCFFFFFF.toInt(), bold = true).apply { letterSpacing = 0.25f }
         c.drawText("HISAAB", x + 20f, top + 28f, brand)
-        if (s.whatIf.any) pill(c, "What-if figures", x + w - 20f, top + 16f, 0x33FFFFFF, 0xFFFFFFFF.toInt(), alignRight = true)
-        c.drawText("Tax estimate · ${s.fyLong}", x + 20f, top + 62f, fit("Tax estimate · ${s.fyLong}", text(22f, 0xFFFFFFFF.toInt(), bold = true), w - 40f))
-        c.drawText("Resident individual under 60 · new vs old regime", x + 20f, top + 84f, text(11f, 0xD9FFFFFF.toInt()))
-        c.drawText("Generated on $generated", x + 20f, top + 102f, text(10f, 0xB3FFFFFF.toInt()))
+        if (s.whatIf.any) pill(c, t("What-if figures"), x + w - 20f, top + 16f, 0x33FFFFFF, 0xFFFFFFFF.toInt(), alignRight = true)
+        val title = t("Tax estimate · {fy}", "fy" to s.fyLong)
+        c.drawText(title, x + 20f, top + 62f, fit(title, text(22f, 0xFFFFFFFF.toInt(), bold = true), w - 40f))
+        c.drawText(t("Resident individual under 60 · new vs old regime"), x + 20f, top + 84f, text(11f, 0xD9FFFFFF.toInt()))
+        c.drawText(t("Generated on {date}", "date" to generated), x + 20f, top + 102f, text(10f, 0xB3FFFFFF.toInt()))
     }
 
     private fun result(s: TaxState, x: Float, w: Float): Block {
@@ -172,17 +171,17 @@ internal object TaxReport {
         val h = pad + 20f + tileH + 14f + 18f + 16f + pad
         return Block(h) { c, top ->
             cardBg(c, x, top, w, h)
-            c.drawText("RESULT", x + pad, top + pad + 10f, text(10f, INK2, bold = true).apply { letterSpacing = 0.12f })
+            c.drawText(t("RESULT"), x + pad, top + pad + 10f, text(10f, INK2, bold = true).apply { letterSpacing = 0.12f })
             val tw = (w - 2 * pad - 10f) / 2
             val ty = top + pad + 20f
             val newBest = s.newIsBetter && s.saving > 0
             val oldBest = !s.newIsBetter
-            tile(c, "New regime", s.newRegime.total, newBest, x + pad, ty, tw, tileH)
-            tile(c, "Old regime", s.oldRegime.total, oldBest, x + pad + tw + 10f, ty, tw, tileH)
-            val rec = if (s.newIsBetter) "New regime" else "Old regime"
-            val line = if (s.saving == 0L) "Both regimes come to the same tax." else "Recommended: $rec · saves ${inr(s.saving)}"
+            tile(c, t("New regime"), s.newRegime.total, newBest, x + pad, ty, tw, tileH)
+            tile(c, t("Old regime"), s.oldRegime.total, oldBest, x + pad + tw + 10f, ty, tw, tileH)
+            val rec = if (s.newIsBetter) t("New regime") else t("Old regime")
+            val line = if (s.saving == 0L) t("Both regimes come to the same tax.") else t("Recommended: {regime} · saves {amount}", "regime" to rec, "amount" to inr(s.saving))
             c.drawText(line, x + pad, ty + tileH + 26f, fit(line, text(14f, if (s.saving == 0L) INK2 else POS, bold = true), w - 2 * pad))
-            val note = "Taxable income ${inr(s.newRegime.taxable)} (new) · ${inr(s.oldRegime.taxable)} (old)"
+            val note = t("Taxable income {new} (new) · {old} (old)", "new" to inr(s.newRegime.taxable), "old" to inr(s.oldRegime.taxable))
             c.drawText(note, x + pad, ty + tileH + 46f, fit(note, text(11f, INK2), w - 2 * pad))
         }
     }
@@ -191,74 +190,75 @@ internal object TaxReport {
         val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (best) ACCENT_SOFT else SURFACE2 }
         c.drawRoundRect(RectF(x, y, x + w, y + h), 12f, 12f, bg)
         c.drawText(label, x + 12f, y + 22f, text(11f, INK2))
-        if (best) pill(c, "Lower", x + w - 10f, y + 10f, POS_SOFT, POS, alignRight = true)
+        if (best) pill(c, t("Lower"), x + w - 10f, y + 10f, POS_SOFT, POS, alignRight = true)
         c.drawText(inr(tax), x + 12f, y + 54f, fit(inr(tax), text(22f, INK, bold = true), w - 24f))
-        c.drawText("incl. 4% cess", x + 12f, y + 68f, text(9f, INK2))
+        c.drawText(t("incl. 4% cess"), x + 12f, y + 68f, text(9f, INK2))
     }
 
     private fun incomeRows(s: TaxState): List<TRow> = buildList {
         val salarySub = when {
-            s.whatIf.salary != null -> "What-if figure · calculated ${inr(s.projectedSalary)}"
-            s.salaryMonths in 1..11 -> "Projected from ${s.salaryMonths} month${if (s.salaryMonths == 1) "" else "s"} of credits (${inr(s.salarySoFar)} so far)"
-            s.salaryMonths > 0 -> "From salary credits"
-            else -> "No salary credits found"
+            s.whatIf.salary != null -> t("What-if figure · calculated {amount}", "amount" to inr(s.projectedSalary))
+            s.salaryMonths in 1..11 -> if (s.salaryMonths == 1) t("Projected from {n} month of credits ({amount} so far)", "n" to s.salaryMonths, "amount" to inr(s.salarySoFar))
+            else t("Projected from {n} months of credits ({amount} so far)", "n" to s.salaryMonths, "amount" to inr(s.salarySoFar))
+            s.salaryMonths > 0 -> t("From salary credits")
+            else -> t("No salary credits found")
         }
-        add(TRow("Salary for the year", listOf(inr(s.salaryUsed)), salarySub))
+        add(TRow(t("Salary for the year"), listOf(inr(s.salaryUsed)), salarySub))
         if (s.otherIncomeUsed > 0 || s.whatIf.otherIncome != null) {
-            add(TRow("Other income", listOf(inr(s.otherIncomeUsed)), if (s.whatIf.otherIncome != null) "What-if figure" else "Interest, rent and other credits"))
+            add(TRow(t("Other income"), listOf(inr(s.otherIncomeUsed)), if (s.whatIf.otherIncome != null) t("What-if figure") else t("Interest, rent and other credits")))
         }
-        add(TRow("Gross income", listOf(inr(s.income)), bold = true, divider = true))
+        add(TRow(t("Gross income"), listOf(inr(s.income)), bold = true, divider = true))
     }
 
     private fun deductionRows(s: TaxState): List<TRow> = buildList {
-        fun tag(edited: Boolean) = if (edited) " · what-if" else ""
-        add(TRow("80C investments", listOf(inr(min(s.c80, TaxMath.LIMIT_80C))), "Up to ₹1,50,000 · old regime${tag(s.whatIf.c80 != null)}"))
-        add(TRow("80D health insurance", listOf(inr(min(s.d80, TaxMath.LIMIT_80D))), "Up to ₹25,000 · old regime${tag(s.whatIf.d80 != null)}"))
-        if (s.nps > 0) add(TRow("NPS 80CCD(1B)", listOf(inr(min(s.nps, TaxMath.LIMIT_NPS))), "Up to ₹50,000 · old regime${tag(true)}"))
-        if (s.homeLoan > 0) add(TRow("Home-loan interest 24(b)", listOf(inr(min(s.homeLoan, TaxMath.LIMIT_HOME_LOAN))), "Up to ₹2,00,000 · old regime${tag(true)}"))
-        if (s.hraOther > 0) add(TRow("HRA exemption / other", listOf(inr(s.hraOther)), "Old regime${tag(true)}"))
-        if (s.employerNps > 0) add(TRow("Employer NPS 80CCD(2)", listOf(inr(s.employerNps)), "Both regimes${tag(true)}"))
-        add(TRow("Standard deduction", listOf("${inr(s.newRegime.standardDeduction)} / ${inr(s.oldRegime.standardDeduction)}"), "New / old regime", divider = true))
+        fun tag(edited: Boolean) = if (edited) " · " + t("what-if") else ""
+        add(TRow(t("80C investments"), listOf(inr(min(s.c80, TaxMath.LIMIT_80C))), t("Up to {cap} · old regime", "cap" to "₹1,50,000") + tag(s.whatIf.c80 != null)))
+        add(TRow(t("80D health insurance"), listOf(inr(min(s.d80, TaxMath.LIMIT_80D))), t("Up to {cap} · old regime", "cap" to "₹25,000") + tag(s.whatIf.d80 != null)))
+        if (s.nps > 0) add(TRow(t("NPS 80CCD(1B)"), listOf(inr(min(s.nps, TaxMath.LIMIT_NPS))), t("Up to {cap} · old regime", "cap" to "₹50,000") + tag(true)))
+        if (s.homeLoan > 0) add(TRow(t("Home-loan interest 24(b)"), listOf(inr(min(s.homeLoan, TaxMath.LIMIT_HOME_LOAN))), t("Up to {cap} · old regime", "cap" to "₹2,00,000") + tag(true)))
+        if (s.hraOther > 0) add(TRow(t("HRA exemption / other"), listOf(inr(s.hraOther)), t("Old regime") + tag(true)))
+        if (s.employerNps > 0) add(TRow(t("Employer NPS 80CCD(2)"), listOf(inr(s.employerNps)), t("Both regimes") + tag(true)))
+        add(TRow(t("Standard deduction"), listOf("${inr(s.newRegime.standardDeduction)} / ${inr(s.oldRegime.standardDeduction)}"), t("New / old regime"), divider = true))
     }
 
     private fun sumRows(s: TaxState): List<TRow> {
         val n = s.newRegime
         val o = s.oldRegime
         return listOf(
-            TRow("Gross income", listOf(inr(n.gross), inr(o.gross))),
-            TRow("Standard deduction", listOf(neg(n.standardDeduction), neg(o.standardDeduction)), color = INK2),
-            TRow("Deductions", listOf(neg(n.deductions), neg(o.deductions)), color = INK2),
-            TRow("Taxable income", listOf(inr(n.taxable), inr(o.taxable)), bold = true, divider = true),
-            TRow("Tax on slabs", listOf(inr(n.slabTax), inr(o.slabTax)), color = INK2),
-            TRow("Rebate u/s 87A", listOf(neg(n.rebate), neg(o.rebate)), color = INK2),
-            TRow("Health & education cess 4%", listOf(inr(n.cess), inr(o.cess)), color = INK2),
-            TRow("Tax payable", listOf(inr(n.total), inr(o.total)), bold = true, divider = true),
+            TRow(t("Gross income"), listOf(inr(n.gross), inr(o.gross))),
+            TRow(t("Standard deduction"), listOf(neg(n.standardDeduction), neg(o.standardDeduction)), color = INK2),
+            TRow(t("Deductions"), listOf(neg(n.deductions), neg(o.deductions)), color = INK2),
+            TRow(t("Taxable income"), listOf(inr(n.taxable), inr(o.taxable)), bold = true, divider = true),
+            TRow(t("Tax on slabs"), listOf(inr(n.slabTax), inr(o.slabTax)), color = INK2),
+            TRow(t("Rebate u/s 87A"), listOf(neg(n.rebate), neg(o.rebate)), color = INK2),
+            TRow(t("Health & education cess 4%"), listOf(inr(n.cess), inr(o.cess)), color = INK2),
+            TRow(t("Tax payable"), listOf(inr(n.total), inr(o.total)), bold = true, divider = true),
         )
     }
 
     private fun slabCard(title: String, r: RegimeTax, slabs: List<Pair<Long, Int>>, x: Float, w: Float): Block {
         val lines = TaxMath.slabLines(r.taxable, slabs)
         val rows = buildList {
-            if (lines.isEmpty()) add(TRow("No taxable income", listOf("", "", inr(0))))
+            if (lines.isEmpty()) add(TRow(t("No taxable income"), listOf("", "", inr(0))))
             lines.forEach { l ->
-                val range = if (l.to == null) "Above ${lakhs(l.from)}" else "${lakhs(l.from)} – ${lakhs(l.to)}"
+                val range = if (l.to == null) t("Above {amount}", "amount" to lakhs(l.from)) else "${lakhs(l.from)} – ${lakhs(l.to)}"
                 add(TRow(range, listOf("${l.rate}%", inr(l.taxedPart), inr(l.tax))))
             }
-            add(TRow("Tax on slabs", listOf("", inr(r.taxable), inr(r.slabTax)), bold = true, divider = true))
-            if (r.rebate > 0) add(TRow("Less rebate u/s 87A", listOf("", "", neg(r.rebate)), color = INK2))
-            add(TRow("Tax payable with cess", listOf("", "", inr(r.total)), bold = true))
+            add(TRow(t("Tax on slabs"), listOf("", inr(r.taxable), inr(r.slabTax)), bold = true, divider = true))
+            if (r.rebate > 0) add(TRow(t("Less rebate u/s 87A"), listOf("", "", neg(r.rebate)), color = INK2))
+            add(TRow(t("Tax payable with cess"), listOf("", "", inr(r.total)), bold = true))
         }
-        return card(title, x, w, listOf("Rate", "Income", "Tax"), rows, colW = listOf(44f, 92f, 84f))
+        return card(title, x, w, listOf(t("Rate"), t("Income"), t("Tax")), rows, colW = listOf(44f, 92f, 84f))
     }
 
     private fun footer(x: Float, w: Float, generated: String, pdf: Boolean): Block {
         val p = text(9.5f, INK2)
-        val layout = staticLayout(DISCLAIMER, p, w.toInt())
+        val layout = staticLayout(disclaimer, p, w.toInt())
         val h = 22f + layout.height + if (pdf) 0f else 6f
         return Block(h) { c, top ->
             val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = LinearGradient(x, top, x + 14f, top + 14f, ACCENT, VIOLET, Shader.TileMode.CLAMP) }
             c.drawRoundRect(RectF(x, top + 1f, x + 12f, top + 13f), 3.5f, 3.5f, mark)
-            c.drawText("Estimate generated by Artha on $generated", x + 18f, top + 11f, text(11f, INK, bold = true))
+            c.drawText(t("Estimate generated by DhanKosh on {date}", "date" to generated), x + 18f, top + 11f, text(11f, INK, bold = true))
             c.save(); c.translate(x, top + 20f); layout.draw(c); c.restore()
         }
     }

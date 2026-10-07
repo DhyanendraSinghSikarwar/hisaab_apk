@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.IconLibrary
 import com.hisaab.app.ui.theme.color
 import com.hisaab.app.ui.theme.icon
@@ -121,8 +122,8 @@ fun SubcategorySheet(
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconBadge(look.icon, look.color, 36)
             Column(Modifier.padding(start = 12.dp)) {
-                Text("Sub-category", style = MaterialTheme.typography.titleLarge)
-                Text("in ${look.name}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(t("Sub-category"), style = MaterialTheme.typography.titleLarge)
+                Text(t("in {category}", "category" to t(look.name)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         LazyVerticalGrid(
@@ -131,13 +132,13 @@ fun SubcategorySheet(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(subs, key = { it.name }) { s ->
-                Tile(IconLibrary.get(s.icon), s.name, look.color, selected = s.name == current) { onPick(s.name); onDismiss() }
+                Tile(IconLibrary.get(s.icon), t(s.name), look.color, selected = s.name == current) { onPick(s.name); onDismiss() }
             }
-            item(key = "none") { Tile(Icons.Filled.Block, "None", MaterialTheme.colorScheme.onSurfaceVariant, selected = current == null) { onPick(null); onDismiss() } }
-            item(key = "new") { Tile(Icons.Filled.Add, "New sub-category", MaterialTheme.colorScheme.primary, selected = false) { creating = true } }
+            item(key = "none") { Tile(Icons.Filled.Block, t("None"), MaterialTheme.colorScheme.onSurfaceVariant, selected = current == null) { onPick(null); onDismiss() } }
+            item(key = "new") { Tile(Icons.Filled.Add, t("New sub-category"), MaterialTheme.colorScheme.primary, selected = false) { creating = true } }
             item(key = "hint", span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    "Artha places well-known merchants on its own (Swiggy and Zomato go to Food delivery). Pick one to override it.",
+                    t("DhanKosh places well-known merchants on its own (Swiggy and Zomato go to Food delivery). Pick one to override it."),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp),
                 )
@@ -146,7 +147,7 @@ fun SubcategorySheet(
     }
     if (creating) {
         NewItemDialog(
-            title = "New sub-category in ${look.name}", withColor = false,
+            title = t("New sub-category in {category}", "category" to t(look.name)), withColor = false,
             onDismiss = { creating = false },
             onCreate = { name, icon, _ -> onCreate(name, icon); onPick(name.trim()); creating = false; onDismiss() },
         )
@@ -184,7 +185,7 @@ fun NewItemDialog(title: String, withColor: Boolean, onDismiss: () -> Unit, onCr
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true,
+                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(t("Name")) }, singleLine = true,
                     leadingIcon = { Icon(IconLibrary.get(icon), null, tint = color) })
                 if (withColor) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -196,7 +197,7 @@ fun NewItemDialog(title: String, withColor: Boolean, onDismiss: () -> Unit, onCr
                         }
                     }
                 }
-                Text("Icon", style = MaterialTheme.typography.labelLarge)
+                Text(t("Icon"), style = MaterialTheme.typography.labelLarge)
                 LazyVerticalGrid(GridCells.Fixed(6), Modifier.height(240.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(IconLibrary.pickable, key = { it.first }) { (key, vector) ->
@@ -212,7 +213,7 @@ fun NewItemDialog(title: String, withColor: Boolean, onDismiss: () -> Unit, onCr
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onCreate(name, icon, color.toArgb()) }, enabled = name.isNotBlank()) { Text("Create") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onCreate(name, icon, color.toArgb()) }, enabled = name.isNotBlank()) { Text(t("Create")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t("Cancel")) } },
     )
 }

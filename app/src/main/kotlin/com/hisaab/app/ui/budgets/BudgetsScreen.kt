@@ -58,6 +58,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.ui.components.AnimatedAmount
 import com.hisaab.app.ui.components.CategoryBadge
@@ -119,20 +120,20 @@ fun BudgetsRoute(
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, 
         topBar = {
             TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), 
-                title = { Text("Budgets") },
-                navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } } },
+                title = { Text(t("Budgets")) },
+                navigationIcon = { onBack?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } } },
                 actions = {
                     InfoButton(
-                        "Budgets",
-                        "A budget is a monthly limit for a category. Set it once: it applies to every month, and resets on the 1st.",
-                        "You get an alert when spending reaches your alert level (90% unless you change it) and again at 100%.",
-                        "Tap a budget to see every transaction behind it.",
+                        t("Budgets"),
+                        t("A budget is a monthly limit for a category. Set it once: it applies to every month, and resets on the 1st."),
+                        t("You get an alert when spending reaches your alert level (90% unless you change it) and again at 100%."),
+                        t("Tap a budget to see every transaction behind it."),
                     )
                 },
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Filled.Add, null) }, text = { Text("Budget") },
+            ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Filled.Add, null) }, text = { Text(t("Budget")) },
                 modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()))
         },
     ) { inner ->
@@ -141,7 +142,7 @@ fun BudgetsRoute(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (lines.isEmpty()) {
-                item { EmptyState(Icons.Filled.Savings, "No budgets yet", "Set a monthly limit for a category. It applies every month, and you'll be alerted before you cross it.") }
+                item { EmptyState(Icons.Filled.Savings, t("No budgets yet"), t("Set a monthly limit for a category. It applies every month, and you'll be alerted before you cross it.")) }
             } else {
                 item { Overview(lines) }
             }
@@ -167,11 +168,11 @@ private fun Overview(lines: List<BudgetLine>) {
     val progress by animateFloatAsState((spent.toFloat() / limit.coerceAtLeast(1)).coerceIn(0f, 1f), tween(700), label = "overview")
     Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            Text("${Periods.month(YearMonth.now(Periods.zone))} · $daysLeft days left", style = MaterialTheme.typography.labelLarge,
+            Text(Periods.month(YearMonth.now(Periods.zone)) + " · " + t("{n} days left", "n" to daysLeft), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer)
             Row(verticalAlignment = Alignment.Bottom) {
                 AnimatedAmount(spent, MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Text("  of ${Money.format(limit, showPaise = false)}", style = MaterialTheme.typography.bodyLarge,
+                Text("  " + t("of {amount}", "amount" to Money.format(limit, showPaise = false)), style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(bottom = 4.dp))
             }
             LinearProgressIndicator(
@@ -199,11 +200,11 @@ private fun BudgetCard(l: BudgetLine, alertAt: Int, onOpen: () -> Unit, onEdit: 
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(l.category.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Text(t(l.category.label), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text("${(ratio * 100).toInt()}%", style = MaterialTheme.typography.labelLarge, color = barColor)
                 }
                 // The exact amount, to the paisa.
-                Text("${Money.format(l.spent, showPaise = true)} of ${Money.format(l.limit, showPaise = false)}",
+                Text(t("{spent} of {limit}", "spent" to Money.format(l.spent, showPaise = true), "limit" to Money.format(l.limit, showPaise = false)),
                     style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 LinearProgressIndicator(
                     progress = { progress }, modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp).height(6.dp).clip(CircleShape),
@@ -211,12 +212,12 @@ private fun BudgetCard(l: BudgetLine, alertAt: Int, onOpen: () -> Unit, onEdit: 
                 )
                 val left = l.limit - l.spent
                 Text(
-                    if (over) "Over by ${Money.format(-left, showPaise = false)}"
-                    else "${Money.format(left, showPaise = false)} left · about ${Money.format(left / daysLeft, showPaise = false)} a day",
+                    if (over) t("Over by {amount}", "amount" to Money.format(-left, showPaise = false))
+                    else t("{amount} left · about {daily} a day", "amount" to Money.format(left, showPaise = false), "daily" to Money.format(left / daysLeft, showPaise = false)),
                     style = MaterialTheme.typography.bodySmall, color = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, "Edit budget") }
+            IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, t("Edit budget")) }
         }
     }
 }
@@ -229,33 +230,33 @@ private fun BudgetDialog(initial: BudgetLine?, taken: Set<Category>, onDismiss: 
     val minor = Money.parseInput(amount)?.takeIf { it > 0 }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New budget" else "Edit budget") },
+        title = { Text(if (initial == null) t("New budget") else t("Edit budget")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = initial == null) { picking = true }) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CategoryBadge(category, size = 32)
                         Spacer(Modifier.width(10.dp))
-                        Text(category.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                        if (initial == null) Text("Change", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                        Text(t(category.label), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        if (initial == null) Text(t("Change"), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     }
                 }
-                OutlinedTextField(amount, { amount = it }, label = { Text("Monthly limit") }, prefix = { Text("₹") },
-                    supportingText = { Text("Applies every month") },
+                OutlinedTextField(amount, { amount = it }, label = { Text(t("Monthly limit")) }, prefix = { Text("₹") },
+                    supportingText = { Text(t("Applies every month")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
             }
         },
-        confirmButton = { TextButton(enabled = minor != null, onClick = { onSave(category, minor!!) }) { Text("Save") } },
+        confirmButton = { TextButton(enabled = minor != null, onClick = { onSave(category, minor!!) }) { Text(t("Save")) } },
         dismissButton = {
             Row {
-                onDelete?.let { TextButton(onClick = it) { Text("Delete", color = MaterialTheme.colorScheme.error) } }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                onDelete?.let { TextButton(onClick = it) { Text(t("Delete"), color = MaterialTheme.colorScheme.error) } }
+                TextButton(onClick = onDismiss) { Text(t("Cancel")) }
             }
         },
     )
     if (picking) {
         CategorySheet(current = category, onPick = { if (it.isSpend && (it !in taken || it == initial?.category)) category = it }, onDismiss = { picking = false },
-            title = "Budget for which category?")
+            title = t("Budget for which category?"))
     }
 }
 

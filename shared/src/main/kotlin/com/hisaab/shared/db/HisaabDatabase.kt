@@ -38,6 +38,7 @@ abstract class HisaabDatabase : RoomDatabase() {
     abstract fun recurring(): RecurringDao
     abstract fun categories(): CategoryDao
     abstract fun forex(): ForexDao
+    abstract fun reconcile(): ReconcileDao
 
     companion object {
         const val NAME = "hisaab.db"

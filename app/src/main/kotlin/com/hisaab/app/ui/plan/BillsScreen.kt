@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.CategoryBadge
 import com.hisaab.app.ui.components.EmptyState
 import com.hisaab.app.ui.components.InfoButton
@@ -106,11 +107,11 @@ fun BillsRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit = {}, vm: BillsV
     }
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(),
-            title = { Text("Bills & insurance") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            title = { Text(t("Bills & insurance")) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
         )
     }, floatingActionButton = {
-        androidx.compose.material3.FloatingActionButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, "Add a regular payment") }
+        androidx.compose.material3.FloatingActionButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, t("Add a regular payment")) }
     }) { inner ->
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -121,7 +122,7 @@ fun BillsRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit = {}, vm: BillsV
             item { Summary(soon.sumOf { it.amountMinor }, soon.size, p.recurring.sumOf { it.amountMinor }) }
             item { BillsCalendar(p.recurring, p.policies, p.upcoming, onEdit = { r -> r.loanKey?.let(onOpenLoan) ?: run { editing = r } }) }
             if (p.loaded && p.recurring.isEmpty() && p.policies.isEmpty()) {
-                item { EmptyState(Icons.Filled.EventRepeat, "Nothing found yet", "Repeats appear after two months of payments.") }
+                item { EmptyState(Icons.Filled.EventRepeat, t("Nothing found yet"), t("Repeats appear after two months of payments.")) }
             }
         }
     }
@@ -132,14 +133,14 @@ private fun Summary(dueSoon: Long, count: Int, monthly: Long) {
     Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Row(Modifier.fillMaxWidth().padding(18.dp)) {
             Column(Modifier.weight(1f)) {
-                Text("Due in 30 days", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(t("Due in 30 days"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 Text(Money.format(dueSoon, showPaise = false), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Text("$count payment${if (count == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(if (count == 1) t("{n} payment", "n" to count) else t("{n} payments", "n" to count), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Column(Modifier.weight(1f)) {
-                Text("Every month", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(t("Every month"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 Text(Money.format(monthly, showPaise = false), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Text("in regular payments", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(t("in regular payments"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         }
     }
@@ -155,7 +156,7 @@ private fun DateBadge(date: LocalDate, tint: Color) {
     Box(Modifier.size(46.dp).background(tint.copy(alpha = 0.14f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("${date.dayOfMonth}", style = MaterialTheme.typography.titleMedium, color = tint)
-            Text(date.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelSmall, color = tint)
+            Text(t(date.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }), style = MaterialTheme.typography.labelSmall, color = tint)
         }
     }
 }
@@ -169,15 +170,15 @@ fun UpcomingRow(u: Upcoming, modifier: Modifier = Modifier) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(u.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1)
-                val whenText = when (u.daysLeft) { 0L -> "Today"; 1L -> "Tomorrow"; else -> "In ${u.daysLeft} days" }
+                val whenText = when (u.daysLeft) { 0L -> t("Today"); 1L -> t("Tomorrow"); else -> t("In {n} days", "n" to u.daysLeft) }
                 val from = u.account?.let { " · ${it.nickname ?: it.bankName} ••${it.last4}" }.orEmpty()
-                Text(whenText + (when (u.kind) { Upcoming.Kind.INSURANCE -> " · renewal"; Upcoming.Kind.EMI -> " · EMI"; else -> "" }) + from,
+                Text(whenText + (when (u.kind) { Upcoming.Kind.INSURANCE -> " · " + t("renewal"); Upcoming.Kind.EMI -> " · " + t("EMI"); else -> "" }) + from,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 if (u.short) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                         Icon(Icons.Filled.Warning, null, tint = warn, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Low balance: ${u.account?.currentBalanceMinor?.let { Money.format(it, showPaise = false) } ?: ""}",
+                        Text(t("Low balance: {amount}", "amount" to (u.account?.currentBalanceMinor?.let { Money.format(it, showPaise = false) } ?: "")),
                             style = MaterialTheme.typography.labelMedium, color = warn)
                     }
                 }
@@ -196,14 +197,14 @@ private fun RecurringRow(r: Recurring, onEdit: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(r.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1)
                 Text(
-                    (if (r.yearly) "Every year, ${r.nextDue.format(DAY)}" else "Around the ${ordinal(r.dayOfMonth)}") +
-                        (r.lastPaid?.let { " · last paid ${it.format(DAY)}" } ?: if (r.manualId != null) " · added by you" else ""),
+                    (if (r.yearly) t("Every year, {date}", "date" to r.nextDue.format(DAY)) else t("Around the {day}", "day" to ordinal(r.dayOfMonth))) +
+                        (r.lastPaid?.let { " · " + t("last paid {date}", "date" to it.format(DAY)) } ?: if (r.manualId != null) " · " + t("added by you") else ""),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text((if (r.income) "+" else "") + Money.format(r.amountMinor, showPaise = false), style = MaterialTheme.typography.titleMedium,
                     color = if (r.income) com.hisaab.app.ui.theme.MoneyColors.credit else MaterialTheme.colorScheme.onSurface)
-                Text(if (r.yearly) "a year" else "a month", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (r.yearly) t("a year") else t("a month"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -219,12 +220,12 @@ private fun PolicyRow(p: Policy) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(p.insurer, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1)
-                Text("${p.kind.label} · ${if (p.monthly) "next premium" else "renews"} ${p.nextDue.format(DAY)}",
+                Text(t(p.kind.label) + " · " + (if (p.monthly) t("next premium {date}", "date" to p.nextDue.format(DAY)) else t("renews {date}", "date" to p.nextDue.format(DAY))),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(Money.format(p.premiumMinor, showPaise = false), style = MaterialTheme.typography.titleMedium)
-                Text(if (p.monthly) "a month" else "a year", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (p.monthly) t("a month") else t("a year"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -278,14 +279,14 @@ private fun BillsCalendar(recurring: List<Recurring>, policies: List<com.hisaab.
     Card(shape = RoundedCornerShape(24.dp)) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { month = ym.minusMonths(1).toString() }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month") }
+                IconButton(onClick = { month = ym.minusMonths(1).toString() }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, t("Previous month")) }
                 Text(com.hisaab.app.ui.format.Periods.month(ym), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                IconButton(onClick = { month = ym.plusMonths(1).toString() }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month") }
+                IconButton(onClick = { month = ym.plusMonths(1).toString() }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, t("Next month")) }
             }
             Row(Modifier.fillMaxWidth()) {
                 listOf("M", "T", "W", "T", "F", "S", "S").forEach {
-                    Text(it, Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    Text(t(it), Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant)
                 }
             }
@@ -320,7 +321,7 @@ private fun BillsCalendar(recurring: List<Recurring>, policies: List<com.hisaab.
                 }
             }
             Row(Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                listOf(Mark.PAYMENT to "Payment", Mark.EMI to "EMI", Mark.INCOME to "Income", Mark.INSURANCE to "Insurance").forEach { (m, label) ->
+                listOf(Mark.PAYMENT to t("Payment"), Mark.EMI to t("EMI"), Mark.INCOME to t("Income"), Mark.INSURANCE to t("Insurance")).forEach { (m, label) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(8.dp).background(colors.getValue(m), CircleShape))
                         Text(label, style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))

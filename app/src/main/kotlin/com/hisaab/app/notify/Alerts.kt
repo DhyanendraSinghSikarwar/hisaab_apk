@@ -17,6 +17,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.hisaab.app.MainActivity
 import com.hisaab.app.R
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
@@ -69,9 +70,9 @@ class AlertsChecker @Inject constructor(
                 if (key in s.alertedKeys) break
                 val left = b.monthlyLimitMinor - used
                 notify(
-                    key, "${b.category.label}: ${if (level >= 100) "budget used up" else "$level% of budget used"}",
-                    if (left > 0) "${Money.format(used, showPaise = false)} of ${Money.format(b.monthlyLimitMinor, showPaise = false)} spent. ${Money.format(left, showPaise = false)} left for ${Periods.month(month)}."
-                    else "${Money.format(used, showPaise = false)} spent against ${Money.format(b.monthlyLimitMinor, showPaise = false)}, ${Money.format(-left, showPaise = false)} over.",
+                    key, "${t(b.category.label)}: ${if (level >= 100) t("budget used up") else t("{level}% of budget used", "level" to level)}",
+                    if (left > 0) t("{used} of {limit} spent. {left} left for {month}.", "used" to Money.format(used, showPaise = false), "limit" to Money.format(b.monthlyLimitMinor, showPaise = false), "left" to Money.format(left, showPaise = false), "month" to Periods.month(month))
+                    else t("{used} spent against {limit}, {over} over.", "used" to Money.format(used, showPaise = false), "limit" to Money.format(b.monthlyLimitMinor, showPaise = false), "over" to Money.format(-left, showPaise = false)),
                     "hisaab://budgets",
                 )
                 settings.addAlerted(key)
@@ -96,9 +97,13 @@ class AlertsChecker @Inject constructor(
             val key = "bill:${r.name}:${r.nextDue}"
             if (key in s.alertedKeys) continue
             notify(
-                key, "${r.name} ${Money.format(r.amountMinor, showPaise = false)} due ${when (days) { 0L -> "today"; 1L -> "tomorrow"; else -> "in $days days" }}",
-                "${account.nickname ?: account.bankName} ••${account.last4} has ${Money.format(balance, showPaise = false)}. " +
-                    "Add ${Money.format(r.amountMinor - balance, showPaise = false)} so it doesn't bounce.",
+                key, when (days) {
+                    0L -> t("{name} {amount} due today", "name" to r.name, "amount" to Money.format(r.amountMinor, showPaise = false))
+                    1L -> t("{name} {amount} due tomorrow", "name" to r.name, "amount" to Money.format(r.amountMinor, showPaise = false))
+                    else -> t("{name} {amount} due in {days} days", "name" to r.name, "amount" to Money.format(r.amountMinor, showPaise = false), "days" to days)
+                },
+                t("{account} ••{last} has {balance}.", "account" to (account.nickname ?: account.bankName), "last" to account.last4, "balance" to Money.format(balance, showPaise = false)) + " " +
+                    t("Add {amount} so it doesn't bounce.", "amount" to Money.format(r.amountMinor - balance, showPaise = false)),
                 "hisaab://bills",
             )
             settings.addAlerted(key)
@@ -108,8 +113,8 @@ class AlertsChecker @Inject constructor(
             if (days !in 0..7) continue
             val key = "renewal:${p.insurer}:${p.nextDue}"
             if (key in s.alertedKeys) continue
-            notify(key, "${p.kind.label} insurance renews ${if (days == 0L) "today" else "in $days days"}",
-                "${p.insurer}: last premium ${Money.format(p.premiumMinor, showPaise = false)} on ${p.lastPaid}. Renew in time to stay covered.",
+            notify(key, if (days == 0L) t("{kind} insurance renews today", "kind" to t(p.kind.label)) else t("{kind} insurance renews in {days} days", "kind" to t(p.kind.label), "days" to days),
+                t("{insurer}: last premium {amount} on {date}. Renew in time to stay covered.", "insurer" to p.insurer, "amount" to Money.format(p.premiumMinor, showPaise = false), "date" to p.lastPaid),
                 "hisaab://bills")
             settings.addAlerted(key)
         }
@@ -121,8 +126,8 @@ class AlertsChecker @Inject constructor(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = context.getSystemService(NotificationManager::class.java)
             if (nm.getNotificationChannel(CHANNEL) == null) {
-                nm.createNotificationChannel(NotificationChannel(CHANNEL, "Budgets & bills", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                    description = "Budget limits, payments due from a low balance, and insurance renewals"
+                nm.createNotificationChannel(NotificationChannel(CHANNEL, t("Budgets & bills"), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = t("Budget limits, payments due from a low balance, and insurance renewals")
                 })
             }
         }

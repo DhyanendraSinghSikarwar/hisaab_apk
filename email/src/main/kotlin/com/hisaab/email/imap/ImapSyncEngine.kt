@@ -42,7 +42,7 @@ class ImapSyncEngine(
      * Syncs every connected inbox in turn. One address refusing its password doesn't stop the others;
      * only when every inbox is refused does the sync fail with [MailAuthException].
      */
-    suspend fun sync(): SyncReport {
+    suspend fun sync(onProgress: suspend (Int) -> Unit = {}): SyncReport {
         if (!state.enabled()) return SyncReport(SyncMode.DISABLED)
         val logins = state.logins().ifEmpty { throw MailAuthException("Sign in to your email again") }
         var total: SyncReport? = null
@@ -50,6 +50,7 @@ class ImapSyncEngine(
         for (login in logins) {
             val r = try { syncOne(login) } catch (e: MailAuthException) { refused = e; continue }
             total = total?.let { it.copy(fetched = it.fetched + r.fetched, parsed = it.parsed + r.parsed, ingest = it.ingest + r.ingest, millis = it.millis + r.millis) } ?: r
+            onProgress(total.fetched)
         }
         return total ?: throw (refused ?: MailAuthException("Sign in to your email again"))
     }
@@ -83,6 +84,7 @@ class ImapSyncEngine(
     private suspend fun parse(m: FetchedMail, readPdf: Boolean): List<IncomingMessage> {
         val out = ArrayList<IncomingMessage>(1)
         registry.parse(m.text, m.from, m.receivedAt, Source.EMAIL)?.let { out += IncomingMessage(it, m.id, m.text, subject = m.subject) }
+        if (out.isEmpty()) registry.loanStatus(m.text, m.from, m.receivedAt, Source.EMAIL)?.let { sink.loanStatus(it) }
         // Not a bank alert: maybe a mutual fund purchase confirmation (SIP instalment, units allotted).
         if (out.isEmpty() && pdf != null) out += pdf.readEmail(m.id, m.from, m.subject, m.text, m.receivedAt)
         if (readPdf) {

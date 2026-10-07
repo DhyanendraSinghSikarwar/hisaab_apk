@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.BrandMark
 import com.hisaab.app.ui.components.Brands
 import com.hisaab.app.ui.format.Money
@@ -64,9 +65,9 @@ fun maturityLine(day: Long, action: MaturityAction?): String {
     val date = LocalDate.ofEpochDay(day)
     val past = date.isBefore(LocalDate.now())
     return when {
-        past && action?.closes == false -> "Renewed on ${date.format(DAY)}"
-        past -> "Matured on ${date.format(DAY)}"
-        else -> "Matures ${date.format(DAY)}" + (action?.let { " · " + if (it.closes) "pays out" else "renews" } ?: "")
+        past && action?.closes == false -> t("Renewed on {date}", "date" to date.format(DAY))
+        past -> t("Matured on {date}", "date" to date.format(DAY))
+        else -> t("Matures {date}", "date" to date.format(DAY)) + (action?.let { " · " + if (it.closes) t("pays out") else t("renews") } ?: "")
     }
 }
 
@@ -81,13 +82,13 @@ fun MaturityFields(day: Long?, onDay: (Long?) -> Unit, action: MaturityAction?, 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             day?.let { LocalDate.ofEpochDay(it).format(DAY) }.orEmpty(), {}, Modifier.fillMaxWidth(), readOnly = true,
-            label = { Text("Maturity date") }, leadingIcon = { Icon(Icons.Filled.Event, null) }, singleLine = true, interactionSource = press,
+            label = { Text(t("Maturity date")) }, leadingIcon = { Icon(Icons.Filled.Event, null) }, singleLine = true, interactionSource = press,
         )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            MaturityAction.entries.forEach { a -> FilterChip(action == a, { onAction(a) }, label = { Text(a.label) }) }
+            MaturityAction.entries.forEach { a -> FilterChip(action == a, { onAction(a) }, label = { Text(t(a.label)) }) }
         }
         Text(
-            if (action?.closes == false) "Stays in your list after maturity." else "Leaves your list on the maturity date.",
+            if (action?.closes == false) t("Stays in your list after maturity.") else t("Leaves your list on the maturity date."),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -101,9 +102,9 @@ fun MaturityFields(day: Long?, onDay: (Long?) -> Unit, action: MaturityAction?, 
                 TextButton(onClick = {
                     onDay(state.selectedDateMillis?.let { java.time.Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toEpochDay() })
                     picking = false
-                }) { Text("Done") }
+                }) { Text(t("Done")) }
             },
-            dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text(t("Cancel")) } },
         ) { DatePicker(state, Modifier.padding(top = 8.dp)) }
     }
 }
@@ -127,16 +128,16 @@ fun AddAccountSheet(kind: AccountKind, deposit: Boolean, onDismiss: () -> Unit, 
             Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(if (isCard) "Add card" else "Add account", style = MaterialTheme.typography.titleLarge)
+            Text(if (isCard) t("Add card") else t("Add account"), style = MaterialTheme.typography.titleLarge)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf(AccountKind.CARD to "Card", AccountKind.ACCOUNT to "Account").forEachIndexed { i, (kk, label) ->
                     SegmentedButton(k == kk, {
                         k = kk; type = if (kk == AccountKind.CARD) AccountType.CREDIT_CARD else AccountType.SAVINGS
-                    }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
+                    }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(t(label)) }
                 }
             }
             OutlinedTextField(
-                bank, { bank = it; exists = false }, Modifier.fillMaxWidth(), label = { Text("Bank") }, singleLine = true,
+                bank, { bank = it; exists = false }, Modifier.fillMaxWidth(), label = { Text(t("Bank")) }, singleLine = true,
                 leadingIcon = if (bank.isNotBlank()) ({ BrandMark(Brands.forBank(bank), size = 24.dp) }) else null,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
             )
@@ -145,18 +146,18 @@ fun AddAccountSheet(kind: AccountKind, deposit: Boolean, onDismiss: () -> Unit, 
             }
             OutlinedTextField(
                 last4, { last4 = it.filter(Char::isDigit).take(4); exists = false }, Modifier.fillMaxWidth(),
-                label = { Text(if (isCard) "Last 4 digits of card" else "Last 4 digits of account") }, singleLine = true,
-                isError = exists, supportingText = if (exists) ({ Text("Already in your list.") }) else null,
+                label = { Text(if (isCard) t("Last 4 digits of card") else t("Last 4 digits of account")) }, singleLine = true,
+                isError = exists, supportingText = if (exists) ({ Text(t("Already in your list.")) }) else null,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             )
-            Label("Type")
+            Label(t("Type"))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                AccountType.forKind(k).forEach { t -> FilterChip(type == t, { type = t }, label = { Text(t.label) }) }
+                AccountType.forKind(k).forEach { ty -> FilterChip(type == ty, { type = ty }, label = { Text(t(ty.label)) }) }
             }
             if (isCard) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CardNetwork.entries.forEach { n ->
-                        FilterChip(network == n, { network = if (network == n) null else n }, label = { Text(n.label) },
+                        FilterChip(network == n, { network = if (network == n) null else n }, label = { Text(t(n.label)) },
                             leadingIcon = { BrandMark(Brands.forNetwork(n), size = 18.dp) })
                     }
                 }
@@ -164,16 +165,16 @@ fun AddAccountSheet(kind: AccountKind, deposit: Boolean, onDismiss: () -> Unit, 
             if (!(isCard && type == AccountType.DEBIT_CARD)) {
                 OutlinedTextField(
                     balance, { balance = it }, Modifier.fillMaxWidth(), singleLine = true, isError = badBalance, prefix = { Text("₹") },
-                    label = { Text(if (isCard) "Available limit (optional)" else "Balance (optional)") },
+                    label = { Text(if (isCard) t("Available limit (optional)") else t("Balance (optional)")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Text(t("Cancel")) }
                 Button(
                     onClick = { onAdd(NewAccount(k, bank, last4, type, network.takeIf { isCard }, balance)) { ok -> if (ok) onDismiss() else exists = true } },
                     enabled = bank.isNotBlank() && last4.length == 4 && !badBalance,
-                ) { Text("Add") }
+                ) { Text(t("Add")) }
             }
         }
     }

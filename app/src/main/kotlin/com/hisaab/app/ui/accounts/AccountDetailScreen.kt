@@ -55,6 +55,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.AccountAvatar
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
@@ -117,8 +118,8 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
             colors = com.hisaab.app.ui.theme.clearTopBar(),
-            title = { Text(acc?.let { (it.nickname ?: it.bankName) + " ••" + it.last4 } ?: "Account") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            title = { Text(acc?.let { (it.nickname ?: it.bankName) + " ••" + it.last4 } ?: t("Account")) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
         )
     }) { inner ->
         if (acc == null) return@Scaffold
@@ -130,7 +131,7 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
                 AccountAvatar(acc.bankName, acc.kind, acc.accountType, size = 52.dp)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(acc.accountType?.label ?: if (acc.kind == com.hisaab.parser.model.AccountKind.CARD) "Card" else "Bank account",
+                    Text(t(acc.accountType?.label ?: if (acc.kind == com.hisaab.parser.model.AccountKind.CARD) "Card" else "Bank account"),
                         style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(acc.currentBalanceMinor?.let { Money.format(it) } ?: "—", style = MaterialTheme.typography.headlineMedium)
                 }
@@ -138,7 +139,7 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
 
             val now = LocalDate.now(Periods.zone).year
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                val options = listOf("6 months", "Year", "All time")
+                val options = listOf(t("6 months"), t("Year"), t("All time"))
                 options.forEachIndexed { i, label ->
                     val selected = when (i) { 0 -> range is AccountRange.SixMonths; 1 -> range is AccountRange.Year; else -> range is AccountRange.AllTime }
                     SegmentedButton(selected, {
@@ -148,10 +149,10 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
             }
             (range as? AccountRange.Year)?.let { y ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    IconButton(onClick = { vm.range.value = AccountRange.Year(y.year - 1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous year") }
+                    IconButton(onClick = { vm.range.value = AccountRange.Year(y.year - 1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, t("Previous year")) }
                     Text("${y.year}", style = MaterialTheme.typography.titleMedium)
                     IconButton(onClick = { vm.range.value = AccountRange.Year(y.year + 1) }, enabled = y.year < now) {
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next year")
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, t("Next year"))
                     }
                 }
             }
@@ -159,25 +160,25 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
             val spent = months.sumOf { it.spent }
             val income = months.sumOf { it.income }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Figure("Spent", spent, MoneyColors.debit, Modifier.weight(1f))
-                Figure("Income", income, MoneyColors.credit, Modifier.weight(1f))
+                Figure(t("Spent"), spent, MoneyColors.debit, Modifier.weight(1f))
+                Figure(t("Income"), income, MoneyColors.credit, Modifier.weight(1f))
             }
             Card(shape = RoundedCornerShape(24.dp)) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Month by month", style = MaterialTheme.typography.titleMedium)
+                    Text(t("Month by month"), style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(12.dp))
                     if (months.all { it.spent == 0L && it.income == 0L }) {
-                        Text("Nothing moved in this period.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(t("Nothing moved in this period."), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         TwoLineChart(months, MoneyColors.debit, MoneyColors.credit)
                         Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Legend("Spent", MoneyColors.debit); Legend("Income", MoneyColors.credit)
+                            Legend(t("Spent"), MoneyColors.debit); Legend(t("Income"), MoneyColors.credit)
                         }
                     }
                 }
             }
             OutlinedButton(onClick = { onOpenTransactions(acc.id) }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.AutoMirrored.Filled.ReceiptLong, null); Spacer(Modifier.width(8.dp)); Text("See transactions")
+                Icon(Icons.AutoMirrored.Filled.ReceiptLong, null); Spacer(Modifier.width(8.dp)); Text(t("See transactions"))
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -244,7 +245,7 @@ private fun TwoLineChart(months: List<MonthTotal>, spentColor: Color, incomeColo
         picked?.let { i ->
             val m = months[i]
             Text(
-                "${Periods.month(YearMonth.parse(m.month))}: spent ${Money.format(m.spent, showPaise = false)} · income ${Money.format(m.income, showPaise = false)}",
+                t("{month}: spent {spent} · income {income}", "month" to Periods.month(YearMonth.parse(m.month)), "spent" to Money.format(m.spent, showPaise = false), "income" to Money.format(m.income, showPaise = false)),
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp),
             )
         }

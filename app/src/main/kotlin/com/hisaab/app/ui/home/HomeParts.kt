@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.format.AmountPrivacy
 import com.hisaab.app.ui.theme.Hx
 import com.hisaab.shared.insight.Insight
@@ -44,10 +45,10 @@ import com.hisaab.shared.insight.Tone
 import java.time.LocalTime
 
 fun greeting(now: LocalTime = LocalTime.now()): String = when (now.hour) {
-    in 5..11 -> "Good morning"
-    in 12..16 -> "Good afternoon"
-    in 17..21 -> "Good evening"
-    else -> "Good night"
+    in 5..11 -> t("Good morning")
+    in 12..16 -> t("Good afternoon")
+    in 17..21 -> t("Good evening")
+    else -> t("Good night")
 }
 
 /** Initials in a green disc with a gold ring. */
@@ -83,19 +84,19 @@ fun HomeHeader(
                 if (!compact) Text(greeting(), style = MaterialTheme.typography.bodySmall, color = Hx.text2)
                 Text(name, style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (!compact && !hasName) Text("Tap to set up your profile", style = MaterialTheme.typography.labelMedium, color = Hx.accent)
+                if (!compact && !hasName) Text(t("Tap to set up your profile"), style = MaterialTheme.typography.labelMedium, color = Hx.accent)
             }
         }
         if (onToggleHide != null) {
             IconButton(onClick = onToggleHide) {
                 Icon(if (AmountPrivacy.hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                    if (AmountPrivacy.hidden) "Show amounts" else "Hide amounts", tint = Hx.text2)
+                    if (AmountPrivacy.hidden) t("Show amounts") else t("Hide amounts"), tint = Hx.text2)
             }
         }
-        IconButton(onClick = onOpenAccounts) { Icon(Icons.Filled.AccountBalance, "Accounts") }
+        IconButton(onClick = onOpenAccounts) { Icon(Icons.Filled.AccountBalance, t("Accounts")) }
         IconButton(onClick = onOpenNotifications) {
             androidx.compose.material3.BadgedBox(badge = { if (notifications > 0) androidx.compose.material3.Badge { Text("$notifications") } }) {
-                Icon(Icons.Filled.Notifications, "Notifications")
+                Icon(Icons.Filled.Notifications, t("Notifications"))
             }
         }
     }
@@ -110,9 +111,9 @@ data class HomeNotice(val title: String, val detail: String, val icon: androidx.
 fun NotificationsSheet(notices: List<HomeNotice>, onDismiss: () -> Unit) {
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
-            Text("Notifications", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
+            Text(t("Notifications"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
             if (notices.isEmpty()) {
-                Text("You're all caught up.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(t("You're all caught up."), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 24.dp))
             }
             notices.forEach { n ->

@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import com.hisaab.email.imap.MailServer
 
 /** How to get an app password from one provider, in a few short steps, with the pages to open. */
@@ -35,7 +36,7 @@ private fun guideFor(server: MailServer?): Guide = when (server?.provider) {
     "Gmail" -> Guide(
         listOf(
             "Turn on 2-Step Verification for your Google account (one time).",
-            "Open App passwords, type “Artha” as the name and tap Create.",
+            "Open App passwords, type “DhanKosh” as the name and tap Create.",
             "Copy the 16-letter password Google shows and paste it below.",
         ),
         "Turn on 2-Step Verification" to "https://myaccount.google.com/signinoptions/twosv",
@@ -51,21 +52,21 @@ private fun guideFor(server: MailServer?): Guide = when (server?.provider) {
     "Yahoo Mail", "AOL Mail" -> Guide(
         listOf(
             "Open Account security and choose Generate app password.",
-            "Type “Artha” as the app name and tap Generate.",
+            "Type “DhanKosh” as the app name and tap Generate.",
             "Copy the password and paste it below.",
         ),
     )
     "iCloud Mail" -> Guide(
         listOf(
             "Sign in to your Apple Account and open Sign-In and Security.",
-            "Choose App-Specific Passwords, tap +, and name it “Artha”.",
+            "Choose App-Specific Passwords, tap +, and name it “DhanKosh”.",
             "Copy the password and paste it below.",
         ),
     )
     "Zoho Mail" -> Guide(
         listOf(
             "Open Security, then App passwords, and tap Generate new password.",
-            "Name it “Artha” and copy the password Zoho shows.",
+            "Name it “DhanKosh” and copy the password Zoho shows.",
             "Paste it below.",
         ),
     )
@@ -91,10 +92,10 @@ fun AppPasswordGuide(server: MailServer?, onOpen: (String) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Lock, null, tint = c.onSecondaryContainer, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Get your app password", style = MaterialTheme.typography.titleSmall, color = c.onSecondaryContainer)
+                Text(t("Get your app password"), style = MaterialTheme.typography.titleSmall, color = c.onSecondaryContainer)
             }
             Text(
-                "An app password is a separate password just for Artha. Your normal password stays private, and you can revoke this one any time.",
+                t("An app password is a separate password just for DhanKosh. Your normal password stays private, and you can revoke this one any time."),
                 style = MaterialTheme.typography.bodySmall, color = c.onSecondaryContainer,
             )
             guide.steps.forEachIndexed { i, step ->
@@ -103,12 +104,12 @@ fun AppPasswordGuide(server: MailServer?, onOpen: (String) -> Unit) {
                         Text("${i + 1}", style = MaterialTheme.typography.labelMedium, color = c.onPrimary, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.width(10.dp))
-                    Text(step, style = MaterialTheme.typography.bodyMedium, color = c.onSecondaryContainer, modifier = Modifier.weight(1f))
+                    Text(t(step), style = MaterialTheme.typography.bodyMedium, color = c.onSecondaryContainer, modifier = Modifier.weight(1f))
                 }
             }
             guide.prerequisite?.let { (label, url) ->
                 TextButton(onClick = { onOpen(url) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                    Text("Step 1: $label")
+                    Text(t("Step 1: {step}", "step" to t(label)))
                     Spacer(Modifier.width(6.dp))
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(16.dp))
                 }
@@ -117,7 +118,7 @@ fun AppPasswordGuide(server: MailServer?, onOpen: (String) -> Unit) {
                 FilledTonalButton(onClick = { onOpen(url) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Open ${server.provider} app passwords")
+                    Text(t("Open {provider} app passwords", "provider" to server.provider))
                 }
                 Text(url, style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant)
             }

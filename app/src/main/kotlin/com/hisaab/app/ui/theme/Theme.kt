@@ -55,7 +55,7 @@ import com.hisaab.parser.model.Category
 @Composable
 fun HisaabTheme(
     mode: ThemeMode = ThemeMode.SYSTEM,
-    palette: ThemePalette = ThemePalette.CLASSIC,
+    palette: ThemePalette = ThemePalette.DHANKOSH,
     textScale: Float = 1f,
     pureBlack: Boolean = false,
     content: @Composable () -> Unit,
@@ -65,7 +65,7 @@ fun HisaabTheme(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    // Always Artha's own colours: wallpaper-based Material You would make it look like every other app.
+    // Always DhanKosh's own colours: wallpaper-based Material You would make it look like every other app.
     val spec = remember(palette, pureBlack) { if (pureBlack) palette.spec.pureBlack() else palette.spec }
     val colors = if (dark) spec.dark else spec.light
     val resolver = LocalContext.current.contentResolver

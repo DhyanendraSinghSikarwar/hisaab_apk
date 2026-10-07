@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.hisaab.app.csv.CsvTransfer
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.AppSettings
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.settings.ThemeMode
@@ -85,7 +86,7 @@ class SettingsViewModel @Inject constructor(
 
     fun removeEmail(email: String) = viewModelScope.launch {
         mail.remove(email)
-        say("$email disconnected. Its saved app password was deleted; transactions stay.")
+        say(t("{email} disconnected. Its saved app password was deleted; transactions stay.", "email" to email))
     }
 
     private val _messages = Channel<String>(Channel.BUFFERED)
@@ -104,7 +105,7 @@ class SettingsViewModel @Inject constructor(
             is ConnectResult.Connected -> {
                 GmailScheduler.schedulePeriodic(context)
                 GmailScheduler.syncNow(context)
-                say("Gmail connected${result.email?.let { " as $it" }.orEmpty()}. First sync started.")
+                say(result.email?.let { t("Gmail connected as {email}. First sync started.", "email" to it) } ?: t("Gmail connected. First sync started."))
             }
             is ConnectResult.Failed -> say(result.message)
             is ConnectResult.NeedsConsent -> Unit
@@ -115,10 +116,10 @@ class SettingsViewModel @Inject constructor(
         GmailScheduler.cancel(context)
         if (gmail.read().connection == MailConnection.IMAP) {
             mail.signOut()
-            say("Email disconnected. The saved app password and its key were deleted.")
+            say(t("Email disconnected. The saved app password and its key were deleted."))
         } else {
             auth.signOut()
-            say("Signed out of Gmail. Access revoked and tokens deleted.")
+            say(t("Signed out of Gmail. Access revoked and tokens deleted."))
         }
     }
 
@@ -133,7 +134,7 @@ class SettingsViewModel @Inject constructor(
         SmsScanScheduler.scanIfPermitted(context, full = true)
         val g = gmail.read()
         if (g.connected && g.enabled) GmailScheduler.syncNow(context)
-        say("Fetching the last $days days of SMS" + if (g.connected && g.enabled) " and email" else "")
+        say(if (g.connected && g.enabled) t("Fetching the last {n} days of SMS and email", "n" to days) else t("Fetching the last {n} days of SMS", "n" to days))
     }
     fun setSenders(list: List<String>) = viewModelScope.launch { gmail.setSenders(list) }
     fun resetSenders() = viewModelScope.launch { gmail.resetSenders() }
@@ -148,7 +149,7 @@ class SettingsViewModel @Inject constructor(
         processedEmails.clear()
         gmail.forgetSyncPosition()
         GmailScheduler.syncNow(context)
-        say("Reading your email again for statements. This can take a few minutes.")
+        say(t("Reading your email again for statements. This can take a few minutes."))
     }
 
     // SMS
@@ -172,7 +173,7 @@ class SettingsViewModel @Inject constructor(
             context.contentResolver.openOutputStream(uri, "wt")!!.bufferedWriter().use { CsvTransfer.export(rows, it) }
             rows.size
         }
-        say("Exported $count transactions to ${DocumentFile.fromSingleUri(context, uri)?.name ?: "file"}")
+        say(t("Exported {n} transactions to {file}", "n" to count, "file" to (DocumentFile.fromSingleUri(context, uri)?.name ?: t("file"))))
     }
 
     fun import(uri: Uri) = viewModelScope.launch {
@@ -182,9 +183,9 @@ class SettingsViewModel @Inject constructor(
             }
             val report = repository.importTransactions(result.rows)
             if (report.inserted > 0) notifier.onTransactionsChanged()
-            say("Imported ${report.inserted}, skipped ${report.skipped} already present" + if (result.badLines > 0) ", ${result.badLines} unreadable lines" else "")
+            say(t("Imported {inserted}, skipped {skipped} already present", "inserted" to report.inserted, "skipped" to report.skipped) + if (result.badLines > 0) ", " + t("{n} unreadable lines", "n" to result.badLines) else "")
         } catch (e: Exception) {
-            say("Import failed: ${e.message}")
+            say(t("Import failed: {error}", "error" to e.message))
         }
     }
 }

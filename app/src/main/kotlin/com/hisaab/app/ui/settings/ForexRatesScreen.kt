@@ -56,6 +56,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.shared.db.ForexDao
 import com.hisaab.shared.db.ForexRateEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -93,11 +94,11 @@ fun ForexRatesRoute(onBack: () -> Unit, vm: ForexRatesViewModel = hiltViewModel(
         containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Forex rates") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(t("Forex rates")) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
             )
         },
-        floatingActionButton = { FloatingActionButton(onClick = { adding = foreign.firstOrNull()?.currency ?: "USD" }) { Icon(Icons.Filled.Add, "Add rate") } },
+        floatingActionButton = { FloatingActionButton(onClick = { adding = foreign.firstOrNull()?.currency ?: "USD" }) { Icon(Icons.Filled.Add, t("Add rate")) } },
     ) { inner ->
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -108,12 +109,12 @@ fun ForexRatesRoute(onBack: () -> Unit, vm: ForexRatesViewModel = hiltViewModel(
                 item {
                     Card {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Your spends abroad", style = MaterialTheme.typography.titleSmall)
+                            Text(t("Your spends abroad"), style = MaterialTheme.typography.titleSmall)
                             foreign.forEach { f ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("${f.currency} · ${f.count}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                    if (f.unpriced > 0) TextButton(onClick = { adding = f.currency }) { Text("${f.unpriced} need a rate") }
-                                    else Text("All counted", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                    if (f.unpriced > 0) TextButton(onClick = { adding = f.currency }) { Text(t("{n} need a rate", "n" to f.unpriced)) }
+                                    else Text(t("All counted"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -122,7 +123,7 @@ fun ForexRatesRoute(onBack: () -> Unit, vm: ForexRatesViewModel = hiltViewModel(
             }
             item {
                 Text(
-                    "Each spend uses the rate of its date, or the nearest date you set. Card markup is set on each card.",
+                    t("Each spend uses the rate of its date, or the nearest date you set. Card markup is set on each card."),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -130,7 +131,7 @@ fun ForexRatesRoute(onBack: () -> Unit, vm: ForexRatesViewModel = hiltViewModel(
                 ListItem(
                     headlineContent = { Text("1 ${r.currency} = ₹${"%.2f".format(r.inrPerUnit)}") },
                     supportingContent = { Text(LocalDate.ofEpochDay(r.day).format(DAY)) },
-                    trailingContent = { IconButton(onClick = { vm.delete(r) }) { Icon(Icons.Filled.Delete, "Delete") } },
+                    trailingContent = { IconButton(onClick = { vm.delete(r) }) { Icon(Icons.Filled.Delete, t("Delete")) } },
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     modifier = Modifier.animateItem(),
                 )
@@ -155,7 +156,7 @@ private fun RateDialog(start: String, known: List<String>, onDismiss: () -> Unit
     val value = rate.toDoubleOrNull()?.takeIf { it > 0 }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add rate") },
+        title = { Text(t("Add rate")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -164,22 +165,22 @@ private fun RateDialog(start: String, known: List<String>, onDismiss: () -> Unit
                     }
                 }
                 OutlinedTextField(
-                    currency, { currency = it.uppercase().filter(Char::isLetter).take(3) }, Modifier.fillMaxWidth(), label = { Text("Currency") },
+                    currency, { currency = it.uppercase().filter(Char::isLetter).take(3) }, Modifier.fillMaxWidth(), label = { Text(t("Currency")) },
                     singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                 )
                 OutlinedTextField(
-                    day.format(DAY), {}, Modifier.fillMaxWidth(), readOnly = true, label = { Text("Date") },
+                    day.format(DAY), {}, Modifier.fillMaxWidth(), readOnly = true, label = { Text(t("Date")) },
                     leadingIcon = { Icon(Icons.Filled.Event, null) }, interactionSource = press, singleLine = true,
                 )
                 OutlinedTextField(
                     rate, { rate = it.filter { c -> c.isDigit() || c == '.' }.take(10) }, Modifier.fillMaxWidth(),
-                    label = { Text("Rupees for 1 $currency") }, prefix = { Text("₹") }, singleLine = true,
+                    label = { Text(t("Rupees for 1 {currency}", "currency" to currency)) }, prefix = { Text("₹") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
             }
         },
-        confirmButton = { TextButton(enabled = currency.length == 3 && value != null, onClick = { onSave(currency, day, value!!) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(enabled = currency.length == 3 && value != null, onClick = { onSave(currency, day, value!!) }) { Text(t("Save")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t("Cancel")) } },
     )
     if (picking) {
         val state = rememberDatePickerState(initialSelectedDateMillis = day.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
@@ -189,9 +190,9 @@ private fun RateDialog(start: String, known: List<String>, onDismiss: () -> Unit
                 TextButton(onClick = {
                     state.selectedDateMillis?.let { day = java.time.Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
                     picking = false
-                }) { Text("Done") }
+                }) { Text(t("Done")) }
             },
-            dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text(t("Cancel")) } },
         ) { DatePicker(state) }
     }
 }

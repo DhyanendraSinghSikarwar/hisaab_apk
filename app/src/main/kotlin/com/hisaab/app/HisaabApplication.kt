@@ -9,6 +9,7 @@ import com.hisaab.email.sync.GmailSettingsStore
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -26,6 +27,8 @@ class HisaabApplication : Application(), Configuration.Provider {
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
 
     @Inject lateinit var languages: com.hisaab.app.i18n.LanguageStore
+    @Inject lateinit var holdings: com.hisaab.shared.repo.HoldingRepository
+    @Inject lateinit var statementPasswords: com.hisaab.email.statement.StatementPasswordStore
 
     override fun onCreate() {
         super.onCreate()
@@ -42,6 +45,18 @@ class HisaabApplication : Application(), Configuration.Provider {
             if (gmailSettings.settings.first().enabled) GmailScheduler.schedulePeriodic(this@HisaabApplication)
         }
         appScope.launch { reparseOnce() }
+        // Folds the same investment seen from several statements into one holding.
+        appScope.launch { runCatching { holdings.dedupe() } }
+        // The user's own mobile numbers never become accounts; keep the guard current as the profile changes.
+        appScope.launch {
+            kotlinx.coroutines.flow.combine(appSettings.settings, statementPasswords.identity) { a, id ->
+                listOfNotNull(a.profile.phone, id.phone, id.altPhone)
+                    .map { p -> p.filter(Char::isDigit) }.filter { it.length >= 10 }.map { it.takeLast(4) }.toSet()
+            }.distinctUntilChanged().collect { phones ->
+                transactions.phoneLast4s = phones
+                runCatching { transactions.removePhoneAccounts(phones) }
+            }
+        }
     }
 
     /**
@@ -54,9 +69,9 @@ class HisaabApplication : Application(), Configuration.Provider {
         runCatching {
             val digits = appSettings.settings.first().profile.phone.orEmpty().filter { it.isDigit() }
             val report = transactions.reparseStored(digits.takeIf { it.length >= 10 }?.takeLast(4))
-            android.util.Log.i("Artha", "Reparse: ${report.changed} transactions fixed, ${report.accountsDeleted} accounts removed")
+            android.util.Log.i("DhanKosh", "Reparse: ${report.changed} transactions fixed, ${report.accountsDeleted} accounts removed")
         }.onSuccess { prefs.edit().putBoolean(REPARSE_KEY, true).apply() }
-            .onFailure { android.util.Log.w("Artha", "Reparse failed: ${it.javaClass.simpleName}") }
+            .onFailure { android.util.Log.w("DhanKosh", "Reparse failed: ${it.javaClass.simpleName}") }
     }
 
     private companion object {

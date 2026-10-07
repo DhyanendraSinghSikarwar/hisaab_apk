@@ -20,6 +20,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hisaab.app.i18n.t
 import com.hisaab.app.security.AppLockGate
 import com.hisaab.app.ui.components.CardGap
 import com.hisaab.app.ui.components.HCard
@@ -29,7 +30,7 @@ import com.hisaab.app.ui.settings.SettingsViewModel
 
 private val BUDGET_LEVELS = listOf(80, 90, 95)
 
-/** What Artha tells you about, and when. */
+/** What DhanKosh tells you about, and when. */
 @Composable
 fun AlertsRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -37,12 +38,12 @@ fun AlertsRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
     var allowed by remember { mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled()) }
     LifecycleResumeEffect(Unit) { allowed = NotificationManagerCompat.from(context).areNotificationsEnabled(); onPauseOrDispose { } }
 
-    MoreScaffold("Notifications & alerts", onBack) { inner ->
+    MoreScaffold(t("Notifications & alerts"), onBack) { inner ->
         val app = s.app ?: return@MoreScaffold
         LazyColumn(contentPadding = listPadding(inner), verticalArrangement = Arrangement.spacedBy(CardGap)) {
             if (!allowed) item("blocked") {
                 HCard {
-                    HRow("Notifications are off", "Android is blocking alerts from Artha") {
+                    HRow(t("Notifications are off"), t("Android is blocking alerts from DhanKosh")) {
                         Button(onClick = {
                             AppLockGate.skipNextLock()
                             context.startActivity(
@@ -50,23 +51,23 @@ fun AlertsRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
                                     .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                             )
-                        }) { Text("Allow") }
+                        }) { Text(t("Allow")) }
                     }
                 }
             }
             item("tx") {
-                HCard(title = "Transactions") {
-                    SettingSwitch("Transaction alerts", "Each new spend, with quick category buttons", app.transactionNotifications, vm::setTransactionNotifications)
+                HCard(title = t("Transactions")) {
+                    SettingSwitch(t("Transaction alerts"), t("Each new spend, with quick category buttons"), app.transactionNotifications, vm::setTransactionNotifications)
                 }
             }
             item("budget") {
-                HCard(title = "Budgets") {
-                    Text("Alert me when a budget reaches", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 8.dp))
+                HCard(title = t("Budgets")) {
+                    Text(t("Alert me when a budget reaches"), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 8.dp))
                     Segmented(
                         BUDGET_LEVELS.map { "$it%" }, BUDGET_LEVELS.indexOf(app.budgetAlertPercent),
                         onSelect = { vm.setBudgetAlertPercent(BUDGET_LEVELS[it]) },
                     )
-                    HelpText("You are also told when a budget is used up.", Modifier.padding(top = 8.dp))
+                    HelpText(t("You are also told when a budget is used up."), Modifier.padding(top = 8.dp))
                 }
             }
         }

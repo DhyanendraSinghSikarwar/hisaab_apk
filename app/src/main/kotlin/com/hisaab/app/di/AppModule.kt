@@ -23,6 +23,7 @@ abstract class AppBindings {
     @Binds abstract fun notifier(impl: com.hisaab.app.notify.TransactionsChangedHub): TransactionsChangedNotifier
     @Binds abstract fun inbox(impl: TelephonySmsInboxSource): SmsInboxSource
     @Binds abstract fun lockedStatements(impl: StatementNotifications): LockedStatementNotifier
+    @Binds abstract fun balanceUpdates(impl: com.hisaab.app.notify.BalanceNotifications): com.hisaab.shared.repo.BalanceUpdateNotifier
 }
 
 @Module

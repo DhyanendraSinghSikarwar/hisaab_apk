@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.hisaab.app.MainActivity
 import com.hisaab.app.R
+import com.hisaab.app.i18n.t
 import com.hisaab.email.statement.LockedStatementNotifier
 import com.hisaab.shared.db.StatementEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -28,7 +29,6 @@ class StatementNotifications @Inject constructor(@ApplicationContext private val
         val manager = NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) return
         ensureChannel()
-        val who = statement.bankName ?: "A"
         val open = PendingIntent.getActivity(
             context, statement.id.toInt(),
             Intent(Intent.ACTION_VIEW, Uri.parse("hisaab://statements?unlock=${statement.id}"), context, MainActivity::class.java)
@@ -37,10 +37,10 @@ class StatementNotifications @Inject constructor(@ApplicationContext private val
         )
         val n = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_statement)
-            .setContentTitle("$who statement detected")
-            .setContentText("It's password protected. Tap to enter the password so Artha can read it.")
+            .setContentTitle(statement.bankName?.let { t("{bank} statement detected", "bank" to it) } ?: t("A statement detected"))
+            .setContentText(t("It's password protected. Tap to enter the password so DhanKosh can read it."))
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "${statement.fileName} is password protected. Tap to enter its password. It's read and kept only on this phone.",
+                t("{file} is password protected. Tap to enter its password. It's read and kept only on this phone.", "file" to statement.fileName),
             ))
             .setContentIntent(open)
             .setAutoCancel(true)
@@ -58,8 +58,8 @@ class StatementNotifications @Inject constructor(@ApplicationContext private val
         val nm = context.getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL) == null) {
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL, "Statements", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                    description = "A statement arrived that needs its password"
+                NotificationChannel(CHANNEL, t("Statements"), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = t("A statement arrived that needs its password")
                 },
             )
         }

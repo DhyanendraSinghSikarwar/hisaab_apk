@@ -50,6 +50,14 @@ abstract class BaseBankParser(protected val config: ParserConfig) : BankParser {
 
     protected open fun bankNameFor(sender: String): String = bankName
 
+    /** An FD, RD or PPF account this bank's message describes (booking, renewal, maturity, balance), or null. */
+    fun depositStatus(body: String, sender: String, timestamp: Long, source: Source = Source.SMS): LoanStatus? {
+        if (!DepositParser.mentionsDeposit(body)) return null
+        // An email's footer (offers, "book an FD now") is not about the user's deposit.
+        val text = if (source == Source.EMAIL) TextNormalizer.trimEmail(TextNormalizer.normalize(body)) else body
+        return DepositParser.status(text, bankNameFor(sender), timestamp)
+    }
+
     override fun parse(body: String, sender: String, timestamp: Long, source: Source): ParsedTransaction? {
         val normalized = TextNormalizer.normalize(body)
         val text = if (source == Source.EMAIL) TextNormalizer.trimEmail(normalized) else normalized
@@ -70,6 +78,8 @@ abstract class BaseBankParser(protected val config: ParserConfig) : BankParser {
 
         // A message with neither an account nor a reference is almost always marketing.
         if (last4 == null && reference == null && hit == null) return null
+        // An FD/RD/PPF advice about the deposit itself is a deposit status (see depositStatus), not money moving on an account.
+        if (DepositParser.aboutDepositOnly(text, last4)) return null
 
         val channel = ChannelDetector.detect(text, lower)
         val raw = if (hit?.merchant != null || hit?.vpa != null) RawMerchant(hit.merchant, hit.vpa)

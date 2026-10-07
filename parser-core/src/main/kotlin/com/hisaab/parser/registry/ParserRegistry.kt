@@ -11,6 +11,9 @@ import com.hisaab.parser.bank.HdfcBankParser
 import com.hisaab.parser.bank.IciciBankParser
 import com.hisaab.parser.bank.IdfcFirstBankParser
 import com.hisaab.parser.bank.KotakBankParser
+import com.hisaab.parser.bank.LenderParser
+import com.hisaab.parser.bank.Lenders
+import com.hisaab.parser.bank.LoanStatus
 import com.hisaab.parser.bank.PnbParser
 import com.hisaab.parser.bank.SbiParser
 import com.hisaab.parser.bank.YesBankParser
@@ -43,6 +46,16 @@ class ParserRegistry(
      */
     fun accepts(sender: String): Boolean = isKnownSender(sender) || fallback?.canHandle(sender, "") == true
 
+    /**
+     * What a lender's message says about a loan when it is not a payment (disbursal, outstanding, reminder), or what a
+     * bank's message says about an FD, RD or PPF account (booking, renewal, maturity, balance; see [LoanStatus.deposit]).
+     */
+    fun loanStatus(body: String, sender: String, timestamp: Long, source: Source): LoanStatus? {
+        val parser = resolve(sender) ?: fallback?.takeIf { it.canHandle(sender, body) }
+        if (parser is LenderParser) return parser.status(body, timestamp, source)
+        return (parser as? BaseBankParser)?.depositStatus(body, sender, timestamp, source)
+    }
+
     fun parse(body: String, sender: String, timestamp: Long, source: Source): ParsedTransaction? {
         val parser = resolve(sender) ?: fallback?.takeIf { it.canHandle(sender, body) } ?: return null
         return parser.parse(body, sender, timestamp, source)
@@ -64,6 +77,9 @@ class ParserRegistry(
             "citibank.com", "dbs.com", "paytmbank.com", "nps-proteantech.in", "proteantech.in",
             "cdslindia.co.in", "cdsl.co.in", "npstrust.org.in", "npscra.nsdl.co.in", "kfintech-cra.com", "camsnps.com",
             "epfo.gov.in", "umang.gov.in",
+            // Lenders (NBFC and fintech): EMI receipts and loan statements.
+            "propelld.com", "adityabirlacapital.com", "abcd.adityabirlacapital.com", "tatacapital.com", "credila.com", "avanse.com",
+            "incred.com", "smfgindiacredit.com", "homecredit.co.in", "kreditbee.in", "navi.com", "poonawallafincorp.com", "hdbfs.com",
             // Mutual fund apps and platforms: SIP instalment and order confirmations.
             "paytmmoney.com", "etmoney.com", "mfcentral.com", "bsestarmf.in", "mfuindia.com", "scripbox.com", "fisdom.com",
         )
@@ -76,10 +92,14 @@ class ParserRegistry(
         val STATEMENT_SUBJECTS = listOf(
             "Consolidated Account Statement", "NPS Transaction Statement", "PRAN", "EPF Passbook", "Member Passbook",
             "SIP installment", "SIP instalment", "units allotted", "allotment of units",
+            "Statement of Transaction", "NPS contribution", "Holdings statement", "mutual fund statement",
+            "Fixed Deposit", "Term Deposit", "Recurring Deposit", "Deposit advice", "PPF statement", "Public Provident Fund", "portfolio summary",
         )
         private val STATEMENT_SUBJECT = com.hisaab.parser.text.rx(
             """consolidated\s+account\s+statement|\bCAS\b|\bNPS\b.{0,40}statement|\bPRAN\b|\bEPF\b.{0,30}(?:passbook|statement)|member\s+passbook""" +
-                """|\bSIP\b.{0,60}\b(?:instal+ment|processed|successful|allot+ed)|\bunits?\s+(?:have\s+been\s+)?allot+ed|allotment\s+of\s+units""",
+                """|\bSIP\b.{0,60}\b(?:instal+ment|processed|successful|allot+ed)|\bunits?\s+(?:have\s+been\s+)?allot+ed|allotment\s+of\s+units""" +
+                """|statement\s+of\s+transactions?|\bNPS\b.{0,40}(?:contribution|holding|transaction)|holdings?\s+statement|mutual\s+fund\s+statement""" +
+                """|(?:fixed|term|recurring)\s+deposit|deposit\s+advice|\bPPF\b.{0,30}statement|public\s+provident\s+fund|portfolio\s+summary""",
         )
 
         fun isStatementSubject(subject: String?): Boolean = subject != null && STATEMENT_SUBJECT.containsMatchIn(subject)
@@ -89,7 +109,7 @@ class ParserRegistry(
                 HdfcBankParser(config), IciciBankParser(config), SbiParser(config), AxisBankParser(config),
                 KotakBankParser(config), IdfcFirstBankParser(config), YesBankParser(config), BankOfBarodaParser(config),
                 PnbParser(config), AuBankParser(config),
-            ),
+            ) + Lenders.parsers(config),
             fallback = GenericBankParser(config),
         )
     }

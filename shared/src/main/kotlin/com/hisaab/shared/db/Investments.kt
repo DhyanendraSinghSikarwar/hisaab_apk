@@ -12,7 +12,7 @@ import androidx.room.Update
 import com.hisaab.parser.model.HoldingKind
 import kotlinx.coroutines.flow.Flow
 
-/** A statement PDF Artha has seen, from email or a file the user picked. Locked ones keep a private copy until unlocked. */
+/** A statement PDF DhanKosh has seen, from email or a file the user picked. Locked ones keep a private copy until unlocked. */
 @Entity(tableName = "statements", indices = [Index(value = ["key"], unique = true)])
 data class StatementEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

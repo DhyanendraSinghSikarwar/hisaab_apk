@@ -51,6 +51,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.hisaab.app.i18n.t
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
@@ -77,12 +78,15 @@ fun DonutChart(
     centerValue: (Long) -> String,
     modifier: Modifier = Modifier,
     thickness: Dp = 26.dp,
+    animate: Boolean = true,
 ) {
     val haptics = LocalHapticFeedback.current
     val total = slices.sumOf { it.value }.coerceAtLeast(1)
-    val sweep = remember { Animatable(0f) }
+    val sweep = remember { Animatable(if (animate) 0f else 1f) }
     val pop = remember { Animatable(0f) }
-    LaunchedEffect(slices) { sweep.snapTo(0f); sweep.animateTo(1f, tween(750, easing = FastOutSlowInEasing)) }
+    LaunchedEffect(slices) {
+        if (animate) { sweep.snapTo(0f); sweep.animateTo(1f, tween(750, easing = FastOutSlowInEasing)) } else sweep.snapTo(1f)
+    }
     LaunchedEffect(selected) { pop.snapTo(0f); if (selected != null) pop.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow)) }
     val currentSelect by rememberUpdatedState(onSelect)
     val currentSelected by rememberUpdatedState(selected)
@@ -233,8 +237,8 @@ fun AreaLineChart(
     format: (Long) -> String,
     color: Color,
     modifier: Modifier = Modifier,
-    seriesName: String = "This month",
-    compareName: String = "Last month",
+    seriesName: String = t("This month"),
+    compareName: String = t("Last month"),
     height: Dp = 240.dp,
 ) {
     val haptics = LocalHapticFeedback.current

@@ -14,6 +14,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.hisaab.app.security.AppLockGate
+import com.hisaab.app.i18n.t
 import androidx.compose.foundation.layout.fillMaxSize
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.settings.ThemeMode
@@ -33,7 +34,7 @@ class MainActivity : FragmentActivity() {
     private var lockEnabled by mutableStateOf<Boolean?>(null)
     private var unlocked by mutableStateOf(false)
     private var theme by mutableStateOf(ThemeMode.SYSTEM)
-    private var palette by mutableStateOf(ThemePalette.CLASSIC)
+    private var palette by mutableStateOf(ThemePalette.DHANKOSH)
     private var textScale by mutableStateOf(1f)
     private var pureBlack by mutableStateOf(false)
 
@@ -92,8 +93,8 @@ class MainActivity : FragmentActivity() {
         })
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Unlock Artha")
-                .setSubtitle("Your transactions are protected")
+                .setTitle(t("Unlock DhanKosh"))
+                .setSubtitle(t("Your transactions are protected"))
                 .setAllowedAuthenticators(BIOMETRIC_WEAK or DEVICE_CREDENTIAL)
                 .build(),
         )

@@ -52,6 +52,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.ui.settings.EmailConnectDialog
 import com.hisaab.app.ui.theme.BackdropColors
@@ -119,25 +120,25 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Spacer(Modifier.height(72.dp))
-                // The Artha mark on a soft tile, as on the launcher icon.
+                // The DhanKosh mark on a soft tile, as on the launcher icon.
                 Box(
                     Modifier.size(104.dp).background(
-                        Brush.linearGradient(listOf(Color(0xFFFFF7E6), Color(0xFFD9F2EA))), RoundedCornerShape(30.dp),
+                        Brush.linearGradient(listOf(Color(0xFFF7FAF8), Color(0xFFE9EEF6))), RoundedCornerShape(30.dp),
                     ),
                     contentAlignment = Alignment.Center,
                 ) {
                     androidx.compose.foundation.Image(
-                        androidx.compose.ui.res.painterResource(com.hisaab.app.R.drawable.artha_mark), "Artha",
+                        androidx.compose.ui.res.painterResource(com.hisaab.app.R.drawable.artha_mark), "DhanKosh",
                         modifier = Modifier.size(72.dp),
                     )
                 }
                 Spacer(Modifier.height(20.dp))
-                Text("Artha", style = MaterialTheme.typography.displaySmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                Text("Know your money.", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant, textAlign = TextAlign.Center)
+                Text("DhanKosh", style = MaterialTheme.typography.displaySmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text(t("Know your money."), style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(40.dp))
 
                 OutlinedTextField(
-                    name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Full name (as per bank)") }, singleLine = true,
+                    name, { name = it }, Modifier.fillMaxWidth(), label = { Text(t("Full name (as per bank)")) }, singleLine = true,
                     leadingIcon = { Icon(Icons.Filled.Person, null) }, shape = RoundedCornerShape(16.dp),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                 )
@@ -145,10 +146,10 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
                 AnimatedContent(mode, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "signin") { m ->
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (m == "details") {
-                            Text("Unlock your statements", style = MaterialTheme.typography.titleMedium)
+                            Text(t("Unlock your statements"), style = MaterialTheme.typography.titleMedium)
                             if (email != null) {
                                 OutlinedTextField(
-                                    phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("Mobile (as per bank)") },
+                                    phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text(t("Mobile (as per bank)")) },
                                     prefix = { Text("+91 ") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Phone, null) }, shape = RoundedCornerShape(16.dp),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
                                 )
@@ -161,40 +162,40 @@ fun WelcomeScreen(vm: WelcomeViewModel = hiltViewModel()) {
                                         altName, altPhone.takeIf { it.length == 10 }?.let { "+91 $it" })
                                 },
                                 enabled = com.hisaab.app.ui.profile.validPan(pan), modifier = Modifier.fillMaxWidth().height(52.dp),
-                            ) { Text("Finish") }
+                            ) { Text(t("Finish")) }
                             TextButton(onClick = { vm.finish(name, email, phone.takeIf { it.length == 10 }?.let { "+91 $it" }) }, modifier = Modifier.fillMaxWidth()) {
-                                Text("Skip for now")
+                                Text(t("Skip for now"))
                             }
                         } else if (m == "phone") {
                             OutlinedTextField(
-                                phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("Mobile (as per bank)") },
+                                phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text(t("Mobile (as per bank)")) },
                                 prefix = { Text("+91 ") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Phone, null) }, shape = RoundedCornerShape(16.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
                             )
                             Button(
                                 onClick = { mode = "details" }, enabled = name.isNotBlank() && phone.length == 10,
                                 modifier = Modifier.fillMaxWidth().height(52.dp),
-                            ) { Text("Continue") }
-                            TextButton(onClick = { mode = "choose" }, modifier = Modifier.fillMaxWidth()) { Text("Use email instead") }
+                            ) { Text(t("Continue")) }
+                            TextButton(onClick = { mode = "choose" }, modifier = Modifier.fillMaxWidth()) { Text(t("Use email instead")) }
                         } else {
                             Button(onClick = { connecting = true }, enabled = name.isNotBlank(), modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                                Icon(Icons.Filled.Email, null); Spacer(Modifier.size(10.dp)); Text("Continue with email")
+                                Icon(Icons.Filled.Email, null); Spacer(Modifier.size(10.dp)); Text(t("Continue with email"))
                             }
                             OutlinedButton(onClick = { mode = "phone" }, enabled = name.isNotBlank(), modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                                Icon(Icons.Filled.Phone, null); Spacer(Modifier.size(10.dp)); Text("Continue with phone number")
+                                Icon(Icons.Filled.Phone, null); Spacer(Modifier.size(10.dp)); Text(t("Continue with phone number"))
                             }
                         }
                     }
                 }
                 Spacer(Modifier.height(32.dp))
                 Text(
-                    "Email sign-in also reads your bank alerts and statements.",
+                    t("Email sign-in also reads your bank alerts and statements."),
                     style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant, textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(8.dp))
                 androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Lock, null, tint = c.primary, modifier = Modifier.size(14.dp))
-                    Text(" Your data never leaves this phone.", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                    Text(" " + t("Your data never leaves this phone."), style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(32.dp))
             }

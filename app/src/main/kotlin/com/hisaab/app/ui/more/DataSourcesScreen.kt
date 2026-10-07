@@ -60,6 +60,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.notify.PaymentNotificationListener
 import com.hisaab.app.security.AppLockGate
 import com.hisaab.app.settings.AppSettingsStore
@@ -123,22 +124,22 @@ class DataSourcesViewModel @Inject constructor(
 internal fun ago(at: Long, now: Long = System.currentTimeMillis()): String {
     val m = (now - at) / 60_000
     return when {
-        m < 1 -> "just now"
-        m < 60 -> "$m min ago"
-        m < 24 * 60 -> "${m / 60} h ago"
-        m < 7 * 24 * 60 -> "${m / (24 * 60)} day${if (m / (24 * 60) == 1L) "" else "s"} ago"
+        m < 1 -> t("just now")
+        m < 60 -> t("{n} min ago", "n" to m)
+        m < 24 * 60 -> t("{n} h ago", "n" to m / 60)
+        m < 7 * 24 * 60 -> if (m / (24 * 60) == 1L) t("{n} day ago", "n" to m / (24 * 60)) else t("{n} days ago", "n" to m / (24 * 60))
         else -> Periods.localDate(at).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy"))
     }
 }
 
 /** Where the connected mailbox comes from, for the Email row. Null when no mailbox is connected. */
 internal fun mailboxLabel(g: GmailSettings?, imap: List<String>): String? = when (g?.connection) {
-    MailConnection.GOOGLE -> g.accountEmail ?: "Google account"
-    MailConnection.IMAP -> imap.firstOrNull()?.let { if (imap.size > 1) "$it +${imap.size - 1}" else it } ?: g.accountEmail ?: "Mailbox"
+    MailConnection.GOOGLE -> g.accountEmail ?: t("Google account")
+    MailConnection.IMAP -> imap.firstOrNull()?.let { if (imap.size > 1) "$it +${imap.size - 1}" else it } ?: g.accountEmail ?: t("Mailbox")
     else -> null
 }
 
-/** Every source Artha reads, and every control for them: SMS, email, payment-app notifications, history window. */
+/** Every source DhanKosh reads, and every control for them: SMS, email, payment-app notifications, history window. */
 @Composable
 fun DataSourcesRoute(
     onBack: () -> Unit,
@@ -181,49 +182,49 @@ fun DataSourcesRoute(
         }
     }
 
-    MoreScaffold("Data sources", onBack, snackbar = snackbar) { inner ->
+    MoreScaffold(t("Data sources"), onBack, snackbar = snackbar) { inner ->
         if (!s.loaded) return@MoreScaffold
         LazyColumn(contentPadding = listPadding(inner), verticalArrangement = Arrangement.spacedBy(CardGap)) {
             item("intro") {
                 Text(
-                    "Everything Artha knows comes from these sources, and it all stays on this phone.",
+                    t("Everything DhanKosh knows comes from these sources, and it all stays on this phone."),
                     style = MaterialTheme.typography.bodyMedium, color = Hx.text2, modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
             item("history") {
                 val lookback = s.mail?.lookbackDays ?: GmailSettings.DEFAULT_LOOKBACK
                 val choices = GmailSettings.LOOKBACK_CHOICES
-                HCard(title = "History to read") {
+                HCard(title = t("History to read")) {
                     Segmented(
-                        choices.map { "${it}d" }, choices.indexOf(lookback).coerceAtLeast(0),
+                        choices.map { t("{n}d", "n" to it) }, choices.indexOf(lookback).coerceAtLeast(0),
                         onSelect = { settings.setLookback(choices[it]) },
                     )
-                    HelpText("How far back SMS and email are read. Changing it reads that period again.", Modifier.padding(top = 8.dp))
+                    HelpText(t("How far back SMS and email are read. Changing it reads that period again."), Modifier.padding(top = 8.dp))
                 }
             }
             item("sms") {
                 val on = sms.granted && s.smsEnabled
                 SourceCard(
-                    icon = Icons.Filled.Sms, color = Hx.palette[0], title = "Bank SMS",
+                    icon = Icons.Filled.Sms, color = Hx.palette[0], title = t("Bank SMS"),
                     status = when {
-                        !sms.granted -> "No permission" to Hx.neg
-                        !s.smsEnabled -> "Paused" to Hx.warn
-                        else -> "On" to Hx.pos
+                        !sms.granted -> t("No permission") to Hx.neg
+                        !s.smsEnabled -> t("Paused") to Hx.warn
+                        else -> t("On") to Hx.pos
                     },
                     detail = buildString {
-                        append(s.lastSmsScanAt?.let { "Last read ${ago(it)}" } ?: "Not read yet")
+                        append(s.lastSmsScanAt?.let { t("Last read {when}", "when" to ago(it)) } ?: t("Not read yet"))
                         s.lastSmsResult?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
                     },
                     toggle = if (sms.granted) s.smsEnabled else null, onToggle = settings::setSmsEnabled,
                 ) {
                     if (!sms.granted) {
-                        Button(onClick = sms::request) { Text(if (sms.blocked) "Open app settings" else "Allow SMS access") }
-                        if (sms.blocked) HelpText("Then App info › ⋮ › Allow restricted settings.", Modifier.padding(top = 4.dp))
+                        Button(onClick = sms::request) { Text(if (sms.blocked) t("Open app settings") else t("Allow SMS access")) }
+                        if (sms.blocked) HelpText(t("Then App info › ⋮ › Allow restricted settings."), Modifier.padding(top = 4.dp))
                     } else if (on) {
                         OutlinedButton(onClick = {
                             SmsScanScheduler.scan(context)
-                            Toast.makeText(context, "Reading new messages…", Toast.LENGTH_SHORT).show()
-                        }) { Text("Read new messages now") }
+                            Toast.makeText(context, t("Reading new messages…"), Toast.LENGTH_SHORT).show()
+                        }) { Text(t("Read new messages now")) }
                     }
                 }
             }
@@ -233,61 +234,61 @@ fun DataSourcesRoute(
                 val connected = g != null && g.connected
                 val imap = g?.connection == MailConnection.IMAP
                 SourceCard(
-                    icon = Icons.Filled.Email, color = Hx.palette[3], title = "Email",
+                    icon = Icons.Filled.Email, color = Hx.palette[3], title = t("Email"),
                     status = when {
-                        !connected -> "Not connected" to Hx.text2
-                        g?.needsReauth == true -> "Sign in again" to Hx.neg
-                        g?.enabled == false -> "Paused" to Hx.warn
-                        else -> "Connected" to Hx.pos
+                        !connected -> t("Not connected") to Hx.text2
+                        g?.needsReauth == true -> t("Sign in again") to Hx.neg
+                        g?.enabled == false -> t("Paused") to Hx.warn
+                        else -> t("Connected") to Hx.pos
                     },
-                    detail = if (!connected) "Bank alerts and statements from your mailbox."
+                    detail = if (!connected) t("Bank alerts and statements from your mailbox.")
                     else buildString {
-                        append(box ?: "Mailbox")
+                        append(box ?: t("Mailbox"))
                         val last = if (imap) g?.imapSyncedAt ?: g?.lastSyncAt else g?.lastSyncAt
-                        append(last?.let { " · synced ${ago(it)}" } ?: " · not synced yet")
+                        append(" · ").append(last?.let { t("synced {when}", "when" to ago(it)) } ?: t("not synced yet"))
                     },
                     toggle = if (connected) g!!.enabled else null, onToggle = settings::setGmailEnabled,
                 ) {
                     if (!connected) {
-                        Button(onClick = { connectingEmail = true }) { Text("Connect email") }
+                        Button(onClick = { connectingEmail = true }) { Text(t("Connect email")) }
                         return@SourceCard
                     }
                     if (g!!.needsReauth) {
-                        Button(onClick = { if (imap) connectingEmail = true else connectGoogle() }) { Text("Sign in again") }
+                        Button(onClick = { if (imap) connectingEmail = true else connectGoogle() }) { Text(t("Sign in again")) }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Hx.border)
                     if (imap) {
                         emails.forEach { address ->
                             HRow(address, null) {
-                                TextButton(onClick = { settings.removeEmail(address) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                                TextButton(onClick = { settings.removeEmail(address) }) { Text(t("Remove"), color = MaterialTheme.colorScheme.error) }
                             }
                         }
-                        HRow("Add another email", null, leading = { Icon(Icons.Filled.Add, null, tint = Hx.accent) }, onClick = { connectingEmail = true })
+                        HRow(t("Add another email"), null, leading = { Icon(Icons.Filled.Add, null, tint = Hx.accent) }, onClick = { connectingEmail = true })
                     } else {
-                        HRow(g.accountEmail ?: "Google account", "Google account")
+                        HRow(g.accountEmail ?: t("Google account"), t("Google account"))
                     }
-                    HRow("Bank senders", "${g.senders.size} in the filter", onClick = { editingSenders = true }) {
-                        TextButton(onClick = { editingSenders = true }) { Text("Edit") }
+                    HRow(t("Bank senders"), t("{n} in the filter", "n" to g.senders.size), onClick = { editingSenders = true }) {
+                        TextButton(onClick = { editingSenders = true }) { Text(t("Edit")) }
                     }
-                    HRow(if (imap) "Disconnect email" else "Sign out", "Transactions already found are kept") {
-                        OutlinedButton(onClick = { confirmDisconnect = true }) { Text("Disconnect") }
+                    HRow(if (imap) t("Disconnect email") else t("Sign out"), t("Transactions already found are kept")) {
+                        OutlinedButton(onClick = { confirmDisconnect = true }) { Text(t("Disconnect")) }
                     }
                 }
             }
             item("notif") {
                 val on = s.appNotifications && notifAccess
                 SourceCard(
-                    icon = Icons.Filled.NotificationsActive, color = Hx.palette[2], title = "Payment-app notifications",
+                    icon = Icons.Filled.NotificationsActive, color = Hx.palette[2], title = t("Payment-app notifications"),
                     status = when {
-                        on -> "On" to Hx.pos
-                        s.appNotifications -> "Needs access" to Hx.warn
-                        else -> "Off" to Hx.text2
+                        on -> t("On") to Hx.pos
+                        s.appNotifications -> t("Needs access") to Hx.warn
+                        else -> t("Off") to Hx.text2
                     },
-                    detail = "UPI payments from GPay, PhonePe, Paytm and others that send no bank SMS.",
+                    detail = t("UPI payments from GPay, PhonePe, Paytm and others that send no bank SMS."),
                     toggle = s.appNotifications,
                     onToggle = { v -> settings.setAppNotifications(v); if (v && !notifAccess) openNotifAccess() },
                 ) {
-                    if (s.appNotifications && !notifAccess) OutlinedButton(onClick = openNotifAccess) { Text("Allow notification access") }
+                    if (s.appNotifications && !notifAccess) OutlinedButton(onClick = openNotifAccess) { Text(t("Allow notification access")) }
                 }
             }
         }
@@ -302,10 +303,10 @@ fun DataSourcesRoute(
         EmailConnectDialog(onDismiss = { connectingEmail = false }, onUseGoogle = { connectingEmail = false; connectGoogle() })
     }
     if (confirmDisconnect) {
-        AlertDialog(onDismissRequest = { confirmDisconnect = false }, title = { Text("Disconnect email?") },
-            text = { Text("Artha will stop reading email and delete the stored sign-in. Transactions already found are kept.") },
-            confirmButton = { TextButton(onClick = { confirmDisconnect = false; settings.disconnectGmail() }) { Text("Disconnect") } },
-            dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Cancel") } })
+        AlertDialog(onDismissRequest = { confirmDisconnect = false }, title = { Text(t("Disconnect email?")) },
+            text = { Text(t("DhanKosh will stop reading email and delete the stored sign-in. Transactions already found are kept.")) },
+            confirmButton = { TextButton(onClick = { confirmDisconnect = false; settings.disconnectGmail() }) { Text(t("Disconnect")) } },
+            dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text(t("Cancel")) } })
     }
 }
 
@@ -347,14 +348,14 @@ private fun SendersDialog(current: List<String>, onDismiss: () -> Unit, onSave: 
     var text by remember { mutableStateOf(current.joinToString("\n")) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Bank senders") },
+        title = { Text(t("Bank senders")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("One address or domain per line. A domain matches every address at it.", style = MaterialTheme.typography.bodySmall)
+                Text(t("One address or domain per line. A domain matches every address at it."), style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 360.dp))
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(text.lines().map { it.trim() }.filter { it.isNotEmpty() }) }) { Text("Save") } },
-        dismissButton = { Row { TextButton(onClick = onReset) { Text("Defaults") }; TextButton(onClick = onDismiss) { Text("Cancel") } } },
+        confirmButton = { TextButton(onClick = { onSave(text.lines().map { it.trim() }.filter { it.isNotEmpty() }) }) { Text(t("Save")) } },
+        dismissButton = { Row { TextButton(onClick = onReset) { Text(t("Defaults")) }; TextButton(onClick = onDismiss) { Text(t("Cancel")) } } },
     )
 }

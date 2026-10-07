@@ -182,6 +182,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
             composable("sources") { com.hisaab.app.ui.more.DataSourcesRoute(onBack = nav::popBackStack, onOpenStatements = { nav.navigate("statements") }) }
             composable("security") { com.hisaab.app.ui.more.SecurityRoute(onBack = nav::popBackStack) }
             composable("alerts") { com.hisaab.app.ui.more.AlertsRoute(onBack = nav::popBackStack) }
+            composable("activity") { com.hisaab.app.ui.more.ActivityLogRoute(onBack = nav::popBackStack) }
             composable(Tab.INVESTMENTS.route) {
                 InvestmentsRoute(onOpenStatements = { nav.navigate("statements") }, contentPadding = bottom,
                     onOpenAccounts = { tab -> nav.navigate("accounts?tab=$tab") }, onOpenNews = { nav.navigate("news") },

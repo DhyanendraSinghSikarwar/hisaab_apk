@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.components.HCard
 import com.hisaab.app.ui.components.Pill
 import com.hisaab.app.ui.format.Money
@@ -38,40 +39,40 @@ import com.hisaab.parser.model.Category
 /** Budgets for the selected period as bullet charts: an overall row, then one row per budgeted category. */
 @Composable
 internal fun BudgetsCard(b: BudgetSummary, periodLabel: String, selected: Category?, onOpenBudgets: () -> Unit) {
-    HCard(title = "Budgets", action = "Manage ›", onAction = onOpenBudgets) {
+    HCard(title = t("Budgets"), action = t("Manage ›"), onAction = onOpenBudgets) {
         if (b.lines.isEmpty()) {
-            Note("No budgets yet. A monthly limit per category shows here how each one is tracking.")
+            Note(t("No budgets yet. A monthly limit per category shows here how each one is tracking."))
             Spacer(Modifier.height(8.dp))
-            Pill("Set budgets", on = true, onClick = onOpenBudgets)
+            Pill(t("Set budgets"), on = true, onClick = onOpenBudgets)
             return@HCard
         }
-        val scope = if (b.months > 1) "$periodLabel · limits × ${b.months} months" else periodLabel
+        val scope = if (b.months > 1) t("{period} · limits × {n} months", "period" to periodLabel, "n" to b.months) else periodLabel
         Text(scope, fontSize = 12.sp, color = Hx.text2, modifier = Modifier.padding(bottom = 10.dp))
 
         BudgetRow(
-            leading = null, name = "All budgets", spent = b.spent, limit = b.limit, alertPercent = b.alertPercent,
+            leading = null, name = t("All budgets"), spent = b.spent, limit = b.limit, alertPercent = b.alertPercent,
             pace = b.pace, highlighted = false, bold = true, barHeight = 10.dp,
         )
         b.pace?.let { p ->
             val ideal = (b.limit * p).toLong()
             val ahead = b.spent - ideal
             Text(
-                if (ahead > 0) "${Money.compact(ahead)} ahead of an even pace for this point in the month"
-                else "${Money.compact(-ahead)} under an even pace for this point in the month",
+                if (ahead > 0) t("{amount} ahead of an even pace for this point in the month", "amount" to Money.compact(ahead))
+                else t("{amount} under an even pace for this point in the month", "amount" to Money.compact(-ahead)),
                 fontSize = 11.sp, color = Hx.text2, modifier = Modifier.padding(top = 2.dp),
             )
         }
         Box(Modifier.padding(vertical = 10.dp).fillMaxWidth().height(1.dp).background(Hx.border))
         b.lines.forEach { l ->
             BudgetRow(
-                leading = l.category, name = l.category.label, spent = l.spent, limit = l.limit, alertPercent = b.alertPercent,
+                leading = l.category, name = t(l.category.label), spent = l.spent, limit = l.limit, alertPercent = b.alertPercent,
                 pace = null, highlighted = l.category == selected, bold = false, barHeight = 6.dp,
             )
         }
         Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Swatch(Hx.pos, "On track"); Spacer(Modifier.width(12.dp))
+            Swatch(Hx.pos, t("On track")); Spacer(Modifier.width(12.dp))
             Swatch(Hx.warn, "≥ ${b.alertPercent}%"); Spacer(Modifier.width(12.dp))
-            Swatch(Hx.neg, "Over")
+            Swatch(Hx.neg, t("Over"))
             if (b.pace != null) { Spacer(Modifier.width(12.dp)); MarkerKey() }
         }
     }
@@ -109,14 +110,14 @@ private fun BudgetRow(
                     modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 Text(Money.compact(spent), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(" of ${Money.compact(limit)}", fontSize = 12.sp, color = Hx.text2)
+                Text(t(" of {amount}", "amount" to Money.compact(limit)), fontSize = 12.sp, color = Hx.text2)
             }
             BulletBar(used, pace, tone, barHeight, Modifier.padding(top = 6.dp))
             Row(Modifier.padding(top = 4.dp)) {
-                Text("${(used * 100).toInt()}% used", fontSize = 11.sp, color = Hx.text2, modifier = Modifier.weight(1f))
+                Text(t("{pct}% used", "pct" to (used * 100).toInt()), fontSize = 11.sp, color = Hx.text2, modifier = Modifier.weight(1f))
                 val left = limit - spent
                 Text(
-                    if (left >= 0) "${Money.compact(left)} left" else "${Money.compact(-left)} over",
+                    if (left >= 0) t("{amount} left", "amount" to Money.compact(left)) else t("{amount} over", "amount" to Money.compact(-left)),
                     fontSize = 11.sp, fontWeight = FontWeight.Medium, color = if (left >= 0) Hx.text2 else Hx.neg,
                 )
             }
@@ -155,6 +156,6 @@ private fun MarkerKey() {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(1.5.dp).height(10.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)))
         Spacer(Modifier.width(5.dp))
-        Text("Today's pace", fontSize = 11.sp, color = Hx.text2)
+        Text(t("Today's pace"), fontSize = 11.sp, color = Hx.text2)
     }
 }

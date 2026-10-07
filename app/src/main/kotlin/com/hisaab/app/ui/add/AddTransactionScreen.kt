@@ -64,6 +64,7 @@ import com.google.android.gms.tasks.Task
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.hisaab.app.i18n.t
 import com.hisaab.app.security.AppLockGate
 import com.hisaab.app.ui.components.AccountAvatar
 import com.hisaab.app.ui.components.CategoryBadge
@@ -138,12 +139,12 @@ class AddTransactionViewModel @Inject constructor(
             val text = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).process(image).await().text
             val d = parser.draft(text, System.currentTimeMillis())
             if (d == null) {
-                _state.update { it.copy(scanning = false, scannedText = text, message = "No amount found in that screenshot. Fill the details in yourself.") }
+                _state.update { it.copy(scanning = false, scannedText = text, message = t("No amount found in that screenshot. Fill the details in yourself.")) }
                 return@launch
             }
             _state.update { it.fill(d, text, accounts.value) }
         } catch (e: Exception) {
-            _state.update { it.copy(scanning = false, message = "Couldn't read that image: ${e.message ?: "unknown error"}") }
+            _state.update { it.copy(scanning = false, message = t("Couldn't read that image: {error}", "error" to (e.message ?: t("unknown error")))) }
         }
     }
 
@@ -155,14 +156,14 @@ class AddTransactionViewModel @Inject constructor(
             merchant = d.merchant ?: merchant, category = d.category, accountId = account?.id ?: accountId,
             time = d.time, reference = d.reference, upiId = d.upiId, currency = d.currency,
             scannedText = text, scanning = false,
-            message = "Filled in from the screenshot. Check the details, then save.",
+            message = t("Filled in from the screenshot. Check the details, then save."),
         )
     }
 
     fun save() = viewModelScope.launch {
         val s = _state.value
         val minor = Money.parseInput(s.amount)?.takeIf { it > 0 } ?: run {
-            _state.update { it.copy(message = "Enter the amount") }
+            _state.update { it.copy(message = t("Enter the amount")) }
             return@launch
         }
         val account = accounts.value.firstOrNull { it.id == s.accountId }
@@ -178,7 +179,7 @@ class AddTransactionViewModel @Inject constructor(
         _state.update {
             it.copy(
                 saved = true,
-                message = if (outcome == IngestOutcome.MERGED) "This matched a transaction already recorded, so the two were merged." else null,
+                message = if (outcome == IngestOutcome.MERGED) t("This matched a transaction already recorded, so the two were merged.") else null,
             )
         }
     }
@@ -202,7 +203,7 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
     LaunchedEffect(s.saved, s.message) { if (s.saved && s.message == null) onDone() }
 
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
-        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text("Add transaction") }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
+        TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(t("Add transaction")) }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } })
     }) { inner ->
         Column(Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             OutlinedCard(Modifier.fillMaxWidth().clickable(enabled = !s.scanning) {
@@ -213,8 +214,8 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
                     Icon(Icons.Filled.DocumentScanner, null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Fill from a screenshot", style = MaterialTheme.typography.titleSmall)
-                        Text("A payment receipt from GPay, PhonePe, Paytm or a bank app. Read on this phone; nothing is uploaded.",
+                        Text(t("Fill from a screenshot"), style = MaterialTheme.typography.titleSmall)
+                        Text(t("A payment receipt from GPay, PhonePe, Paytm or a bank app. Read on this phone; nothing is uploaded."),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -225,31 +226,31 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
                     Text(it, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            if (s.saved) { Button(onClick = onDone, Modifier.fillMaxWidth()) { Text("Done") }; return@Column }
+            if (s.saved) { Button(onClick = onDone, Modifier.fillMaxWidth()) { Text(t("Done")) }; return@Column }
 
-            val types = listOf(TransactionType.DEBIT to "Spent", TransactionType.CREDIT to "Received", TransactionType.TRANSFER to "Transfer")
+            val types = listOf(TransactionType.DEBIT to t("Spent"), TransactionType.CREDIT to t("Received"), TransactionType.TRANSFER to t("Transfer"))
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                types.forEachIndexed { i, (t, label) ->
-                    SegmentedButton(selected = s.type == t, onClick = { vm.edit { it.copy(type = t) } }, shape = SegmentedButtonDefaults.itemShape(i, types.size)) { Text(label) }
+                types.forEachIndexed { i, (ty, label) ->
+                    SegmentedButton(selected = s.type == ty, onClick = { vm.edit { it.copy(type = ty) } }, shape = SegmentedButtonDefaults.itemShape(i, types.size)) { Text(label) }
                 }
             }
             OutlinedTextField(
-                s.amount, { v -> vm.edit { it.copy(amount = v) } }, Modifier.fillMaxWidth(), label = { Text("Amount") },
+                s.amount, { v -> vm.edit { it.copy(amount = v) } }, Modifier.fillMaxWidth(), label = { Text(t("Amount")) },
                 prefix = { Text(if (s.currency == "INR") "₹" else s.currency + " ") }, singleLine = true,
                 textStyle = MaterialTheme.typography.headlineSmall,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             )
             OutlinedTextField(s.merchant, { v -> vm.edit { it.copy(merchant = v) } }, Modifier.fillMaxWidth(),
-                label = { Text(if (s.type == TransactionType.CREDIT) "From" else "Paid to") }, singleLine = true)
+                label = { Text(if (s.type == TransactionType.CREDIT) t("From") else t("Paid to")) }, singleLine = true)
 
             Card(Modifier.fillMaxWidth().clickable { pickingCategory = true }) {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     CategoryBadge(s.category, size = 36)
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text("Category", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(s.category.label, style = MaterialTheme.typography.bodyLarge)
+                        Text(t("Category"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(t(s.category.label), style = MaterialTheme.typography.bodyLarge)
                     }
-                    Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(t("Change"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 }
             }
 
@@ -269,11 +270,11 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
                     }
                 }
             }
-            s.reference?.let { Text("Reference $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            OutlinedTextField(s.note, { v -> vm.edit { it.copy(note = v) } }, Modifier.fillMaxWidth(), label = { Text("Note (optional)") })
-            Button(onClick = vm::save, Modifier.fillMaxWidth(), enabled = !s.scanning) { Text("Save transaction") }
+            s.reference?.let { Text(t("Reference {ref}", "ref" to it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            OutlinedTextField(s.note, { v -> vm.edit { it.copy(note = v) } }, Modifier.fillMaxWidth(), label = { Text(t("Note (optional)")) })
+            Button(onClick = vm::save, Modifier.fillMaxWidth(), enabled = !s.scanning) { Text(t("Save transaction")) }
             Text(
-                "If your bank later sends an SMS or email for the same payment, Artha merges the two instead of counting it twice.",
+                t("If your bank later sends an SMS or email for the same payment, DhanKosh merges the two instead of counting it twice."),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -293,9 +294,9 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
                         vm.edit { it.copy(time = LocalDateTime.of(date, local.toLocalTime()).atZone(zone).toInstant().toEpochMilli()) }
                     }
                     pickingDate = false
-                }) { Text("OK") }
+                }) { Text(t("OK")) }
             },
-            dismissButton = { TextButton(onClick = { pickingDate = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { pickingDate = false }) { Text(t("Cancel")) } },
         ) { DatePicker(state) }
     }
     if (pickingTime) {
@@ -303,15 +304,15 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
         val state = rememberTimePickerState(initialHour = local.hour, initialMinute = local.minute)
         AlertDialog(
             onDismissRequest = { pickingTime = false },
-            title = { Text("Time") },
+            title = { Text(t("Time")) },
             text = { TimeInput(state) },
             confirmButton = {
                 TextButton(onClick = {
                     vm.edit { it.copy(time = local.withHour(state.hour).withMinute(state.minute).toInstant().toEpochMilli()) }
                     pickingTime = false
-                }) { Text("OK") }
+                }) { Text(t("OK")) }
             },
-            dismissButton = { TextButton(onClick = { pickingTime = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { pickingTime = false }) { Text(t("Cancel")) } },
         )
     }
 }
@@ -326,13 +327,13 @@ private fun AccountPicker(accounts: List<AccountEntity>, selected: Long?, onPick
                 if (current != null) AccountAvatar(current.bankName, current.kind, current.accountType, size = 32.dp)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Account", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(current?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: "None (cash or other)", style = MaterialTheme.typography.bodyLarge)
+                    Text(t("Account"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(current?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: t("None (cash or other)"), style = MaterialTheme.typography.bodyLarge)
                 }
             }
         }
         DropdownMenu(open, { open = false }) {
-            DropdownMenuItem(text = { Text("None (cash or other)") }, onClick = { onPick(null); open = false })
+            DropdownMenuItem(text = { Text(t("None (cash or other)")) }, onClick = { onPick(null); open = false })
             accounts.forEach { a ->
                 DropdownMenuItem(
                     text = { Text("${a.nickname ?: a.bankName} ••${a.last4}") },

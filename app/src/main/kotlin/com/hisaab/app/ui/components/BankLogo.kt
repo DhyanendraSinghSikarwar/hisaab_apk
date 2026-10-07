@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.theme.LocalDarkTheme
 import com.hisaab.parser.model.AccountKind
 import com.hisaab.shared.db.AccountType
@@ -151,7 +152,7 @@ fun TypeCode(code: String, height: Dp, modifier: Modifier = Modifier) {
             .border(1.5.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(height * 0.35f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(code, color = MaterialTheme.colorScheme.onTertiary, fontWeight = FontWeight.Bold, fontSize = (height.value * 0.48f).sp, maxLines = 1)
+        Text(t(code), color = MaterialTheme.colorScheme.onTertiary, fontWeight = FontWeight.Bold, fontSize = (height.value * 0.48f).sp, maxLines = 1)
     }
 }
 

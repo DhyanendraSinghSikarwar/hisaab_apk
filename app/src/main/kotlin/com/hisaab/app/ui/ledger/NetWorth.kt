@@ -62,8 +62,23 @@ data class WorthPart(
     val assetClass: AssetClass? = null,
 )
 
-/** A credit card's headroom. Shown beside net worth, never counted in it. */
-data class CardLimit(val id: Long, val name: String, val last4: String, val availableMinor: Long?, val limitMinor: Long?)
+/**
+ * A credit card's headroom, with what its latest statement billed and what has been spent on it since. Shown beside
+ * net worth, never counted in it.
+ */
+data class CardLimit(
+    val id: Long,
+    val name: String,
+    val last4: String,
+    val availableMinor: Long?,
+    val limitMinor: Long?,
+    /** Total due on the latest statement; null without one. */
+    val billedMinor: Long? = null,
+    /** The latest statement's date. */
+    val statementDay: LocalDate? = null,
+    /** Spends on the card after [statementDay]; null without a statement date. */
+    val unbilledMinor: Long? = null,
+)
 
 data class NetWorth(
     val assetsMinor: Long = 0,
@@ -188,9 +203,13 @@ class NetWorthSource @Inject constructor(
         }.sortedByDescending { it.amountMinor }
 
         val cards = visible.filter(::isCreditCard).map { a ->
-            val st = latest.filter { it.creditLimitMinor != null && it.last4 == a.last4 && (it.bankName == null || it.bankName.equals(a.bankName, ignoreCase = true)) }
-                .maxByOrNull { it.statementEpochDay ?: 0 }
-            CardLimit(a.id, a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName, a.last4, a.currentBalanceMinor, st?.creditLimitMinor)
+            val mine = latest.filter { it.last4 == a.last4 && (it.bankName == null || it.bankName.equals(a.bankName, ignoreCase = true)) }
+            val st = mine.filter { it.creditLimitMinor != null }.maxByOrNull { it.statementEpochDay ?: 0 }
+            val bill = mine.filter { it.totalDueMinor != null }.maxByOrNull { it.statementEpochDay ?: 0 }
+            CardLimit(
+                a.id, a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName, a.last4, a.currentBalanceMinor, st?.creditLimitMinor,
+                billedMinor = bill?.totalDueMinor, statementDay = bill?.statementEpochDay?.let(LocalDate::ofEpochDay),
+            )
         }.sortedByDescending { it.availableMinor ?: -1L }
 
         return NetWorth(
@@ -211,7 +230,16 @@ class NetWorthSource @Inject constructor(
         val liabIds = n.accounts.filter(::isCreditCard).map { it.id }.toSet()
         val estimated = WorthHistory.estimate(anchor, txs, assetIds, liabIds, n.holdings)
         val tail = if (real.isEmpty()) listOf(todayPoint) else real.dropLastWhile { it.day == today } + todayPoint
-        return n.copy(history = estimated + tail, estimatedBefore = if (estimated.isEmpty()) null else anchor.day)
+        return n.copy(history = estimated + tail, estimatedBefore = if (estimated.isEmpty()) null else anchor.day, cards = withUnbilled(n.cards, txs))
+    }
+
+    /** Unbilled: spends on each card after its latest statement date. */
+    private fun withUnbilled(cards: List<CardLimit>, txs: List<TransactionEntity>): List<CardLimit> = cards.map { c ->
+        val day = c.statementDay ?: return@map c
+        val after = day.plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
+        val spent = txs.filter { it.accountId == c.id && it.duplicateOfId == null && it.type == TransactionType.DEBIT && it.timestamp >= after }
+            .sumOf(LedgerMath::rupees)
+        c.copy(unbilledMinor = spent)
     }
 
     private val AccountWithActivity.label: String

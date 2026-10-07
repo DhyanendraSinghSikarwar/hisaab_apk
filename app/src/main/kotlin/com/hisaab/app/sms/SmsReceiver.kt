@@ -12,6 +12,7 @@ import com.hisaab.parser.statement.InvestmentParser
 import com.hisaab.shared.repo.HoldingRepository
 import com.hisaab.shared.repo.IncomingMessage
 import com.hisaab.shared.repo.IngestOutcome
+import com.hisaab.shared.repo.NpsContributions
 import com.hisaab.shared.repo.TransactionRepository
 import com.hisaab.shared.repo.TransactionsChangedNotifier
 import dagger.hilt.EntryPoint
@@ -33,7 +34,9 @@ class SmsReceiver : BroadcastReceiver() {
         fun notifier(): TransactionsChangedNotifier
         fun settings(): AppSettingsStore
         fun holdings(): HoldingRepository
+        fun nps(): NpsContributions
         fun newTransactions(): com.hisaab.app.notify.NewTransactionNotifier
+        fun activity(): com.hisaab.app.log.ActivityLog
         @ApplicationScope fun scope(): CoroutineScope
     }
 
@@ -50,24 +53,54 @@ class SmsReceiver : BroadcastReceiver() {
 
         val pending = goAsync()
         deps.scope().launch {
+            val start = System.currentTimeMillis()
+            val outcomes = ArrayList<IngestOutcome>()
+            var error: String? = null
+            var enabled = false
             try {
                 if (!deps.settings().settings.first().smsEnabled) return@launch
+                enabled = true
                 var changed = false
                 for ((sender, parts) in bySender) {
                     val body = parts.joinToString("") { it.messageBody.orEmpty() }
                     val sentAt = parts.first().timestampMillis
                     if (InvestmentParser.accepts(sender)) {
-                        InvestmentParser.parse(body, sender, sentAt)?.let { deps.holdings().record(listOf(it), "SMS") }
+                        // An NPS contribution adds to the NPS holding, and is an investment unless the bank reported it.
+                        val contribution = InvestmentParser.npsContribution(body, sentAt)
+                        if (contribution == null) {
+                            InvestmentParser.parse(body, sender, sentAt)?.let { deps.holdings().record(listOf(it), "SMS") }
+                            continue
+                        }
+                        val messageId = SmsIds.of(sender, sentAt, body)
+                        val tx = deps.nps().contribute(contribution, body, sender, sentAt, messageId, Source.SMS) ?: continue
+                        val outcome = deps.repository().ingest(tx)
+                        outcomes += outcome
+                        if (outcome != IngestOutcome.ALREADY_PROCESSED) changed = true
+                        deps.newTransactions().onIngested(outcome, "SMS", tx.sourceMessageId)
                         continue
                     }
+                    registry.loanStatus(body, sender, sentAt, Source.SMS)?.let { deps.repository().applyLoanStatus(it); changed = true }
                     val tx = registry.parse(body, sender, System.currentTimeMillis(), Source.SMS) ?: continue
                     val messageId = SmsIds.of(sender, sentAt, body)
                     val outcome = deps.repository().ingest(IncomingMessage(tx, messageId, body))
+                    outcomes += outcome
                     if (outcome != IngestOutcome.ALREADY_PROCESSED) changed = true
                     deps.newTransactions().onIngested(outcome, "SMS", messageId)
                 }
                 if (changed) deps.notifier().onTransactionsChanged()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                error = e.javaClass.simpleName
+                throw e
             } finally {
+                if (enabled) deps.activity().record(
+                    com.hisaab.app.log.ActivityEntry(
+                        start, com.hisaab.app.log.ActivitySource.SMS_LIVE, read = bySender.size, relevant = bySender.size,
+                        added = outcomes.count { it == IngestOutcome.INSERTED }, merged = outcomes.count { it == IngestOutcome.MERGED },
+                        review = outcomes.count { it == IngestOutcome.FLAGGED_FOR_REVIEW }, skipped = outcomes.count { it == IngestOutcome.ALREADY_PROCESSED },
+                        millis = System.currentTimeMillis() - start, error = error,
+                    ),
+                )
                 pending.finish()
             }
         }

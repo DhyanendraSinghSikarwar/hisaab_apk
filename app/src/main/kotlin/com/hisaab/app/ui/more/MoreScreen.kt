@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,9 +20,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.Description
@@ -60,13 +61,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.hisaab.app.i18n.t
 import com.hisaab.app.notify.PaymentNotificationListener
 import com.hisaab.app.settings.AppSettings
 import com.hisaab.app.settings.AppSettingsStore
 import com.hisaab.app.ui.components.CardGap
 import com.hisaab.app.ui.components.HCard
 import com.hisaab.app.ui.components.enterOnce
-import com.hisaab.app.ui.components.Segmented
 import com.hisaab.app.ui.components.SmsPermissionState
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
@@ -174,13 +175,13 @@ class MoreViewModel @Inject constructor(
 
 private data class Entry(val route: String, val title: String, val subtitle: String, val icon: ImageVector, val color: Color, val alert: Boolean = false)
 
-private fun plural(n: Int, one: String, many: String = one + "s") = "$n ${if (n == 1) one else many}"
+/** [one] or [many] (each already translated, with an `{n}` placeholder) filled with [n]. */
+private fun plural(n: Int, one: String, many: String) = (if (n == 1) one else many).replace("{n}", n.toString())
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
-    val book by vm.book.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var smsOk by remember { mutableStateOf(SmsPermissionState.check(context)) }
     var notifAccess by remember { mutableStateOf(PaymentNotificationListener.hasAccess(context)) }
@@ -193,13 +194,13 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
     val p = Hx.palette
 
     val sections: List<Pair<String, List<Entry>>> = listOf(
-        "Plan" to listOf(
+        t("Plan") to listOf(
             Entry(
-                "budgets", "Budgets",
+                "budgets", t("Budgets"),
                 when {
-                    s.budgetsActive == 0 -> "Set monthly limits by category"
-                    s.budgetsNear > 0 -> "${s.budgetsActive} active · ${s.budgetsNear} near limit"
-                    else -> "${s.budgetsActive} active · all on track"
+                    s.budgetsActive == 0 -> t("Set monthly limits by category")
+                    s.budgetsNear > 0 -> t("{active} active · {near} near limit", "active" to s.budgetsActive, "near" to s.budgetsNear)
+                    else -> t("{active} active · all on track", "active" to s.budgetsActive)
                 },
                 Icons.Filled.DonutLarge, p[0], alert = s.budgetsNear > 0,
             ),
@@ -207,11 +208,11 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
                 val bills = s.plan.recurring.filter { !it.income }
                 val perMonth = bills.sumOf { if (it.yearly) it.amountMinor / 12 else it.amountMinor }
                 Entry(
-                    "bills", "Bills & subscriptions",
+                    "bills", t("Bills & subscriptions"),
                     when {
-                        !s.plan.loaded -> "Looking for repeat payments…"
-                        bills.isEmpty() -> "No repeat payments found yet"
-                        else -> "${plural(bills.size, "recurring", "recurring")} · ${Money.format(perMonth, showPaise = false)}/mo"
+                        !s.plan.loaded -> t("Looking for repeat payments…")
+                        bills.isEmpty() -> t("No repeat payments found yet")
+                        else -> t("{n} recurring · {amount}/mo", "n" to bills.size, "amount" to Money.format(perMonth, showPaise = false))
                     },
                     Icons.AutoMirrored.Filled.ReceiptLong, p[1],
                 )
@@ -219,76 +220,78 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
             run {
                 val l = s.loans
                 Entry(
-                    "loans", "Loans",
+                    "loans", t("Loans"),
                     when {
-                        !l.loaded -> "Looking for loans…"
-                        l.active.isEmpty() -> "From loan messages and EMI debits"
-                        else -> "${plural(l.active.size, "loan")} · ${Money.format(l.monthlyEmiMinor, showPaise = false)} EMI/month"
+                        !l.loaded -> t("Looking for loans…")
+                        l.active.isEmpty() -> t("From loan messages and EMI debits")
+                        else -> "${plural(l.active.size, t("{n} loan"), t("{n} loans"))} · ${t("{amount} EMI/month", "amount" to Money.format(l.monthlyEmiMinor, showPaise = false))}"
                     },
                     Icons.Filled.Payments, p[5],
                 )
             },
             Entry(
-                "tax", "Tax centre",
+                "tax", t("Tax centre"),
                 if (s.tax.loaded && s.tax.hasIncome) {
-                    val t = s.tax
-                    if (t.saving > 0) "${t.fyLabel} · ${if (t.newIsBetter) "New" else "Old"} regime saves ${Money.format(t.saving, showPaise = false)}"
-                    else "${t.fyLabel} · estimated ${Money.format(t.newRegime.total, showPaise = false)}"
-                } else "Estimate your tax for ${s.tax.fyLabel}",
+                    val tx = s.tax
+                    val saving = Money.format(tx.saving, showPaise = false)
+                    if (tx.saving > 0) "${tx.fyLabel} · " + (if (tx.newIsBetter) t("New regime saves {amount}", "amount" to saving) else t("Old regime saves {amount}", "amount" to saving))
+                    else "${tx.fyLabel} · " + t("estimated {amount}", "amount" to Money.format(tx.newRegime.total, showPaise = false))
+                } else t("Estimate your tax for {fy}", "fy" to s.tax.fyLabel),
                 Icons.Filled.AccountBalance, p[6],
             ),
         ),
-        "Automation" to listOf(
-            Entry("rules", "Rules", if (s.rules == 0) "Learned as you categorise" else plural(s.rules, "rule"), Icons.Filled.AutoAwesome, p[4]),
+        t("Automation") to listOf(
+            Entry("rules", t("Rules"), if (s.rules == 0) t("Learned as you categorise") else plural(s.rules, t("{n} rule"), t("{n} rules")), Icons.Filled.AutoAwesome, p[4]),
             Entry(
-                "sources", "Data sources",
+                "sources", t("Data sources"),
                 run {
                     fun mark(ok: Boolean) = if (ok) "✓" else "✗"
                     val smsOn = smsOk && (app?.smsEnabled ?: true)
                     val mailOn = mailboxLabel(s.mail, s.imapEmails) != null && s.mail?.needsReauth != true
                     val notifOn = (app?.appNotificationsEnabled ?: false) && notifAccess
-                    "SMS ${mark(smsOn)} · Email ${mark(mailOn)} · Notifications ${mark(notifOn)}"
+                    t("SMS {sms} · Email {email} · Notifications {notif}", "sms" to mark(smsOn), "email" to mark(mailOn), "notif" to mark(notifOn))
                 },
                 Icons.Filled.Hub, p[2], alert = !smsOk,
             ),
+            Entry("activity", t("Activity log"), t("Each sync, on this phone"), Icons.Filled.History, p[5]),
         ),
-        "Accounts" to listOf(
-            Entry("accounts", "Accounts & cards", if (s.accounts == 0) "Found from your messages" else plural(s.accounts, "account") + " and cards", Icons.Filled.CreditCard, p[0]),
+        t("Accounts") to listOf(
+            Entry("accounts", t("Accounts & cards"), if (s.accounts == 0) t("Found from your messages") else plural(s.accounts, t("{n} account and cards"), t("{n} accounts and cards")), Icons.Filled.CreditCard, p[0]),
             Entry(
-                "statements", "Statements",
+                "statements", t("Statements"),
                 when {
-                    s.statements == 0 -> "Card, bank and investment PDFs"
-                    s.lockedStatements > 0 -> "${plural(s.statements, "statement")} · ${s.lockedStatements} need a password"
-                    else -> plural(s.statements, "statement")
+                    s.statements == 0 -> t("Card, bank and investment PDFs")
+                    s.lockedStatements > 0 -> "${plural(s.statements, t("{n} statement"), t("{n} statements"))} · ${t("{n} need a password", "n" to s.lockedStatements)}"
+                    else -> plural(s.statements, t("{n} statement"), t("{n} statements"))
                 },
                 Icons.Filled.Description, p[3], alert = s.lockedStatements > 0,
             ),
         ),
-        "App" to listOf(
+        t("App") to listOf(
             Entry(
-                "customize", "Customise",
-                "${(app?.theme ?: com.hisaab.app.settings.ThemeMode.SYSTEM).name.lowercase().replaceFirstChar { it.uppercase() }} theme · tab sections",
+                "customize", t("Customise"),
+                t("{theme} theme · tab sections", "theme" to t((app?.theme ?: com.hisaab.app.settings.ThemeMode.SYSTEM).name.lowercase().replaceFirstChar { it.uppercase() })),
                 Icons.Filled.Tune, p[7],
             ),
             Entry(
-                "alerts", "Notifications & alerts",
-                if (app == null) "Transaction and budget alerts"
-                else "Transactions ${if (app.transactionNotifications) "on" else "off"} · budgets at ${app.budgetAlertPercent}%",
+                "alerts", t("Notifications & alerts"),
+                if (app == null) t("Transaction and budget alerts")
+                else t("Transactions {state} · budgets at {pct}%", "state" to if (app.transactionNotifications) t("on") else t("off"), "pct" to app.budgetAlertPercent),
                 Icons.Filled.Notifications, p[1],
             ),
             Entry(
-                "security", "Security & backup",
-                if (app == null) "App lock and backup" else "App lock ${if (app.appLock) "on" else "off"} · amounts ${if (app.hideAmounts) "hidden" else "shown"}" +
-                    if (app.textSize != com.hisaab.app.settings.TextSize.DEFAULT) " · text ${app.textSize.label.lowercase()}" else "",
+                "security", t("Security & backup"),
+                if (app == null) t("App lock and backup") else t("App lock {lock} · amounts {amounts}", "lock" to if (app.appLock) t("on") else t("off"), "amounts" to if (app.hideAmounts) t("hidden") else t("shown")) +
+                    if (app.textSize != com.hisaab.app.settings.TextSize.DEFAULT) " · " + t("text {size}", "size" to t(app.textSize.label).lowercase()) else "",
                 Icons.Filled.Lock, p[3],
             ),
             Entry(
-                "language", "Language",
-                com.hisaab.app.i18n.I18n.language.let { if (it == com.hisaab.app.i18n.Language.ENGLISH) "English" else "${it.native} · ${it.english}" },
+                "language", t("Language"),
+                com.hisaab.app.i18n.I18n.language.let { if (it == com.hisaab.app.i18n.Language.ENGLISH) "English" else "${it.native} · ${t(it.english)}" },
                 Icons.Filled.Translate, p[5],
             ),
-            Entry("forex", "Forex rates", "Rates used for foreign spends", Icons.Filled.CurrencyExchange, p[6]),
-            Entry("settings", "About & updates", "Version ${com.hisaab.app.BuildConfig.VERSION_NAME}", Icons.Filled.Info, p[2]),
+            Entry("forex", t("Forex rates"), t("Rates used for foreign spends"), Icons.Filled.CurrencyExchange, p[6]),
+            Entry("settings", t("About & updates"), t("Version {version}", "version" to com.hisaab.app.BuildConfig.VERSION_NAME), Icons.Filled.Info, p[2]),
         ),
     )
 
@@ -297,9 +300,9 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
         topBar = {
             TopAppBar(
                 colors = clearTopBar(),
-                title = { Text("More", fontWeight = FontWeight.SemiBold) },
+                title = { Text(t("More"), fontWeight = FontWeight.SemiBold) },
                 actions = {
-                    val name = app?.profile?.name ?: app?.displayName ?: "You"
+                    val name = app?.profile?.name ?: app?.displayName ?: t("You")
                     Box(Modifier.padding(end = 12.dp).clip(CircleShape).clickable { onOpen("profile") }) {
                         ProfileAvatar(name, app?.profile?.photoPath, 36.dp)
                     }
@@ -314,7 +317,6 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item("book") { BookCard(book, vm::setBook) }
             var index = 0
             sections.forEach { (header, entries) ->
                 item("h:$header") {
@@ -328,37 +330,27 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
                     item("e:${e.title}") { EntryCard(e, i) { onOpen(e.route) } }
                 }
             }
+            item("footer") {
+                Column(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(t("You're all caught up"), color = Hx.text2, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        t("DhanKosh {version}", "version" to "v" + com.hisaab.app.BuildConfig.VERSION_NAME),
+                        color = Hx.text2.copy(alpha = 0.7f), fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
         }
     }
 }
 
-/** The book every screen shows: Personal, Business or All. Business shows only accounts and cards marked Business. */
-@Composable
-private fun BookCard(book: Book, onSelect: (Book) -> Unit) {
-    val options = listOf(Book.PERSONAL, Book.BUSINESS, Book.ALL)
-    HCard(Modifier.enterOnce(0), padding = 14.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(Hx.palette[5].copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.BusinessCenter, null, tint = Hx.palette[5], modifier = Modifier.size(20.dp))
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Book", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text("Applies to the whole app", fontSize = 12.sp, color = Hx.text2, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
-            }
-        }
-        Segmented(
-            options = listOf("Personal", "Business", "All"), selected = options.indexOf(book).coerceAtLeast(0),
-            onSelect = { onSelect(options[it]) }, modifier = Modifier.padding(top = 12.dp),
-        )
-    }
-}
+/** How many cards play the entrance animation on first show. */
+private const val FIRST_SCREEN = 6
 
 @Composable
 private fun EntryCard(e: Entry, index: Int, onClick: () -> Unit) {
-    // Cards rise into place one after another the first time the list is shown.
+    // Only the first screenful rises into place; cards further down render at once, so scrolling never meets a blank card.
     HCard(
-        modifier = Modifier.enterOnce(index + 1),
+        modifier = if (index < FIRST_SCREEN) Modifier.enterOnce(index + 1) else Modifier,
         onClick = onClick, padding = 14.dp,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

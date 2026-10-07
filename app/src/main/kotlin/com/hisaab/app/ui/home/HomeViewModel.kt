@@ -52,6 +52,22 @@ import javax.inject.Inject
 
 data class ScanProgress(val running: Boolean, val scanned: Int, val found: Int)
 
+/**
+ * The refresh as Home shows it: which readers are running, bank SMS read so far, and what the last finished runs read.
+ * Email sync reports no progress while it runs, so [mailRead] is only known once it finishes.
+ */
+data class SyncStatus(
+    val smsActive: Boolean = false,
+    val mailActive: Boolean = false,
+    val smsSoFar: Int = 0,
+    val smsRead: Int? = null,
+    val mailRead: Int? = null,
+    /** Emails fetched so far by a running sync. */
+    val mailSoFar: Int = 0,
+) {
+    val active: Boolean get() = smsActive || mailActive
+}
+
 /** What Home needs besides the widgets: prompts, notices and the user's name. */
 data class HomeState(
     val reviewCount: Int = 0,
@@ -175,12 +191,27 @@ class HomeViewModel @Inject constructor(
         settings.settings.map { it.profile to (it.profile.name == null && !it.profilePromptDismissed) }
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    /** True while an SMS scan or email sync is running, for the refresh button. */
-    val syncing: StateFlow<Boolean> = combine(
+    /** SMS scan and email sync progress, from WorkManager: progress while running, outputs once done. */
+    val sync: StateFlow<SyncStatus> = combine(
         WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(SmsScanScheduler.WORK_NAME),
         WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(com.hisaab.email.sync.GmailScheduler.NOW),
-    ) { a, b -> (a + b).any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    ) { sms, mail ->
+        val smsRun = sms.firstOrNull { it.state.isActive() }
+        SyncStatus(
+            smsActive = smsRun != null,
+            mailActive = mail.any { it.state.isActive() },
+            smsSoFar = smsRun?.progress?.getInt(OptimizedSmsReaderWorker.KEY_SCANNED, 0) ?: 0,
+            smsRead = sms.firstOrNull { it.state == WorkInfo.State.SUCCEEDED }?.outputData?.getInt(OptimizedSmsReaderWorker.KEY_SCANNED, -1)?.takeIf { it >= 0 },
+            mailSoFar = mail.firstOrNull { it.state.isActive() }?.progress?.getInt(com.hisaab.email.sync.GmailSyncWorker.KEY_EMAILS_READ, 0) ?: 0,
+            mailRead = mail.firstOrNull { it.state == WorkInfo.State.SUCCEEDED }?.outputData
+                ?.getInt(com.hisaab.email.sync.GmailSyncWorker.KEY_EMAILS_READ, -1)?.takeIf { it >= 0 },
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncStatus())
+
+    /** True while an SMS scan or email sync is running, for the refresh button. */
+    val syncing: StateFlow<Boolean> = sync.map { it.active }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private fun WorkInfo.State.isActive() = this == WorkInfo.State.RUNNING || this == WorkInfo.State.ENQUEUED
 
     /** The refresh button: new SMS, every connected inbox, and a fresh look at budgets and upcoming payments. */
     fun syncAll() = viewModelScope.launch {

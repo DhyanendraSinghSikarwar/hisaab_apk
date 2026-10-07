@@ -30,31 +30,43 @@ class GmailSyncWorker @AssistedInject constructor(
     private val imap: ImapSyncEngine,
     private val settings: GmailSettingsStore,
     private val notifier: TransactionsChangedNotifier,
+    private val activity: SyncActivity,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result = try {
-        val report = when (settings.read().connection) {
-            MailConnection.IMAP -> imap.sync()
-            MailConnection.GOOGLE -> engine.sync()
-            MailConnection.NONE -> SyncReport(SyncMode.DISABLED)
+    override suspend fun doWork(): Result {
+        val start = System.currentTimeMillis()
+        val connection = settings.read().connection
+        return try {
+            val progress: suspend (Int) -> Unit = { n -> setProgress(workDataOf(KEY_EMAILS_READ to n)) }
+            val report = when (connection) {
+                MailConnection.IMAP -> imap.sync(progress)
+                MailConnection.GOOGLE -> engine.sync(progress)
+                MailConnection.NONE -> SyncReport(SyncMode.DISABLED)
+            }
+            if (report.mode != SyncMode.DISABLED) activity.record(connection, report, start, null)
+            if (report.parsed > 0) notifier.onTransactionsChanged()
+            Result.success(workDataOf(KEY_SUMMARY to report.summary(), KEY_EMAILS_READ to report.fetched))
+        } catch (_: AuthRequiredException) {
+            activity.record(connection, null, start, "auth")
+            settings.setNeedsReauth(true)
+            settings.lastResult("Gmail needs you to sign in again")
+            Result.failure(workDataOf(KEY_SUMMARY to "auth"))
+        } catch (e: MailAuthException) {
+            activity.record(connection, null, start, "auth")
+            settings.setNeedsReauth(true)
+            settings.lastResult("Email sign-in failed: ${e.message}. Sign in again with a new app password.")
+            Result.failure(workDataOf(KEY_SUMMARY to "auth"))
+        } catch (e: IOException) {
+            activity.record(connection, null, start, e.javaClass.simpleName)
+            settings.lastResult("Sync failed: ${e.message}; will retry")
+            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
         }
-        if (report.parsed > 0) notifier.onTransactionsChanged()
-        Result.success(workDataOf(KEY_SUMMARY to report.summary()))
-    } catch (_: AuthRequiredException) {
-        settings.setNeedsReauth(true)
-        settings.lastResult("Gmail needs you to sign in again")
-        Result.failure(workDataOf(KEY_SUMMARY to "auth"))
-    } catch (e: MailAuthException) {
-        settings.setNeedsReauth(true)
-        settings.lastResult("Email sign-in failed: ${e.message}. Sign in again with a new app password.")
-        Result.failure(workDataOf(KEY_SUMMARY to "auth"))
-    } catch (e: IOException) {
-        settings.lastResult("Sync failed: ${e.message}; will retry")
-        if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
     }
 
     companion object {
         const val KEY_SUMMARY = "summary"
+        /** Emails fetched so far (progress) or in all (output). */
+        const val KEY_EMAILS_READ = "emails_read"
         private const val MAX_ATTEMPTS = 5
     }
 }

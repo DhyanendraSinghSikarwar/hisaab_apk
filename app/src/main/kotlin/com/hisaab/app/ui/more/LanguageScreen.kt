@@ -90,9 +90,6 @@ fun LanguageRoute(onBack: () -> Unit, vm: LanguageViewModel = hiltViewModel()) {
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
     MoreScaffold(t("Language"), onBack, snackbar = snackbar) { inner ->
         LazyColumn(contentPadding = listPadding(inner), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item {
-                HelpText(t("English is built in. Other languages download when you pick them (about 100 KB each) and work offline after that."))
-            }
             items(ui.packs, key = { it.language.code }) { p ->
                 LanguageRow(p, selected = I18n.language == p.language, busy = ui.busy == p.language, onChoose = { vm.choose(p.language) }, onDelete = { vm.delete(p.language) })
             }
@@ -119,8 +116,8 @@ private fun LanguageRow(p: PackInfo, selected: Boolean, busy: Boolean, onChoose:
                 Text(
                     when {
                         p.language == Language.ENGLISH -> t("Built in")
-                        p.downloaded -> "${p.language.english} · ${t("Downloaded")}"
-                        else -> "${p.language.english} · ${t("Tap to download")}"
+                        p.downloaded -> "${t(p.language.english)} · ${t("Downloaded")}"
+                        else -> "${t(p.language.english)} · ${t("Tap to download")}"
                     },
                     fontSize = 12.sp, color = Hx.text2,
                 )

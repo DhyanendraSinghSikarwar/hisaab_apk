@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.category.CategoryLook
 import com.hisaab.app.ui.charts.ChartSlice
 import com.hisaab.app.ui.charts.DonutChart
@@ -83,7 +84,8 @@ data class WidgetEdit(
 
 /**
  * The frame every Home widget sits in: a flat card with a small-caps title and an action on the right. In edit
- * mode the action gives way to ↑ ↓ and show/hide, and a hidden widget is drawn faded.
+ * mode the action gives way to ↑ ↓ and show/hide, and a hidden widget is drawn faded. A [hero] card (net worth)
+ * keeps the same surface and size but carries an accent strip on top, an accent-tinted border and title.
  */
 @Composable
 fun WidgetCard(
@@ -97,35 +99,32 @@ fun WidgetCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val dark = com.hisaab.app.ui.theme.LocalDarkTheme.current
-    val shape = RoundedCornerShape(if (hero) 22.dp else 18.dp)
-    val heroBrush = com.hisaab.app.ui.theme.HeroBrush
-    val onCard = if (hero) Color.White else MaterialTheme.colorScheme.onSurface
+    val shape = RoundedCornerShape(18.dp)
     Surface(
         modifier = modifier.fillMaxWidth().alpha(if (edit?.hidden == true) 0.35f else 1f)
             .shadow(
-                if (hero) 16.dp else if (dark) 0.dp else 10.dp, shape,
-                ambientColor = Hx.accent.copy(alpha = if (hero) 0.25f else 0.06f), spotColor = Hx.accent.copy(alpha = if (hero) 0.35f else 0.10f),
+                if (dark) 0.dp else 10.dp, shape,
+                ambientColor = Hx.accent.copy(alpha = if (hero) 0.12f else 0.06f), spotColor = Hx.accent.copy(alpha = if (hero) 0.18f else 0.10f),
             ),
-        shape = shape, color = if (hero) Color.Transparent else Hx.surface, contentColor = onCard,
-        border = if (hero) null else BorderStroke(1.dp, Hx.border),
+        shape = shape, color = Hx.surface, contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, if (hero) Hx.accent.copy(alpha = 0.45f) else Hx.border),
     ) {
-        Column(
-            Modifier.then(if (hero) Modifier.background(heroBrush) else Modifier).animateContentSize(),
-        ) {
+        Column(Modifier.animateContentSize()) {
+            if (hero) Box(Modifier.fillMaxWidth().height(3.dp).background(Hx.accent))
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = if (edit != null) 8.dp else 12.dp, top = 12.dp, bottom = 8.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = if (edit != null) 8.dp else 12.dp, top = if (hero) 9.dp else 12.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (hero) {
-                    Text(title.uppercase(), Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.7.sp, color = Color.White.copy(alpha = 0.8f))
+                    Text(title.uppercase(), Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.7.sp, color = Hx.accent)
                 } else CardTitle(title, Modifier.weight(1f))
                 if (edit != null) {
-                    EditButton(Icons.Filled.KeyboardArrowUp, "Move up", edit.canUp, edit.onUp)
-                    EditButton(Icons.Filled.KeyboardArrowDown, "Move down", edit.canDown, edit.onDown)
-                    EditButton(if (edit.hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (edit.hidden) "Show" else "Hide", true, edit.onToggle)
+                    EditButton(Icons.Filled.KeyboardArrowUp, t("Move up"), edit.canUp, edit.onUp)
+                    EditButton(Icons.Filled.KeyboardArrowDown, t("Move down"), edit.canDown, edit.onDown)
+                    EditButton(if (edit.hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (edit.hidden) t("Show") else t("Hide"), true, edit.onToggle)
                 } else if (action != null && onAction != null) {
                     Text(
-                        action, color = if (hero) Color.White else Hx.accent, style = MaterialTheme.typography.labelLarge,
+                        action, color = Hx.accent, style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onAction).padding(4.dp),
                     )
                 }
@@ -165,22 +164,22 @@ private fun usageColor(fraction: Float, pos: Color, warn: Color, neg: Color) = w
 @Composable
 fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit?) {
     val nw = w.netWorth
-    WidgetCard("Net worth", action = "Portfolio ›", onAction = onOpenPortfolio, edit = edit, hero = true) {
+    WidgetCard(t("Net worth"), action = t("Portfolio ›"), onAction = onOpenPortfolio, edit = edit, hero = true) {
         if (nw.loaded && nw.assetsMinor == 0L && nw.liabilitiesMinor == 0L) {
-            Text("Add account balances, deposits or holdings to see your net worth.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+            Hint(t("Add account balances, deposits or holdings to see your net worth."))
             return@WidgetCard
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             com.hisaab.app.ui.components.AnimatedAmount(
-                nw.netMinor, Modifier.weight(1f, fill = false), style = androidx.compose.ui.text.TextStyle(fontSize = 30.sp),
-                fontWeight = FontWeight.Bold, format = ::signedMoney,
+                nw.netMinor, Modifier.weight(1f, fill = false), style = androidx.compose.ui.text.TextStyle(fontSize = 28.sp),
+                color = Hx.accent, fontWeight = FontWeight.Bold, format = ::signedMoney,
             )
             w.netWorthBefore?.let { before ->
                 val diff = nw.netMinor - before
                 val text = if (before != 0L) "%s %.1f%%".format(if (diff >= 0) "▲" else "▼", abs(diff) * 100.0 / abs(before))
                 else "${if (diff >= 0) "▲" else "▼"} ${Money.compact(abs(diff))}"
                 Spacer(Modifier.width(10.dp))
-                Delta("$text · 30d", good = diff >= 0)
+                Delta(t("{change} · 30d", "change" to text), good = diff >= 0)
             }
         }
         // The last year, recorded days plus months estimated from transactions.
@@ -188,16 +187,16 @@ fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit
         val points = nw.history.filter { !it.day.isBefore(yearAgo) }.map { it.netMinor.toFloat() }
         if (points.size >= 2) {
             Spacer(Modifier.height(8.dp))
-            Sparkline(points, color = Color.White, height = 46.dp)
+            Sparkline(points, color = Hx.accent, height = 46.dp)
         }
         Spacer(Modifier.height(12.dp))
         // One bar split by account and asset class, with a legend; then totals.
-        com.hisaab.app.ui.invest.WorthBreakdown(nw, onHero = true)
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            LabelValue("Assets", Money.format(nw.assetsMinor, showPaise = false), Color(0xFF9DF2C9), Modifier.weight(1f), onHero = true)
-            LabelValue("Liabilities", Money.format(nw.liabilitiesMinor, showPaise = false), Color(0xFFFFB3AB), onHero = true)
+        com.hisaab.app.ui.invest.WorthBreakdown(nw)
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            LabelValue(t("Assets"), Money.format(nw.assetsMinor, showPaise = false), Hx.pos, Modifier.weight(1f))
+            LabelValue(t("Liabilities"), Money.format(nw.liabilitiesMinor, showPaise = false), if (nw.liabilitiesMinor > 0) Hx.neg else Hx.text2)
         }
-        com.hisaab.app.ui.invest.CardLimits(nw, onHero = true)
+        com.hisaab.app.ui.invest.CardLimits(nw)
     }
 }
 
@@ -218,24 +217,24 @@ private fun LabelValue(label: String, value: String, color: Color, modifier: Mod
 @Composable
 fun CashFlowWidget(w: HomeWidgets, onAnalyse: () -> Unit, edit: WidgetEdit?) {
     val c = w.cash
-    WidgetCard("${w.filter.label} cash flow", action = "Analyse ›", onAction = onAnalyse, edit = edit) {
+    WidgetCard(t("{period} cash flow", "period" to t(w.filter.label)), action = t("Analyse ›"), onAction = onAnalyse, edit = edit) {
         KpiRow(
-            Triple("Income", Money.compact(c.income), Hx.pos),
-            Triple("Spent", Money.compact(c.spent), null),
-            Triple("Invested", Money.compact(c.invested), Hx.accent),
-            Triple("Saved", signedCompact(c.saved), if (c.saved >= 0) Hx.pos else Hx.neg),
+            Triple(t("Income"), Money.compact(c.income), Hx.pos),
+            Triple(t("Spent"), Money.compact(c.spent), null),
+            Triple(t("Invested"), Money.compact(c.invested), Hx.accent),
+            Triple(t("Saved"), signedCompact(c.saved), if (c.saved >= 0) Hx.pos else Hx.neg),
         )
         Spacer(Modifier.height(12.dp))
         if (c.income > 0) {
             val inc = c.income.toFloat()
             SplitBar(listOf(c.spent / inc to Hx.neg, c.invested / inc to Hx.accent, c.saved.coerceAtLeast(0) / inc to Hx.pos))
             Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Savings rate ", fontSize = 13.sp, color = Hx.text2)
+                Text(t("Savings rate") + " ", fontSize = 13.sp, color = Hx.text2)
                 Text("${c.rate}%", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if ((c.rate ?: 0) >= 0) Hx.pos else Hx.neg)
-                w.bestRateOf?.let { Text("  ·  best in $it months", fontSize = 13.sp, color = Hx.pos) }
+                w.bestRateOf?.let { Text("  ·  " + t("best in {n} months", "n" to it), fontSize = 13.sp, color = Hx.pos) }
             }
         } else {
-            Hint("No income recorded in this period.")
+            Hint(t("No income recorded in this period."))
         }
     }
 }
@@ -249,8 +248,8 @@ fun SafeWidget(w: HomeWidgets, onOpenBudgets: () -> Unit, edit: WidgetEdit?) {
     val s = w.safe ?: return
     val needsBase = s.current && s.base <= 0
     WidgetCard(
-        if (s.current) "Safe to spend" else "Daily spend", edit = edit,
-        action = if (needsBase) "Set budgets ›" else null, onAction = if (needsBase) onOpenBudgets else null,
+        if (s.current) t("Safe to spend") else t("Daily spend"), edit = edit,
+        action = if (needsBase) t("Set budgets ›") else null, onAction = if (needsBase) onOpenBudgets else null,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val used = when {
@@ -261,16 +260,18 @@ fun SafeWidget(w: HomeWidgets, onOpenBudgets: () -> Unit, edit: WidgetEdit?) {
             ProgressRing(used.coerceIn(0f, 1f), usageColor(used, Hx.pos, Hx.warn, Hx.neg), 64.dp, stroke = 6.dp, label = "${(used * 100).toInt().coerceAtMost(999)}%")
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(if (s.current) "Safe to spend today" else "Average spent per day", fontSize = 12.sp, color = Hx.text2)
+                Text(if (s.current) t("Safe to spend today") else t("Average spent per day"), fontSize = 12.sp, color = Hx.text2)
                 Text(
-                    if (needsBase) "—" else "${Money.format(s.perDay, showPaise = false)}/day",
+                    if (needsBase) "—" else t("{amount}/day", "amount" to Money.format(s.perDay, showPaise = false)),
                     fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1,
                 )
                 Text(
                     when {
-                        needsBase -> "Add income or set budgets to get a daily figure"
-                        s.current -> "${s.daysLeft} day${if (s.daysLeft == 1) "" else "s"} left · bills & SIPs already reserved"
-                        else -> "Over ${s.daysLeft} day${if (s.daysLeft == 1) "" else "s"} · ${Money.format(s.spent, showPaise = false)} spent"
+                        needsBase -> t("Add income or set budgets to get a daily figure")
+                        s.current -> if (s.daysLeft == 1) t("{n} day left · bills & SIPs already reserved", "n" to s.daysLeft)
+                            else t("{n} days left · bills & SIPs already reserved", "n" to s.daysLeft)
+                        else -> if (s.daysLeft == 1) t("Over {n} day · {amount} spent", "n" to s.daysLeft, "amount" to Money.format(s.spent, showPaise = false))
+                            else t("Over {n} days · {amount} spent", "n" to s.daysLeft, "amount" to Money.format(s.spent, showPaise = false))
                     },
                     fontSize = 12.sp, color = Hx.text2,
                 )
@@ -287,8 +288,8 @@ private val MONTH_SHORT = DateTimeFormatter.ofPattern("MMM")
 /** Bills, EMIs and SIPs due in the next seven days, each with a date badge and the amount coloured by kind. */
 @Composable
 fun UpcomingWidget(w: HomeWidgets, onCalendar: () -> Unit, edit: WidgetEdit?) {
-    WidgetCard("Upcoming · 7 days", action = "Calendar ›", onAction = onCalendar, edit = edit) {
-        if (w.upcoming.isEmpty()) { Hint("Nothing due in the next 7 days."); return@WidgetCard }
+    WidgetCard(t("Upcoming · 7 days"), action = t("Calendar ›"), onAction = onCalendar, edit = edit) {
+        if (w.upcoming.isEmpty()) { Hint(t("Nothing due in the next 7 days.")); return@WidgetCard }
         w.upcoming.take(5).forEach { (u, tone) ->
             val color = when (tone) {
                 DueTone.CARD -> Hx.neg
@@ -297,10 +298,10 @@ fun UpcomingWidget(w: HomeWidgets, onCalendar: () -> Unit, edit: WidgetEdit?) {
                 DueTone.INCOME -> Hx.pos
                 DueTone.OTHER -> MaterialTheme.colorScheme.onSurface
             }
-            val whenText = when (u.daysLeft) { 0L -> "Due today"; 1L -> "Tomorrow"; else -> "In ${u.daysLeft} days" }
+            val whenText = when (u.daysLeft) { 0L -> t("Due today"); 1L -> t("Tomorrow"); else -> t("In {n} days", "n" to u.daysLeft) }
             val from = u.account?.let { a -> "${a.nickname ?: a.bankName} ••${a.last4}" }
             HRow(
-                title = u.name, subtitle = listOfNotNull(whenText, from, "short of funds".takeIf { u.short }).joinToString(" · "),
+                title = u.name, subtitle = listOfNotNull(whenText, from, t("short of funds").takeIf { u.short }).joinToString(" · "),
                 leading = { DateBadge(u.due.dayOfMonth, u.due.format(MONTH_SHORT)) },
                 onClick = onCalendar,
             ) {
@@ -342,8 +343,8 @@ fun InsightsWidget(
     w: HomeWidgets, onOpenCategory: (Category) -> Unit, onOpenBills: () -> Unit, onSeeTransactions: () -> Unit,
     onDismiss: (Insight) -> Unit, edit: WidgetEdit?,
 ) {
-    WidgetCard(if (w.insights.isEmpty()) "Insights" else "Insights · ${w.insights.size}", edit = edit, contentPadding = 0.dp) {
-        if (w.insights.isEmpty()) { Hint("No insights right now.", Modifier.padding(horizontal = 16.dp)); return@WidgetCard }
+    WidgetCard(if (w.insights.isEmpty()) t("Insights") else t("Insights · {n}", "n" to w.insights.size), edit = edit, contentPadding = 0.dp) {
+        if (w.insights.isEmpty()) { Hint(t("No insights right now."), Modifier.padding(horizontal = 16.dp)); return@WidgetCard }
         val state = rememberLazyListState()
         LazyRow(
             state = state, flingBehavior = rememberSnapFlingBehavior(state),
@@ -351,9 +352,9 @@ fun InsightsWidget(
         ) {
             items(w.insights, key = { it.title }) { i ->
                 val (tag, color) = when (i.tone) {
-                    Tone.WARN -> "Heads up" to Hx.warn
-                    Tone.GOOD -> "Good news" to Hx.pos
-                    Tone.INFO -> "Pattern" to Hx.accent
+                    Tone.WARN -> t("Heads up") to Hx.warn
+                    Tone.GOOD -> t("Good news") to Hx.pos
+                    Tone.INFO -> t("Pattern") to Hx.accent
                 }
                 val link = linkOf(i)
                 Column(
@@ -366,11 +367,11 @@ fun InsightsWidget(
                         overflow = TextOverflow.Ellipsis)
                     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         when (link) {
-                            is InsightLink.ToCategory -> Pill("See transactions", on = true) { onOpenCategory(link.category) }
-                            InsightLink.ToBills -> Pill("See bills", on = true, onClick = onOpenBills)
-                            InsightLink.ToTransactions -> Pill("See transactions", on = true, onClick = onSeeTransactions)
+                            is InsightLink.ToCategory -> Pill(t("See transactions"), on = true) { onOpenCategory(link.category) }
+                            InsightLink.ToBills -> Pill(t("See bills"), on = true, onClick = onOpenBills)
+                            InsightLink.ToTransactions -> Pill(t("See transactions"), on = true, onClick = onSeeTransactions)
                         }
-                        Pill("Dismiss") { onDismiss(i) }
+                        Pill(t("Dismiss")) { onDismiss(i) }
                     }
                 }
             }
@@ -384,18 +385,18 @@ fun InsightsWidget(
 /** A donut of the top seven categories (the rest as Others) with a legend; a slice or a legend line opens that category. */
 @Composable
 fun CategoriesWidget(w: HomeWidgets, onOpenCategory: (CategoryLook) -> Unit, onTrends: () -> Unit, edit: WidgetEdit?) {
-    WidgetCard("Spend by category", action = "Trends ›", onAction = onTrends, edit = edit) {
-        if (w.categories.isEmpty()) { Hint("No spending in this period."); return@WidgetCard }
+    WidgetCard(t("Spend by category"), action = t("Trends ›"), onAction = onTrends, edit = edit) {
+        if (w.categories.isEmpty()) { Hint(t("No spending in this period.")); return@WidgetCard }
         val top = w.categories.take(7)
         val rest = w.categories.drop(7).sumOf { it.amount }
         val others = Hx.palette.last()
-        val slices = top.map { ChartSlice(it.look.name, it.amount, it.look.color) } + listOfNotNull(rest.takeIf { it > 0 }?.let { ChartSlice("Others", it, others) })
+        val slices = top.map { ChartSlice(t(it.look.name), it.amount, it.look.color) } + listOfNotNull(rest.takeIf { it > 0 }?.let { ChartSlice(t("Others"), it, others) })
         val total = slices.sumOf { it.value }.coerceAtLeast(1)
         val open: (Int) -> Unit = { i -> top.getOrNull(i)?.let { onOpenCategory(it.look) } ?: onTrends() }
         Row(verticalAlignment = Alignment.CenterVertically) {
             DonutChart(
                 slices = slices, selected = null, onSelect = { i -> if (i != null) open(i) },
-                centerLabel = "Spent", centerValue = { Money.compact(it) }, modifier = Modifier.size(132.dp), thickness = 18.dp,
+                centerLabel = t("Spent"), centerValue = { Money.compact(it) }, modifier = Modifier.size(132.dp), thickness = 18.dp,
             )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -413,8 +414,8 @@ fun CategoriesWidget(w: HomeWidgets, onOpenCategory: (CategoryLook) -> Unit, onT
 /** The last four transactions of the period. */
 @Composable
 fun RecentWidget(w: HomeWidgets, onOpenTransaction: (Long) -> Unit, onSeeAll: () -> Unit, edit: WidgetEdit?) {
-    WidgetCard("Recent", action = "All ›", onAction = onSeeAll, edit = edit, contentPadding = 0.dp) {
-        if (w.recent.isEmpty()) { Hint("No transactions in this period.", Modifier.padding(horizontal = 16.dp)); return@WidgetCard }
+    WidgetCard(t("Recent"), action = t("All ›"), onAction = onSeeAll, edit = edit, contentPadding = 0.dp) {
+        if (w.recent.isEmpty()) { Hint(t("No transactions in this period."), Modifier.padding(horizontal = 16.dp)); return@WidgetCard }
         w.recent.forEach { tx: TransactionEntity -> TransactionRow(tx, onClick = { onOpenTransaction(tx.id) }, showDate = true) }
     }
 }
@@ -425,11 +426,11 @@ fun RecentWidget(w: HomeWidgets, onOpenTransaction: (Long) -> Unit, onSeeAll: ()
 /** Up to three budgets as rings, most used first. */
 @Composable
 fun BudgetsWidget(w: HomeWidgets, onOpenBudgets: () -> Unit, edit: WidgetEdit?) {
-    WidgetCard("Budgets", action = if (w.hasBudgets) "Manage ›" else null, onAction = onOpenBudgets, edit = edit) {
+    WidgetCard(t("Budgets"), action = if (w.hasBudgets) t("Manage ›") else null, onAction = onOpenBudgets, edit = edit) {
         if (!w.hasBudgets) {
-            Hint("Set monthly limits for the categories you want to watch.")
+            Hint(t("Set monthly limits for the categories you want to watch."))
             Spacer(Modifier.height(10.dp))
-            Pill("Set budgets", on = true, onClick = onOpenBudgets)
+            Pill(t("Set budgets"), on = true, onClick = onOpenBudgets)
             return@WidgetCard
         }
         Row(Modifier.fillMaxWidth().clickable(onClick = onOpenBudgets), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -437,9 +438,9 @@ fun BudgetsWidget(w: HomeWidgets, onOpenBudgets: () -> Unit, edit: WidgetEdit?) 
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                     ProgressRing(b.fraction.coerceIn(0f, 1f), usageColor(b.fraction, Hx.pos, Hx.warn, Hx.neg), 60.dp, stroke = 6.dp,
                         label = "${(b.fraction * 100).toInt().coerceAtMost(999)}%")
-                    Text(b.look.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    Text(t(b.look.name), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 6.dp))
-                    Text("${Money.compact(b.spent)} of ${Money.compact(b.limit)}", fontSize = 11.sp, color = Hx.text2, maxLines = 1)
+                    Text(t("{spent} of {limit}", "spent" to Money.compact(b.spent), "limit" to Money.compact(b.limit)), fontSize = 11.sp, color = Hx.text2, maxLines = 1)
                 }
             }
         }

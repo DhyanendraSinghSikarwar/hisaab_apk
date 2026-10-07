@@ -16,6 +16,8 @@ import com.hisaab.parser.model.Source
 import com.hisaab.parser.model.TransactionType
 import com.hisaab.parser.statement.MfOrder
 import com.hisaab.parser.statement.MfOrderParser
+import com.hisaab.parser.statement.InvestmentParser
+import com.hisaab.parser.statement.PortfolioSummary
 import com.hisaab.parser.statement.StatementParser
 import com.hisaab.shared.db.StatementDao
 import com.hisaab.shared.db.StatementEntity
@@ -79,6 +81,7 @@ class StatementProcessor @Inject constructor(
     private val lockedNotifier: LockedStatementNotifier,
     private val accounts: com.hisaab.shared.db.AccountDao,
     private val transactionDao: com.hisaab.shared.db.TransactionDao,
+    private val nps: com.hisaab.shared.repo.NpsContributions,
 ) : StatementHandler {
     private val parser = StatementParser()
     private val mfParser = MfOrderParser()
@@ -124,7 +127,23 @@ class StatementProcessor @Inject constructor(
 
     override suspend fun readEmail(messageId: String, from: String, subject: String?, text: String, receivedAt: Long): List<IncomingMessage> =
         withContext(Dispatchers.Default) {
-            val order = mfParser.parse(text, subject, from, receivedAt) ?: return@withContext emptyList()
+            // INDmoney's portfolio summary: invested and current value per asset class, until known holding by holding.
+            PortfolioSummary.parse(text, subject, from, receivedAt).takeIf { it.isNotEmpty() }?.let {
+                holdings.record(it, SOURCE_EMAIL)
+                return@withContext emptyList()
+            }
+            val order = mfParser.parse(text, subject, from, receivedAt)
+            if (order == null) {
+                val head = "$from ${subject.orEmpty()} ${text.take(2_000)}"
+                // EPFO or UMANG: the EPF passbook balance.
+                if (EPF_MAIL.containsMatchIn(head)) {
+                    InvestmentParser.parseEmail(listOfNotNull(subject, text).joinToString("\n"), receivedAt)?.let { holdings.record(listOf(it), SOURCE_EMAIL) }
+                    return@withContext emptyList()
+                }
+                // An NPS CRA email: a contribution credited, or the holding value.
+                if (!NPS_MAIL.containsMatchIn(head)) return@withContext emptyList()
+                return@withContext listOfNotNull(nps.read(listOfNotNull(subject, text).joinToString("\n"), from, receivedAt, messageId, Source.EMAIL, subject))
+            }
             val key = listOf(order.identifier, order.date, order.amountMinor, order.units).joinToString("|")
             // The same confirmation can arrive twice (Gmail and IMAP both connected, or a resent email).
             if (key in mfOrders.getStringSet(ORDERS_KEY, emptySet()).orEmpty()) return@withContext emptyList()
@@ -281,10 +300,12 @@ class StatementProcessor @Inject constructor(
         val msgs = r.transactions.mapIndexed { i, tx ->
             IncomingMessage(tx, "stmt:${meta.key}:$i", "${r.lines.getOrNull(i).orEmpty()}\n\nFrom ${meta.fileName}", sourceName = "STATEMENT")
         }
-        val status = if (msgs.isEmpty() && r.holdings.isEmpty()) StatementEntity.EMPTY else StatementEntity.PARSED
+        // A PPF or RD statement, or an FD advice: the deposit account's balance and maturity.
+        r.deposits.forEach { transactions.applyLoanStatus(it) }
+        val status = if (msgs.isEmpty() && r.holdings.isEmpty() && r.deposits.isEmpty()) StatementEntity.EMPTY else StatementEntity.PARSED
         val sum = r.summary
         // Bring the account up to date: a card's available limit, or a bank account's closing balance.
-        if (r.bankName != null && r.last4 != null &&
+        if (r.bankName != null && r.last4 != null && r.deposits.isEmpty() &&
             (msgs.isNotEmpty() || sum.creditLimitMinor != null || sum.closingMinor != null || sum.availableMinor != null)
         ) {
             val at = sum.statementDate?.atTime(23, 59)?.atZone(java.time.ZoneId.of("Asia/Kolkata"))?.toInstant()?.toEpochMilli()
@@ -294,6 +315,8 @@ class StatementProcessor @Inject constructor(
                 // The closing balance printed in the summary is the most reliable; otherwise the last row's balance.
                 closingBalance = sum.closingMinor ?: r.transactions.lastOrNull { it.balanceMinor != null }?.balanceMinor,
                 creditLimit = sum.creditLimitMinor, totalDue = sum.totalDueMinor, available = sum.availableMinor, at = at,
+                // A statement with rows fills its own gaps once they are stored; one with only totals may reveal missing ones.
+                reconcile = msgs.isEmpty(),
             )
         }
         statements.upsert(
@@ -338,6 +361,9 @@ class StatementProcessor @Inject constructor(
         private const val MAX_ORDER_KEYS = 500
         private val IST: java.time.ZoneId = java.time.ZoneId.of("Asia/Kolkata")
         private fun rx(p: String) = Regex(p, RegexOption.IGNORE_CASE)
+        private const val SOURCE_EMAIL = "EMAIL"
+        private val EPF_MAIL = rx("""epfindia|epfo|umang|\bEPF\b.{0,40}\bpassbook\b|passbook\s+balance""")
+        private val NPS_MAIL = rx("""\bPRAN\b|\bNPS\b|npscra|proteantech|npstrust|kfintech-cra|camsnps""")
         private val ISSUERS = listOf(
             rx("""hdfc""") to "HDFC Bank", rx("""icici""") to "ICICI Bank", rx("""sbi\s*card|sbicard""") to "SBI Card", rx("""\bsbi\b|state bank""") to "SBI",
             rx("""axis""") to "Axis Bank", rx("""kotak""") to "Kotak", rx("""idfc""") to "IDFC FIRST Bank", rx("""indusind""") to "IndusInd Bank",

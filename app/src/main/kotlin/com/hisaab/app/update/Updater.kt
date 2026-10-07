@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.hisaab.app.BuildConfig
+import com.hisaab.app.i18n.t
 import com.hisaab.app.settings.AppSettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -35,7 +36,7 @@ sealed interface UpdateState {
 /**
  * Updates from the project's public GitHub Releases. The check sends nothing but a plain request for the
  * latest release; no data about you or your money is included. The downloaded APK is checked against the
- * SHA-256 in the release notes, and Android itself refuses any APK not signed with the Artha key.
+ * SHA-256 in the release notes, and Android itself refuses any APK not signed with the DhanKosh key.
  */
 @Singleton
 class Updater @Inject constructor(
@@ -60,7 +61,7 @@ class Updater @Inject constructor(
             settings.setLastUpdateCheck(System.currentTimeMillis())
             if (r != null && isNewer(r.version, BuildConfig.VERSION_NAME)) UpdateState.Available(r) else UpdateState.UpToDate
         } catch (e: Exception) {
-            UpdateState.Failed("Couldn't check for updates: ${e.message ?: "no connection"}")
+            UpdateState.Failed(t("Couldn't check for updates: {reason}", "reason" to (e.message ?: t("no connection"))))
         }
     }
 
@@ -71,7 +72,7 @@ class Updater @Inject constructor(
             val file = withContext(Dispatchers.IO) { download(release) }
             if (release.sha256 != null && !sha256(file).equals(release.sha256, ignoreCase = true)) {
                 file.delete()
-                _state.value = UpdateState.Failed("The download didn't match its checksum, so it wasn't installed. Try again.")
+                _state.value = UpdateState.Failed(t("The download didn't match its checksum, so it wasn't installed. Try again."))
                 return
             }
             _state.value = UpdateState.Available(release)
@@ -81,7 +82,7 @@ class Updater @Inject constructor(
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
             )
         } catch (e: Exception) {
-            _state.value = UpdateState.Failed("Download failed: ${e.message ?: "no connection"}")
+            _state.value = UpdateState.Failed(t("Download failed: {reason}", "reason" to (e.message ?: t("no connection"))))
         }
     }
 
@@ -110,7 +111,7 @@ class Updater @Inject constructor(
 
     private fun download(release: Release): File {
         val dir = File(context.cacheDir, "updates").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
-        val out = File(dir, "Artha-${release.version}.apk")
+        val out = File(dir, "DhanKosh-${release.version}.apk")
         var url = URL(release.apkUrl)
         var c = url.openConnection() as HttpURLConnection
         // GitHub serves assets through a redirect to its CDN.
