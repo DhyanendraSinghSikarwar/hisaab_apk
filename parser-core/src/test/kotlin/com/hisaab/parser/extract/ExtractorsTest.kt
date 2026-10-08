@@ -142,4 +142,13 @@ class ExtractorsTest {
         assertEquals(RawMerchant("JOHN DOE", null), MerchantExtractor.extract("credited with INR 5 by NEFT from JOHN DOE. UPI", TransactionType.CREDIT))
         assertEquals(RawMerchant(null, "rahul.sharma@oksbi"), MerchantExtractor.extract("Sent INR 5 to rahul.sharma@oksbi on 08-09-26", TransactionType.DEBIT))
     }
+
+    @Test
+    fun `ui phrases are not merchants`() {
+        for (p in listOf("View Details", "Click here", "Know more", "Open app", "Tap to view")) {
+            assertEquals(true, GenericPhrases.isGeneric(p), p)
+            assertNull(MerchantExtractor.extract("Rs 144 debited from A/c XX1234 at $p. Ref 1", TransactionType.DEBIT).name, p)
+        }
+        assertEquals(false, GenericPhrases.isGeneric("Swiggy"))
+    }
 }

@@ -63,15 +63,17 @@ class PlanSource @Inject constructor(
 
     val snapshot: StateFlow<PlanSnapshot> = combine(
         transactions.observeSince(since),
-        accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())),
+        combine(accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())), accounts.observeMerged()) { accs, merged ->
+            accs to merged.mapNotNull { m -> m.mergedIntoId?.let { m.id to it } }.toMap()
+        },
         holdings.observeAll(),
         manual.observeAll(),
         loans.snapshot,
-    ) { txs, accs, held, mine, owed ->
+    ) { txs, (accs, mergedInto), held, mine, owed ->
         val today = LocalDate.now(Periods.zone)
         val zone = Periods.zone
         val byId = accs.associateBy { it.id }
-        fun payingAccount(id: Long?) = id?.let(byId::get)?.let { a -> a.linkedAccountId?.let(byId::get) ?: a }
+        fun payingAccount(id: Long?) = id?.let { mergedInto[it] ?: it }?.let(byId::get)?.let { a -> a.linkedAccountId?.let(byId::get) ?: a }
         // Every loan's EMI is a bill, even when the repeats missed it.
         val recurring = Planning.withLoans(Planning.withManual(Planning.recurring(txs, today, zone), mine, today), owed.loans)
         val policies = Planning.policies(txs, today, zone)

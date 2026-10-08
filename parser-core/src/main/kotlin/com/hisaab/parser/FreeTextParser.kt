@@ -4,6 +4,7 @@ import com.hisaab.parser.extract.AccountExtractor
 import com.hisaab.parser.extract.AmountExtractor
 import com.hisaab.parser.extract.ChannelDetector
 import com.hisaab.parser.extract.DateTimeExtractor
+import com.hisaab.parser.extract.GenericPhrases
 import com.hisaab.parser.extract.MerchantExtractor
 import com.hisaab.parser.extract.ReferenceExtractor
 import com.hisaab.parser.extract.TypeClassifier
@@ -56,7 +57,7 @@ class FreeTextParser(private val config: ParserConfig = ParserConfig()) {
         val merchant = MerchantNormalizer.normalize(raw0, type ?: TransactionType.DEBIT, channel, text)
         val (time, explicit) = resolveTime(text, lower, timestamp)
         return TransactionDraft(
-            amountMinor = money.minor, currency = money.currency, type = type, merchant = merchant.name,
+            amountMinor = money.minor, currency = money.currency, type = type, merchant = GenericPhrases.clean(merchant.name),
             upiId = raw0.vpa?.lowercase(), reference = ReferenceExtractor.normalize(ReferenceExtractor.extract(text, lower)),
             bankName = bankIn(text), last4 = account?.last4, accountKind = account?.kind ?: AccountKind.ACCOUNT,
             channel = channel, category = merchant.category, time = time, hasExplicitTime = explicit,

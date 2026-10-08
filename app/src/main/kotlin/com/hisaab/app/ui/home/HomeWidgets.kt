@@ -462,7 +462,7 @@ fun CreditCardsWidget(w: HomeWidgets, onOpenCard: (Long) -> Unit, edit: WidgetEd
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpenCard(c.id) }.padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AccountAvatar(c.name, com.hisaab.parser.model.AccountKind.CARD, null, size = 36.dp)
+                    AccountAvatar(c.name, com.hisaab.parser.model.AccountKind.CARD, null, size = 36.dp, network = c.network)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -477,6 +477,13 @@ fun CreditCardsWidget(w: HomeWidgets, onOpenCard: (Long) -> Unit, edit: WidgetEd
                     Column(horizontalAlignment = Alignment.End) {
                         if (billed != null) Text(Money.format(billed, showPaise = false), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Hx.neg, maxLines = 1)
                         else Text(t("No dues"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.text2, maxLines = 1)
+                        c.dueDay?.takeIf { billed != null }?.let { due ->
+                            val days = java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), due)
+                            Text(
+                                t("Due {date}", "date" to due.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))), fontSize = 11.sp, maxLines = 1,
+                                color = when { days < 0 -> Hx.neg; days <= 5 -> Hx.warn; else -> Hx.text2 },
+                            )
+                        }
                         c.unbilledMinor?.takeIf { it > 0 }?.let {
                             Text(t("Unbilled {amount}", "amount" to Money.format(it, showPaise = false)), fontSize = 11.sp, color = Hx.warn, maxLines = 1)
                         }

@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import androidx.room.Upsert
+import com.hisaab.parser.model.AccountKind
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -50,7 +51,7 @@ interface TransactionDao {
            WHERE (:search IS NULL OR merchant LIKE '%' || :search || '%' OR bankName LIKE '%' || :search || '%'
                   OR note LIKE '%' || :search || '%' OR referenceNumber LIKE '%' || :search || '%'
                   OR CAST(amountMinor / 100 AS TEXT) LIKE :search || '%')
-             AND (:accountId IS NULL OR accountId = :accountId)
+             AND (:accountId IS NULL OR accountId = :accountId OR accountId IN (SELECT id FROM accounts WHERE mergedIntoId = :accountId))
              AND (:category IS NULL OR category = :category)
              AND (:type IS NULL OR type = :type)
              AND (:source IS NULL OR EXISTS (SELECT 1 FROM transaction_sources s WHERE s.transactionId = transactions.id AND s.source = :source))
@@ -159,12 +160,13 @@ interface TransactionDao {
                   SUM(CASE WHEN type = 'CREDIT' THEN inrMinor ELSE 0 END) AS income
            FROM transactions
            WHERE inrMinor IS NOT NULL AND timestamp BETWEEN :from AND :to
-             AND (accountId = :accountId OR accountId IN (SELECT id FROM accounts WHERE linkedAccountId = :accountId))
+             AND (accountId = :accountId OR accountId IN (SELECT id FROM accounts WHERE linkedAccountId = :accountId OR mergedIntoId = :accountId
+                                                        OR linkedAccountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = :accountId)))
            GROUP BY month ORDER BY month""",
     )
     fun monthlyForAccount(accountId: Long, from: Long, to: Long, offsetMillis: Long): Flow<List<MonthTotal>>
 
-    @Query("SELECT MIN(timestamp) FROM transactions WHERE accountId = :accountId")
+    @Query("SELECT MIN(timestamp) FROM transactions WHERE accountId = :accountId OR accountId IN (SELECT id FROM accounts WHERE mergedIntoId = :accountId)")
     suspend fun firstTimestampFor(accountId: Long): Long?
 
     /** Where the money went, by merchant, biggest first. */
@@ -244,16 +246,12 @@ interface TransactionDao {
     @Query("SELECT id FROM transactions WHERE accountId = :accountId")
     suspend fun idsForAccount(accountId: Long): List<Long>
 
-    @Query("SELECT COUNT(*) FROM transactions WHERE accountId = :accountId")
-    suspend fun countForAccount(accountId: Long): Int
+    /** Transactions with no account, or whose account no longer exists, in id order a page at a time. */
+    @Query("SELECT * FROM transactions WHERE id > :afterId AND (accountId IS NULL OR accountId NOT IN (SELECT id FROM accounts)) ORDER BY id LIMIT :limit")
+    suspend fun orphansAfter(afterId: Long, limit: Int): List<TransactionEntity>
 
-    /** Detaches every transaction from one account (no account at all). */
-    @Query("UPDATE transactions SET accountId = NULL, accountLast4 = NULL WHERE accountId = :from")
-    suspend fun detachAccount(from: Long)
-
-    /** Moves every transaction of one account onto another. */
-    @Query("UPDATE transactions SET accountId = :to, accountLast4 = :toLast4 WHERE accountId = :from")
-    suspend fun moveAccount(from: Long, to: Long, toLast4: String)
+    @Query("UPDATE transactions SET accountId = :accountId, accountLast4 = :last4, accountKind = :kind WHERE id = :id")
+    suspend fun setAccount(id: Long, accountId: Long, last4: String, kind: AccountKind)
 }
 
 @Dao
@@ -443,27 +441,47 @@ interface AccountDao {
      */
     @Query(
         """SELECT a.id, a.bankName, a.last4, a.kind, a.nickname, a.colorArgb, a.latestBalanceMinor, a.availableLimitMinor,
-                  a.balanceUpdatedAt, a.manualBalanceMinor, a.manualBalanceAt, a.accountType, a.cardNetwork, a.linkedAccountId, a.hidden, a.usage,
+                  a.balanceUpdatedAt, a.manualBalanceMinor, a.manualBalanceAt, a.accountType, a.cardNetwork,
+                  COALESCE((SELECT p.mergedIntoId FROM accounts p WHERE p.id = a.linkedAccountId), a.linkedAccountId) AS linkedAccountId, a.hidden, a.usage,
                   a.maturityDay, a.maturityAction, a.forexMarkupBps,
                   a.loanPrincipalMinor, a.loanRateBps, a.loanTenureMonths, a.loanStartDay,
                   COALESCE((SELECT SUM(t.inrMinor) FROM transactions t
-                            WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id))
+                            WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id OR c.mergedIntoId = a.id OR c.linkedAccountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = a.id)))
                             AND t.type IN ('DEBIT', 'INVESTMENT') AND t.timestamp >= :from AND t.timestamp < :to), 0) AS monthSpent,
-                  (SELECT COUNT(*) FROM transactions t WHERE t.accountId = a.id) AS transactionCount,
+                  (SELECT COUNT(*) FROM transactions t WHERE t.accountId = a.id OR t.accountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = a.id)) AS transactionCount,
                   COALESCE((SELECT SUM(CASE WHEN t.type = 'CREDIT' THEN t.inrMinor
                                             WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.inrMinor
                                             WHEN t.type = 'TRANSFER' AND a.kind = 'CARD' THEN t.inrMinor
                                             ELSE 0 END)
                             FROM transactions t
-                            WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id))
+                            WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id OR c.mergedIntoId = a.id OR c.linkedAccountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = a.id)))
                             AND a.manualBalanceAt IS NOT NULL
                             AND t.timestamp > a.manualBalanceAt AND t.needsReview = 0 AND t.inrMinor IS NOT NULL), 0) AS changeSinceManual
-           FROM accounts a ORDER BY a.bankName, a.last4""",
+           FROM accounts a
+           WHERE a.mergedIntoId IS NULL OR a.mergedIntoId NOT IN (SELECT x.id FROM accounts x)
+           ORDER BY a.bankName, a.last4""",
     )
     fun observeWithActivity(from: Long, to: Long = Long.MAX_VALUE): Flow<List<AccountWithActivity>>
 
+    /** Every account, merged ones included (for names); pickers leave out those with [AccountEntity.mergedIntoId]. */
     @Query("SELECT * FROM accounts ORDER BY bankName, last4")
     fun observeAll(): Flow<List<AccountEntity>>
+
+    /** Accounts shown together with another one. */
+    @Query("SELECT * FROM accounts WHERE mergedIntoId IS NOT NULL ORDER BY bankName, last4")
+    fun observeMerged(): Flow<List<AccountEntity>>
+
+    /** Shows [id] together with [into] in every list and total, or with null on its own again. Nothing else changes. */
+    @Query("UPDATE accounts SET mergedIntoId = :into WHERE id = :id")
+    suspend fun setMergedInto(id: Long, into: Long?)
+
+    /** Accounts shown with [from] are shown with [to] instead. */
+    @Query("UPDATE accounts SET mergedIntoId = :to WHERE mergedIntoId = :from")
+    suspend fun repointMerged(from: Long, to: Long)
+
+    /** Accounts merged into [id] show on their own again (before [id] is deleted). */
+    @Query("UPDATE accounts SET mergedIntoId = NULL WHERE mergedIntoId = :id")
+    suspend fun unmergeChildren(id: Long)
 
     @Query("SELECT * FROM accounts")
     suspend fun all(): List<AccountEntity>
@@ -474,14 +492,6 @@ interface AccountDao {
 
     @Query("DELETE FROM accounts WHERE id = :id")
     suspend fun delete(id: Long)
-
-    /** Merging accounts: debit cards linked to [from] now draw from [to]. */
-    @Query("UPDATE accounts SET linkedAccountId = :to WHERE linkedAccountId = :from")
-    suspend fun moveLinkedCards(from: Long, to: Long)
-
-    /** Merging accounts: recurring payments set on [from] move to [to]. */
-    @Query("UPDATE recurring SET accountId = :to WHERE accountId = :from")
-    suspend fun moveRecurring(from: Long, to: Long)
 }
 
 @Dao
@@ -517,7 +527,7 @@ interface ReconcileDao {
                                     ELSE 0 END), 0) AS net,
                   COALESCE(SUM(CASE WHEN t.inrMinor IS NULL OR (t.type = 'TRANSFER' AND NOT :card) THEN 1 ELSE 0 END), 0) AS unclear
            FROM transactions t
-           WHERE (t.accountId = :id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = :id))
+           WHERE (t.accountId = :id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = :id OR c.mergedIntoId = :id OR c.linkedAccountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = :id)))
              AND t.timestamp > :from AND t.timestamp <= :to AND t.needsReview = 0""",
     )
     suspend fun netChange(id: Long, card: Boolean, from: Long, to: Long): NetChange

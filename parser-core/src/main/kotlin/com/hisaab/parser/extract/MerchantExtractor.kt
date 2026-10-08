@@ -52,7 +52,7 @@ object MerchantExtractor {
 
     private fun valid(s: String?): String? {
         val t = s?.trim()?.trim('-', '/', '.', ' ') ?: return null
-        if (t.length < 2 || !HAS_LETTER.containsMatchIn(t)) return null
+        if (t.length < 2 || !HAS_LETTER.containsMatchIn(t) || GenericPhrases.isGeneric(t)) return null
         return t
     }
 }

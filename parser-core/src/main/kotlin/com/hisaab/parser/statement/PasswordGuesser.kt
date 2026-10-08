@@ -13,7 +13,40 @@ data class Identity(
     val phone: String? = null,
     val altName: String? = null,
     val altPhone: String? = null,
+    /** Kept with the sealed details so accounts can inherit it; not used to build guesses. */
+    val email: String? = null,
 )
+
+/**
+ * What one bank account or card adds to [Identity]: details the bank itself holds. [names], [phones] and [emails]
+ * are the account's effective values, its own before the profile's.
+ */
+data class BankIdentity(
+    val customerId: String? = null,
+    val accountNumber: String? = null,
+    val ifsc: String? = null,
+    val names: List<String> = emptyList(),
+    val phones: List<String> = emptyList(),
+    val emails: List<String> = emptyList(),
+)
+
+/** Maps a bank's name, or an email sender, to a stable key, so accounts and statements of one bank meet. */
+object BankKeys {
+    private val RULES = listOf(
+        "hdfc" to Regex("""hdfc""", RegexOption.IGNORE_CASE), "icici" to Regex("""icici""", RegexOption.IGNORE_CASE),
+        "axis" to Regex("""\baxis""", RegexOption.IGNORE_CASE), "hsbc" to Regex("""hsbc""", RegexOption.IGNORE_CASE),
+        "sbi" to Regex("""\bsbi|state bank""", RegexOption.IGNORE_CASE), "kotak" to Regex("""kotak""", RegexOption.IGNORE_CASE),
+        "yes" to Regex("""\byes\s*bank|yesbank""", RegexOption.IGNORE_CASE), "idfc" to Regex("""idfc""", RegexOption.IGNORE_CASE),
+        "indusind" to Regex("""indusind""", RegexOption.IGNORE_CASE), "baroda" to Regex("""baroda|\bbob\b""", RegexOption.IGNORE_CASE),
+        "pnb" to Regex("""\bpnb\b|punjab national""", RegexOption.IGNORE_CASE), "federal" to Regex("""federal""", RegexOption.IGNORE_CASE),
+        "canara" to Regex("""canara""", RegexOption.IGNORE_CASE), "union" to Regex("""union bank""", RegexOption.IGNORE_CASE),
+        "rbl" to Regex("""\brbl""", RegexOption.IGNORE_CASE), "scb" to Regex("""standard chartered|\bscb\b""", RegexOption.IGNORE_CASE),
+        "amex" to Regex("""\bamex|american express""", RegexOption.IGNORE_CASE), "au" to Regex("""\bau small|\bau bank""", RegexOption.IGNORE_CASE),
+    )
+
+    /** The key of the first bank named in [text] (a bank name, or a sender like `Name <alerts@hdfcbank.net>`), or null. */
+    fun of(text: String?): String? = text?.let { t -> RULES.firstOrNull { it.second.containsMatchIn(t) }?.first }
+}
 
 /**
  * Likely statement passwords from the user's details, most common formats first:
@@ -23,6 +56,44 @@ data class Identity(
  */
 object PasswordGuesser {
     const val MAX = 240
+
+    /** Cap for [candidates] with bank details: exact forms from every account, then name and date combinations. */
+    const val MAX_WITH_BANKS = 300
+
+    /**
+     * Exact forms first (HDFC uses the customer ID as it is), then, when [combos], the usual combinations built
+     * from each account's own name and mobile before the profile's, then the profile alone. [banks] holds the
+     * accounts and cards of the statement's bank, or of every bank when that bank is unknown.
+     */
+    fun forBanks(profile: Identity, banks: List<BankIdentity>, last4s: Collection<String> = emptyList(), combos: Boolean = true): List<String> {
+        val out = LinkedHashSet<String>()
+        for (b in banks) out += exactForms(b)
+        if (combos) {
+            for (b in banks) {
+                val names = (b.names + listOfNotNull(profile.name, profile.altName)).filter { it.isNotBlank() }.distinct()
+                val phones = (b.phones + listOfNotNull(profile.phone, profile.altPhone)).filter { it.isNotBlank() }.distinct()
+                if (b.names.isEmpty() && b.phones.isEmpty()) continue
+                out += candidates(
+                    profile.copy(name = names.getOrNull(0), altName = names.getOrNull(1), phone = phones.getOrNull(0), altPhone = phones.getOrNull(1)),
+                    last4s,
+                )
+            }
+        }
+        out += candidates(profile, last4s)
+        return out.take(MAX_WITH_BANKS)
+    }
+
+    private fun exactForms(b: BankIdentity): List<String> {
+        val out = LinkedHashSet<String>()
+        b.customerId?.trim()?.takeIf { it.isNotEmpty() }?.let { out += it; out += it.filter(Char::isLetterOrDigit) }
+        val acct = b.accountNumber?.filter(Char::isLetterOrDigit)?.takeIf { it.isNotEmpty() }
+        if (acct != null) {
+            out += acct
+            for (n in listOf(4, 5, 6, 8)) if (acct.length > n) out += acct.takeLast(n)
+        }
+        b.ifsc?.filter(Char::isLetterOrDigit)?.takeIf { it.isNotEmpty() }?.let { out += it.uppercase(); out += it.lowercase() }
+        return out.filter { it.length >= 4 }
+    }
 
     fun candidates(id: Identity, last4s: Collection<String> = emptyList()): List<String> {
         val out = LinkedHashSet<String>()

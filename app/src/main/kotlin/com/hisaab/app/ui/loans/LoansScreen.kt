@@ -768,7 +768,7 @@ private fun LinkSheet(accounts: List<AccountWithActivity>, onDismiss: () -> Unit
             accounts.forEach { a ->
                 HRow(
                     a.nickname ?: a.bankName, a.last4.takeIf { it.isNotBlank() }?.let { t("Loan") + " ••$it" } ?: t("Loan"),
-                    leading = { AccountAvatar(a.bankName, a.kind, a.accountType, size = 36.dp) },
+                    leading = { AccountAvatar(a.bankName, a.kind, a.accountType, business = a.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = a.cardNetwork, size = 36.dp) },
                     onClick = { onPick(a) },
                 )
             }

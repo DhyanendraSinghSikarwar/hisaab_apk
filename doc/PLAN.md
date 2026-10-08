@@ -152,3 +152,14 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] Loans: add / remove loans
 - [x] Holdings sheets (Groww/INDmoney/Coin/ET Money/broker CSV, xlsx/csv/email): per-scheme folio sums, summary totals check, GOLD kind, 'Holdings statement' label
 - Built + all tests pass (DB v14), not yet run on a device. Pending from user: UPI ID or QR image for the Support page (SupportConfig.UPI_ID / assets/support_qr.webp)
+
+## 2.8.0 (requested 2026-10-07)
+- [x] Bank account details on the account page (customer ID, full account number, IFSC, name on account, mobile, email), sealed on the phone, used to open that bank's statements; inherits from Profile ("Same as profile"), so the two stay in sync
+- [x] Vanished HDFC account (after 2.4): find the cause (auto clean-ups since 2.5), make clean-ups non-destructive, add "Restore missing accounts"
+- [x] Merging accounts = display grouping only (reversible, "Unmerge"); transactions and source messages never change
+- [x] Card rows: payment-network logo on the icon (no separate chip), Business tag on the icon (top left); summary shows billed (red) + due date + unbilled; no "spent this month / transactions"; limit left only as a small line
+- [x] Manual transaction merge (select two → Merge; reversible via Split); "View Details" never a merchant; app-notification amounts without paise match the SMS duplicate
+- [x] Nagrik Sahakari Bank parser (sender headers guessed + bank name in text); send a real sample if an alert isn't picked up
+- [x] Listed Indian banks (PSU, private, small finance, foreign, payments, co-operative — ~55) with sender codes and mail domains; no duplicate sender claims; unknown BNK/BANK headers still handled generically
+- 2.8.0 includes: reversible account merge + restore, bank unlock details, card icons, manual transaction merge, Nagrik + listed banks
+- 2.8.0 built; parser, shared, email and app unit tests pass (DB v15); not yet run on a device

@@ -39,8 +39,8 @@ data class IncomingMessage(
     val subject: String? = null,
 )
 
-/** What [TransactionRepository.reparseStored] did: fixes found, transactions changed, accounts deleted. */
-data class ReparseReport(val found: Int, val changed: Int, val accountsDeleted: Int)
+/** What [TransactionRepository.reparseStored] did: fixes found, transactions changed. Accounts are never deleted. */
+data class ReparseReport(val found: Int, val changed: Int)
 
 private class ReparseFix(
     val id: Long,
@@ -239,17 +239,20 @@ class TransactionRepository @Inject constructor(
 
     /**
      * Last 4 digits of the user's own mobile numbers. A bank message can carry the mobile masked like an
-     * account ("XXXXXX6810"); no account is ever created with these digits.
+     * account ("XXXXXX6810"); no account is created from a message with these digits. An account that already
+     * exists is always used as it is, whatever its digits.
      */
     @Volatile var phoneLast4s: Set<String> = emptySet()
 
-    private suspend fun ensureAccount(tx: ParsedTransaction, rawText: String? = null): Long? {
-        val last4 = tx.accountLast4?.takeIf { it !in phoneLast4s } ?: return null
+    /** The account of [tx], created when new. [force] skips the [phoneLast4s] guard (restoring accounts from stored messages). */
+    private suspend fun ensureAccount(tx: ParsedTransaction, rawText: String? = null, force: Boolean = false): Long? {
+        val last4 = tx.accountLast4 ?: return null
         accountDao.find(tx.bankName, last4)?.let { existing ->
             if (existing.accountType == null && tx.isDebitCard) accountDao.setType(existing.id, AccountType.DEBIT_CARD, existing.cardNetwork)
             if (existing.accountType == null && Lenders.isLender(tx.bankName)) accountDao.setType(existing.id, AccountType.LOAN, null)
             return existing.id
         }
+        if (!force && last4 in phoneLast4s) return null
         val guess = AccountGuess.of(tx, rawText)
         val id = accountDao.insert(
             AccountEntity(
@@ -320,7 +323,7 @@ class TransactionRepository @Inject constructor(
      * disbursal (unless the user set one) and the outstanding amount as the account's balance.
      */
     suspend fun applyLoanStatus(s: LoanStatus) = write {
-        if (s.last4 in phoneLast4s) return@write
+        if (s.last4 in phoneLast4s && accountDao.find(s.lender, s.last4) == null) return@write
         s.deposit?.let { applyDeposit(s, it); return@write }
         val existing = accountDao.find(s.lender, s.last4)
         val id = existing?.id ?: accountDao.insert(
@@ -512,11 +515,10 @@ class TransactionRepository @Inject constructor(
      * One-off repair after parser fixes: re-parses every stored SMS/email transaction from its source text and,
      * where the new reading differs, moves it to the right account (a masked mobile number or the payee's account
      * was taken as the user's) and turns a "credited to beneficiary" CREDIT into the DEBIT it is. A category the
-     * user chose is kept; only the parser's income guess is replaced. Accounts left empty by the move, and an
-     * account numbered like the user's mobile ([mobileLast4]) beside a real one at the same bank, are deleted
-     * when the user never touched them. Parsing happens outside the write transaction; all writes in one.
+     * user chose is kept; only the parser's income guess is replaced. No account is ever deleted, even when a
+     * move leaves it empty. Parsing happens outside the write transaction; all writes in one.
      */
-    suspend fun reparseStored(mobileLast4: String?): ReparseReport {
+    suspend fun reparseStored(): ReparseReport {
         val fixes = ArrayList<ReparseFix>()
         var after = 0L
         while (true) {
@@ -527,10 +529,8 @@ class TransactionRepository @Inject constructor(
             for (t in page) reparseFix(t, sources[t.id].orEmpty())?.let(fixes::add)
         }
         var changed = 0
-        var deleted = 0
         write {
             val manual = rules.manualRules()
-            val emptied = HashSet<Long>()
             for (f in fixes) {
                 val t = txDao.getById(f.id) ?: continue
                 // Changed since it was read: leave it.
@@ -538,7 +538,6 @@ class TransactionRepository @Inject constructor(
                 var next = t
                 f.account?.let { p ->
                     val newId = ensureAccount(p)
-                    t.accountId?.let(emptied::add)
                     next = next.copy(accountLast4 = p.accountLast4, accountKind = p.accountKind, accountId = newId)
                     if (newId != null) {
                         val balance = p.balanceMinor.takeIf { p.accountKind == AccountKind.ACCOUNT || p.isDebitCard }
@@ -553,27 +552,8 @@ class TransactionRepository @Inject constructor(
                 }
                 if (next != t) { txDao.update(next); changed++ }
             }
-
-            val accounts = accountDao.all()
-            val phoneLike = if (mobileLast4 == null) emptyList() else accounts.filter { it.last4 == mobileLast4 }
-            val gone = HashSet<Long>()
-            for (id in emptied + phoneLike.map { it.id }) {
-                val a = accountDao.getById(id) ?: continue
-                if (!a.untouched() || accountDao.referenceCount(a.id) > 0) continue
-                val siblings = accounts.filter {
-                    it.id != a.id && it.id !in gone && it.bankName == a.bankName && it.kind == a.kind && !it.hidden && it.last4 != mobileLast4
-                }
-                var count = txDao.countForAccount(a.id)
-                if (a.last4 == mobileLast4 && count > 0 && siblings.size == 1) {
-                    // Numbered like the user's phone, at a bank where the user has one real account: it is that account.
-                    txDao.moveAccount(a.id, siblings.single().id, siblings.single().last4)
-                    count = 0
-                }
-                val removable = count == 0 && (a.id in emptied || (a.last4 == mobileLast4 && siblings.isNotEmpty()))
-                if (removable) { accountDao.delete(a.id); gone += a.id; deleted++ }
-            }
         }
-        return ReparseReport(fixes.size, changed, deleted)
+        return ReparseReport(fixes.size, changed)
     }
 
     /** What re-parsing [t]'s own SMS/email text says should change, or null when nothing should. */
@@ -600,26 +580,57 @@ class TransactionRepository @Inject constructor(
     }
 
     /**
-     * Removes accounts numbered like the user's own mobile: their transactions move to the bank's only other
-     * account or card, or stay without an account. Cheap; safe to run at every start.
+     * Rebuilds accounts that went missing: for every transaction with no account, or whose account is gone,
+     * re-reads its stored SMS/email text (or, failing that, the bank and last 4 it kept) and attaches it to that
+     * account, creating the account when needed. The phone-number guard is skipped, since the parser already
+     * rejects mobile-number patterns. Nothing is deleted or moved away from an account. Returns how many
+     * accounts received transactions.
      */
-    suspend fun removePhoneAccounts(phones: Set<String>): Int {
-        if (phones.isEmpty()) return 0
-        var removed = 0
-        write {
-            val all = accountDao.all()
-            for (a in all.filter { it.last4 in phones }) {
-                val siblings = all.filter { it.id != a.id && it.bankName == a.bankName && it.last4 !in phones && !it.hidden }
-                if (siblings.size == 1) txDao.moveAccount(a.id, siblings.single().id, siblings.single().last4) else txDao.detachAccount(a.id)
-                accountDao.delete(a.id)
-                removed++
+    suspend fun restoreMissingAccounts(): Int {
+        class Found(val tx: TransactionEntity, val parsed: ParsedTransaction?)
+        val found = ArrayList<Found>()
+        var after = 0L
+        while (true) {
+            val page = txDao.orphansAfter(after, REPARSE_PAGE)
+            if (page.isEmpty()) break
+            after = page.last().id
+            val sources = sourceDao.forTransactions(page.map { it.id }).groupBy { it.transactionId }
+            for (t in page) {
+                val parsed = sources[t.id].orEmpty().firstNotNullOfOrNull { s ->
+                    val raw = s.rawText ?: return@firstNotNullOfOrNull null
+                    if ('#' in s.sourceMessageId) return@firstNotNullOfOrNull null
+                    val source = when (s.source) { "SMS" -> Source.SMS; "EMAIL" -> Source.EMAIL; else -> return@firstNotNullOfOrNull null }
+                    runCatching { registry.parse(raw, s.sender, s.receivedAt, source) }.getOrNull()
+                        ?.takeIf { it.amountMinor == t.amountMinor && it.bankName == t.bankName && it.accountLast4 != null }
+                }
+                if (parsed != null || t.accountLast4 != null) found += Found(t, parsed)
             }
         }
-        return removed
+        val restored = HashSet<Long>()
+        write {
+            for (f in found) {
+                val t = txDao.getById(f.tx.id) ?: continue
+                if (t.accountId != null && accountDao.getById(t.accountId) != null) continue
+                val p = f.parsed
+                val id: Long?
+                val last4: String
+                val kind: AccountKind
+                if (p != null) {
+                    id = ensureAccount(p, force = true); last4 = p.accountLast4!!; kind = p.accountKind
+                } else {
+                    last4 = t.accountLast4 ?: continue
+                    kind = t.accountKind
+                    id = accountDao.find(t.bankName, last4)?.id
+                        ?: accountDao.insert(AccountEntity(bankName = t.bankName, last4 = last4, kind = kind, createdAt = System.currentTimeMillis()))
+                            .takeIf { it != -1L }
+                }
+                if (id == null) continue
+                txDao.setAccount(t.id, id, last4, kind)
+                restored += id
+            }
+        }
+        return restored.size
     }
-
-    private fun AccountEntity.untouched() = nickname == null && colorArgb == null && manualBalanceMinor == null &&
-        !hidden && usage == com.hisaab.shared.db.AccountUsage.PERSONAL && maturityDay == null && forexMarkupBps == null && linkedAccountId == null
 
     private suspend fun write(block: suspend () -> Unit) {
         db.useWriterConnection { it.immediateTransaction { block() } }

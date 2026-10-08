@@ -156,20 +156,57 @@ fun TypeCode(code: String, height: Dp, modifier: Modifier = Modifier) {
     }
 }
 
-/** An account's bank logo with a corner badge: account, credit card or debit card, or FD/RD/PPF/Loan. */
+/** A card network's mark sized for an avatar corner: its logo, or a short code on its colour. */
 @Composable
-fun AccountAvatar(bankName: String, kind: AccountKind, type: AccountType?, modifier: Modifier = Modifier, size: Dp = 44.dp) {
+private fun NetworkBadge(network: CardNetwork, size: Dp, modifier: Modifier = Modifier) {
+    val brand = Brands.forNetwork(network)
+    val shape = RoundedCornerShape(size * 0.3f)
+    Box(modifier.size(size).background(MaterialTheme.colorScheme.surface, shape).padding(1.5.dp)) {
+        if (brand.path != null || AppLogos.bank(brand.name) != null) BrandMark(brand, size = size - 3.dp)
+        else Box(Modifier.size(size - 3.dp).background(brand.brush, shape), contentAlignment = Alignment.Center) {
+            Text(brand.monogram.take(2), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, fontSize = (size.value * 0.34f).sp)
+        }
+    }
+}
+
+/** A small "B" tag marking a business account or card. */
+@Composable
+private fun BusinessBadge(size: Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(size).background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(size * 0.32f))
+            .border(1.5.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(size * 0.32f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("B", color = MaterialTheme.colorScheme.onTertiary, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.58f).sp, maxLines = 1)
+    }
+}
+
+/**
+ * An account's bank logo with a corner badge: account, the card's payment [network] (a neutral card badge when unknown),
+ * or FD/RD/PPF/Loan. [business] adds a "B" tag at the top-left.
+ */
+@Composable
+fun AccountAvatar(
+    bankName: String, kind: AccountKind, type: AccountType?, modifier: Modifier = Modifier, size: Dp = 44.dp,
+    business: Boolean = false, network: CardNetwork? = null,
+) {
     val kindColor = KindColors.of(kind, type)
     val code = typeShort(type)
     if (code != null) {
         Box(modifier.size(size + 4.dp)) {
             BrandMark(Brands.forBank(bankName), size = size)
             TypeCode(code, size * 0.42f, Modifier.align(Alignment.BottomEnd).offset(x = 4.dp, y = 2.dp))
+            if (business) BusinessBadge(size * 0.38f, Modifier.align(Alignment.TopStart).offset(x = (-3).dp, y = (-3).dp))
         }
         return
     }
     Box(modifier.size(size + 4.dp)) {
         BrandMark(Brands.forBank(bankName), size = size)
+        if (business) BusinessBadge(size * 0.38f, Modifier.align(Alignment.TopStart).offset(x = (-3).dp, y = (-3).dp))
+        if (kind == AccountKind.CARD && network != null) {
+            NetworkBadge(network, size * 0.46f, Modifier.align(Alignment.BottomEnd).offset(x = 3.dp, y = 3.dp))
+            return@Box
+        }
         Box(
             Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 2.dp).size(size * 0.42f)
                 .background(kindColor, CircleShape).border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),

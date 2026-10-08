@@ -87,10 +87,11 @@ class AlertsChecker @Inject constructor(
         val txs = transactions.since(today.minusDays(400).atStartOfDay(Periods.zone).toInstant().toEpochMilli())
         val s = settings.settings.first()
         val accs = accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())).first().associateBy { it.id }
+        val mergedInto = accounts.observeMerged().first().mapNotNull { m -> m.mergedIntoId?.let { m.id to it } }.toMap()
         for (r in Planning.withManual(Planning.recurring(txs, today, Periods.zone), manual.all(), today).filter { !it.income }) {
             val days = ChronoUnit.DAYS.between(today, r.nextDue)
             if (days !in 0..3) continue
-            val account = r.accountId?.let(accs::get)?.let { a -> a.linkedAccountId?.let(accs::get) ?: a } ?: continue
+            val account = r.accountId?.let { mergedInto[it] ?: it }?.let(accs::get)?.let { a -> a.linkedAccountId?.let(accs::get) ?: a } ?: continue
             if (account.kind != com.hisaab.parser.model.AccountKind.ACCOUNT) continue
             val balance = account.currentBalanceMinor ?: continue
             if (balance >= r.amountMinor) continue

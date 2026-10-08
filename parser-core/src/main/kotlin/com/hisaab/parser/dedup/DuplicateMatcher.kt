@@ -1,7 +1,10 @@
 package com.hisaab.parser.dedup
 
+import com.hisaab.parser.extract.GenericPhrases
 import com.hisaab.parser.model.ParsedTransaction
 import com.hisaab.parser.model.TransactionType
+import java.time.Instant
+import java.time.ZoneId
 import kotlin.math.abs
 
 /** What the dedup layer knows about a stored transaction. [sources] holds the source names ("SMS", "EMAIL", ...) already attached. */
@@ -34,6 +37,13 @@ interface DedupLookup {
     suspend fun byHash(transactionHash: String): StoredTransaction?
     /** Transactions of exactly [amountMinor] with a time in [from, to]. */
     suspend fun potentialDuplicates(amountMinor: Long, from: Long, to: Long): List<StoredTransaction>
+
+    /**
+     * Transactions with an amount in [minMinor]..[maxMinor] and a time in [from, to]. Used to match a
+     * rounded payment-app amount; override with a range query, the default asks once per paisa value.
+     */
+    suspend fun potentialDuplicatesInRange(minMinor: Long, maxMinor: Long, from: Long, to: Long): List<StoredTransaction> =
+        (minMinor..maxMinor).flatMap { potentialDuplicates(it, from, to) }
 }
 
 /**
@@ -54,7 +64,9 @@ object DuplicateMatcher {
     private val LOOSE_SOURCES = setOf("APP", "SCREENSHOT", "MANUAL")
     private const val STATEMENT = "STATEMENT"
 
-    suspend fun decide(tx: ParsedTransaction, lookup: DedupLookup): DedupDecision {
+    const val ROUNDED_WINDOW_MILLIS: Long = 4 * 60 * 60 * 1000L
+
+    suspend fun decide(tx: ParsedTransaction, lookup: DedupLookup, zone: ZoneId = ZoneId.systemDefault()): DedupDecision {
         tx.referenceNumber?.let { ref ->
             lookup.byReference(ref).firstOrNull { it.amountMinor == tx.amountMinor && it.type.direction == tx.type.direction }
                 ?.let { return DedupDecision.Duplicate(it.id, MatchReason.REFERENCE) }
@@ -111,7 +123,48 @@ object DuplicateMatcher {
                 crossSource && sameAccount -> review = c to "Same amount and account on the same day, from SMS and email"
             }
         }
+        roundedAppMatch(tx, lookup, zone)?.let { return DedupDecision.Duplicate(it.id, MatchReason.FUZZY) }
         return review?.let { DedupDecision.PossibleDuplicate(it.first.id, it.second) } ?: DedupDecision.New
+    }
+
+    /**
+     * A payment-app notification often shows a rounded amount ("₹144") where the bank message has paise
+     * ("144.93"), and carries no reliable time. It matches a bank/email/statement record of the same
+     * direction when the amounts agree after dropping paise, it is the same day (or within 4 hours),
+     * and the merchants do not conflict. Nothing else is loosened.
+     */
+    private suspend fun roundedAppMatch(tx: ParsedTransaction, lookup: DedupLookup, zone: ZoneId): StoredTransaction? {
+        val incomingApp = tx.source.name == "APP"
+        val whole = tx.amountMinor % 100 == 0L
+        val range = when {
+            incomingApp && whole -> (tx.amountMinor + 1)..(tx.amountMinor + 99)
+            !incomingApp && !whole -> (tx.amountMinor - tx.amountMinor % 100).let { it..it }
+            else -> return null
+        }
+        val from = tx.transactionTime - STATEMENT_WINDOW_MILLIS
+        val to = tx.transactionTime + STATEMENT_WINDOW_MILLIS
+        val day = Instant.ofEpochMilli(tx.transactionTime).atZone(zone).toLocalDate()
+        return lookup.potentialDuplicatesInRange(range.first, range.last, from, to)
+            .filter { it.type.direction == tx.type.direction && tx.source.name !in it.sources }
+            .filter { if (incomingApp) it.sources.any { s -> s != "APP" } else it.sources.all { s -> s == "APP" } }
+            .filter { c ->
+                val sameDay = Instant.ofEpochMilli(c.transactionTime).atZone(zone).toLocalDate() == day
+                sameDay || abs(c.transactionTime - tx.transactionTime) <= ROUNDED_WINDOW_MILLIS
+            }
+            .filter { c ->
+                (c.accountLast4 == null || tx.accountLast4 == null || last4Match(c.accountLast4, tx.accountLast4!!)) &&
+                    (c.referenceNumber == null || tx.referenceNumber == null || c.referenceNumber == tx.referenceNumber) &&
+                    merchantsAgree(c.merchant, tx.merchant)
+            }
+            .minByOrNull { abs(it.transactionTime - tx.transactionTime) }
+    }
+
+    /** True unless both name a real merchant and the names differ (one containing the other counts as the same). */
+    private fun merchantsAgree(a: String?, b: String?): Boolean {
+        if (a == null || b == null || GenericPhrases.isGeneric(a) || GenericPhrases.isGeneric(b)) return true
+        val x = a.lowercase().filter { it.isLetterOrDigit() }
+        val y = b.lowercase().filter { it.isLetterOrDigit() }
+        return x.isEmpty() || y.isEmpty() || x.contains(y) || y.contains(x)
     }
 
     /** "123" (ICICI prints 3 digits) matches "0123". */

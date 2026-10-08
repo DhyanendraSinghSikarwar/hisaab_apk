@@ -138,7 +138,7 @@ fun RecurringSheet(existing: Recurring?, prefill: Recurring? = null, onDismiss: 
                 }
                 DropdownMenu(accountMenu, { accountMenu = false }) {
                     DropdownMenuItem(text = { Text(t("Any account")) }, onClick = { accountId = null; accountMenu = false })
-                    accounts.filter { !it.hidden }.forEach { a -> DropdownMenuItem(text = { Text("${a.nickname ?: a.bankName} ••${a.last4}") }, onClick = { accountId = a.id; accountMenu = false }) }
+                    accounts.filter { !it.hidden && it.mergedIntoId == null }.forEach { a -> DropdownMenuItem(text = { Text("${a.nickname ?: a.bankName} ••${a.last4}") }, onClick = { accountId = a.id; accountMenu = false }) }
                 }
                 if (!income) Text(t("With an account set, you're warned 3 days before if its balance is too low."),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))

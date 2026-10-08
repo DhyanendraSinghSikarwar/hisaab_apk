@@ -40,9 +40,9 @@ class ParserRegistryTest {
 
     @Test
     fun `the generic parser takes bank-looking senders nobody claims`() {
-        val tx = registry.parse("INR 500.00 debited from A/c XX4321 on 24-09-26 to SWIGGY. UPI Ref 526812340000", "VM-FEDBNK", Fixture.RECEIVED_AT, Source.SMS)
+        val tx = registry.parse("INR 500.00 debited from A/c XX4321 on 24-09-26 to SWIGGY. UPI Ref 526812340000", "VM-ZZXBNK", Fixture.RECEIVED_AT, Source.SMS)
         assertNotNull(tx)
-        assertEquals("FEDBNK", tx!!.bankName)
+        assertEquals("ZZXBNK", tx!!.bankName)
         assertEquals("4321", tx.accountLast4)
         assertEquals("Swiggy", tx.merchant)
     }

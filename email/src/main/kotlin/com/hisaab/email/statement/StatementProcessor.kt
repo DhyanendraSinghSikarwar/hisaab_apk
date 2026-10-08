@@ -14,6 +14,7 @@ import com.hisaab.parser.model.HoldingSnapshot
 import com.hisaab.parser.model.ParsedTransaction
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.model.TransactionType
+import com.hisaab.parser.statement.BankKeys
 import com.hisaab.parser.statement.MfOrder
 import com.hisaab.parser.statement.MfOrderParser
 import com.hisaab.parser.statement.InvestmentParser
@@ -102,7 +103,7 @@ class StatementProcessor @Inject constructor(
         val existing = statements.byKey(meta.key)
         if (existing != null && existing.status != StatementEntity.LOCKED) return@withContext emptyList()
 
-        when (val opened = openWithSaved(bytes, meta.fileName)) {
+        when (val opened = openWithSaved(bytes, meta.fileName, "${guessIssuer(meta).orEmpty()} ${meta.sender} ${meta.subject.orEmpty()} ${meta.fileName}")) {
             is PdfOpen.Text -> messages(opened.text, meta, existing?.id ?: 0, keep(bytes, meta.fileName), existing?.filePath)
             PdfOpen.Locked -> {
                 val file = existing?.filePath?.let(::File)?.takeIf { it.exists() } ?: File(lockedDir, sha(bytes) + ".pdf").apply { writeBytes(bytes) }
@@ -187,7 +188,7 @@ class StatementProcessor @Inject constructor(
         if (s.holdingCount == 0 && s.kind != "INVESTMENT") return@withContext emptyList()
         readHoldings(s.key)?.let { return@withContext it }
         val bytes = s.filePath?.let(::File)?.takeIf { it.exists() }?.readBytes() ?: return@withContext emptyList()
-        val opened = openWithSaved(bytes, s.fileName) as? PdfOpen.Text ?: return@withContext emptyList()
+        val opened = openWithSaved(bytes, s.fileName, "${s.bankName.orEmpty()} ${s.sender} ${s.fileName}") as? PdfOpen.Text ?: return@withContext emptyList()
         val found = parser.parse(opened.text, s.sender, s.receivedAt).holdings
         saveHoldings(s.key, found)
         found
@@ -248,7 +249,7 @@ class StatementProcessor @Inject constructor(
         val s = statements.byId(id) ?: return null
         if (s.status == StatementEntity.LOCKED) return null
         val bytes = s.filePath?.let(::File)?.takeIf { it.exists() }?.readBytes() ?: return null
-        val opened = withContext(Dispatchers.Default) { openWithSaved(bytes, s.fileName) } as? PdfOpen.Text ?: return null
+        val opened = withContext(Dispatchers.Default) { openWithSaved(bytes, s.fileName, "${s.bankName.orEmpty()} ${s.sender} ${s.fileName}") } as? PdfOpen.Text ?: return null
         val meta = StatementMeta(s.source, s.key, s.sender, s.subject, s.fileName, s.receivedAt, s.emailText)
         return store(withContext(Dispatchers.Default) { messages(opened.text, meta, s.id, s.filePath, null) })
     }
@@ -277,14 +278,18 @@ class StatementProcessor @Inject constructor(
     }
 
     /** A PDF, trying each saved password; a spreadsheet or CSV is read as it is. */
-    private suspend fun openWithSaved(bytes: ByteArray, name: String): PdfOpen {
+    private suspend fun openWithSaved(bytes: ByteArray, name: String, bankHint: String = ""): PdfOpen {
         when (SpreadsheetExtractor.kind(bytes, name)) {
             StatementFileKind.XLSX, StatementFileKind.XLS, StatementFileKind.CSV -> return SpreadsheetExtractor.open(bytes, name)
             else -> Unit
         }
         val first = pdf.open(bytes, null)
         if (first != PdfOpen.Locked) return first
-        for (p in passwords.attempts(accounts.cardLast4s())) {
+        // The statement's bank picks whose saved details are tried; an unknown bank tries every account's exact forms only.
+        val bank = BankKeys.of(bankHint)
+        val all = accounts.all()
+        val ids = (if (bank == null) all else all.filter { BankKeys.of(it.bankName) == bank }).map { it.id }
+        for (p in passwords.attempts(accounts.cardLast4s(), ids, combos = bank != null)) {
             val r = pdf.open(bytes, p)
             if (r is PdfOpen.Text) return r
         }

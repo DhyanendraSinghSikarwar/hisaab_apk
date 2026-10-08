@@ -15,6 +15,8 @@ import com.hisaab.shared.db.AccountDao
 import com.hisaab.shared.db.AccountEntity
 import com.hisaab.shared.db.TransactionEntity
 import com.hisaab.shared.db.TransactionSourceDao
+import com.hisaab.shared.repo.ManualMerge
+import com.hisaab.shared.repo.MergeResult
 import com.hisaab.shared.repo.TransactionRepository
 import com.hisaab.shared.repo.TransactionsChangedNotifier
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -116,6 +118,7 @@ class TransactionsViewModel @Inject constructor(
     private val repository: TransactionRepository,
     private val notifier: TransactionsChangedNotifier,
     private val sourcesDao: TransactionSourceDao,
+    private val manualMerge: ManualMerge,
     accounts: AccountDao,
     ledger: LedgerSource,
     filters: ViewFilterStore,
@@ -141,9 +144,11 @@ class TransactionsViewModel @Inject constructor(
     val accounts: StateFlow<List<AccountEntity>> = accounts.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The period's transactions after any scope from a link. */
-    private val base: StateFlow<Pair<LedgerSlice, List<TransactionEntity>>?> = combine(ledger.slice, scope) { slice, sc ->
+    private val base: StateFlow<Pair<LedgerSlice, List<TransactionEntity>>?> = combine(ledger.slice, scope, accounts.observeMerged()) { slice, sc, merged ->
+        // An account shown together with another (merged) belongs to its target's list.
+        val ids = sc.accountId?.let { id -> merged.filter { it.mergedIntoId == id }.mapTo(hashSetOf(id)) { it.id } }
         slice to slice.txs.filter { t ->
-            (sc.accountId == null || t.accountId == sc.accountId) && (sc.category == null || t.category == sc.category)
+            (ids == null || t.accountId in ids) && (sc.category == null || t.category == sc.category)
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -200,6 +205,24 @@ class TransactionsViewModel @Inject constructor(
     fun delete(ids: Set<Long>) = viewModelScope.launch {
         repository.deleteTransactions(ids.toList())
         notifier.onTransactionsChanged()
+    }
+
+    /** The last merge of this session, kept so the snackbar can undo it. */
+    private var lastMerge: MergeResult? = null
+
+    /** Merges [ids] into the best record; [onDone] gets true when something was merged. */
+    fun merge(ids: Set<Long>, onDone: (Boolean) -> Unit) = viewModelScope.launch {
+        val r = manualMerge.merge(ids)
+        lastMerge = r
+        if (r != null) notifier.onTransactionsChanged()
+        onDone(r != null)
+    }
+
+    /** Puts the last merge back: the merged-in messages return to their own transactions. */
+    fun undoMerge() = viewModelScope.launch {
+        val r = lastMerge ?: return@launch
+        lastMerge = null
+        if (manualMerge.undo(r)) notifier.onTransactionsChanged()
     }
 
     private fun matchesSearch(t: TransactionEntity, q: String): Boolean {

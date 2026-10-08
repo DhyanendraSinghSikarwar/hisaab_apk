@@ -133,4 +133,41 @@ class IngestRepositoryTest {
         assertEquals(60, db.transactions().count())
         assertTrue(db.transactions().getAll().all { db.sources().forTransaction(it.id).size == 2 })
     }
+
+    @Test
+    fun existingAccountSurvivesPhoneDigitGuardAndKeepsReceiving() = runTest {
+        repo.ingest(sms(smsBody, t0, "sms-1"))
+        val id = db.accounts().find("HDFC Bank", "1234")!!.id
+        repo.phoneLast4s = setOf("1234")
+        val second = "Rs.60.00 debited from HDFC Bank A/c XX1234 on 26-09-26 to VPA tea@icici. UPI Ref 526812345999."
+        repo.ingest(sms(second, t0 + 60 * minute, "sms-2"))
+        assertNotNull(db.accounts().getById(id))
+        assertTrue(db.transactions().getAll().all { it.accountId == id })
+    }
+
+    @Test
+    fun restoreRebuildsAccountForDetachedTransactions() = runTest {
+        repo.ingest(sms(smsBody, t0, "sms-1"))
+        val id = db.accounts().find("HDFC Bank", "1234")!!.id
+        db.accounts().delete(id)
+        assertTrue(db.transactions().getAll().all { it.accountId == null })
+        repo.phoneLast4s = setOf("1234")
+        assertEquals(1, repo.restoreMissingAccounts())
+        val account = db.accounts().find("HDFC Bank", "1234")!!
+        assertTrue(db.transactions().getAll().all { it.accountId == account.id })
+    }
+
+    @Test
+    fun mergeIsAnAliasOnly() = runTest {
+        repo.ingest(sms(smsBody, t0, "sms-1"))
+        val a = db.accounts().find("HDFC Bank", "1234")!!.id
+        val b = db.accounts().insert(com.hisaab.shared.db.AccountEntity(bankName = "HDFC Bank", last4 = "9999", kind = a.let { db.accounts().getById(it)!!.kind }, createdAt = t0))
+        db.accounts().setMergedInto(a, b)
+        val listed = db.accounts().observeWithActivity(0L).first()
+        assertEquals(listOf(b), listed.map { it.id })
+        assertEquals(1, listed.single().transactionCount)
+        assertEquals(a, db.transactions().getAll().single().accountId)
+        db.accounts().setMergedInto(a, null)
+        assertEquals(2, db.accounts().observeWithActivity(0L).first().size)
+    }
 }

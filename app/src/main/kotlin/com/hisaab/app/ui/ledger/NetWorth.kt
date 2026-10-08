@@ -81,6 +81,9 @@ data class CardLimit(
     val statementDay: LocalDate? = null,
     /** Spends on the card after [statementDay]; null without a statement date. */
     val unbilledMinor: Long? = null,
+    /** Payment due date of the latest statement. */
+    val dueDay: LocalDate? = null,
+    val network: com.hisaab.shared.db.CardNetwork? = null,
 )
 
 data class NetWorth(
@@ -158,8 +161,10 @@ class NetWorthSource @Inject constructor(
 
     private val current = combine(inputs, book) { i, b -> i to compute(i, b) }
 
-    val netWorth: StateFlow<NetWorth> = combine(current, lists.worth, transactions.observeSince(since)) { (i, n), recorded, txs ->
-        withHistory(i, n, recorded, txs)
+    val netWorth: StateFlow<NetWorth> = combine(current, lists.worth, transactions.observeSince(since), accounts.observeMerged()) { (i, n), recorded, txs, merged ->
+        // A merged account's transactions move its target's balance: count them there.
+        val parent = merged.mapNotNull { m -> m.mergedIntoId?.let { m.id to it } }.toMap()
+        withHistory(i, n, recorded, if (parent.isEmpty()) txs else txs.map { t -> parent[t.accountId]?.let { t.copy(accountId = it) } ?: t })
     }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(10_000), NetWorth())
 
     private fun inBook(usage: AccountUsage?, b: Book) = when (b) {
@@ -223,6 +228,7 @@ class NetWorthSource @Inject constructor(
             CardLimit(
                 a.id, a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName, a.last4, a.currentBalanceMinor, st?.creditLimitMinor,
                 billedMinor = bill?.totalDueMinor, statementDay = bill?.statementEpochDay?.let(LocalDate::ofEpochDay),
+                dueDay = bill?.dueEpochDay?.let(LocalDate::ofEpochDay), network = a.cardNetwork,
             )
         }.sortedByDescending { it.availableMinor ?: -1L }
 

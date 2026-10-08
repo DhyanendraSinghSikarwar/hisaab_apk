@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CallMerge
 import androidx.compose.material.icons.filled.EventRepeat
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.SelectAll
@@ -28,11 +29,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +68,7 @@ import com.hisaab.app.ui.ledger.LedgerMath
 import com.hisaab.app.ui.theme.Hx
 import com.hisaab.app.ui.theme.clearTopBar
 import com.hisaab.parser.model.Category
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -101,6 +108,11 @@ fun TransactionsRoute(
     var selected by rememberSaveable(stateSaver = LongSetSaver) { mutableStateOf(emptySet<Long>()) }
     var pickingCategory by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmMerge by remember { mutableStateOf(false) }
+    val snack = remember { SnackbarHostState() }
+    val coroutines = rememberCoroutineScope()
+    val mergedText = t("Merged into one payment.")
+    val undoText = t("Undo")
     val selecting = selected.isNotEmpty()
     fun toggle(id: Long) { selected = if (id in selected) selected - id else selected + id }
     val tap: (com.hisaab.shared.db.TransactionEntity) -> Unit = { if (selecting) toggle(it.id) else onOpen(it.id) }
@@ -124,6 +136,7 @@ fun TransactionsRoute(
                     navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Filled.Close, t("Cancel selection")) } },
                     actions = {
                         IconButton(onClick = { selected = ui.shown.map { it.id }.toSet() }) { Icon(Icons.Filled.SelectAll, t("Select all")) }
+                        if (selected.size >= 2) IconButton(onClick = { confirmMerge = true }) { Icon(Icons.Filled.CallMerge, t("Merge")) }
                         IconButton(onClick = { pickingCategory = true }) { Icon(Icons.Filled.Category, t("Change category")) }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, t("Delete")) }
                     },
@@ -136,6 +149,7 @@ fun TransactionsRoute(
                 )
             }
         },
+        snackbarHost = { SnackbarHost(snack) },
         floatingActionButton = {
             if (!selecting) {
                 FloatingActionButton(onClick = onAdd, modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding())) {
@@ -250,7 +264,18 @@ fun TransactionsRoute(
         }
     }
     BulkDialogs(
-        count = selected.size, pickingCategory = pickingCategory, confirmDelete = confirmDelete,
+        count = selected.size, pickingCategory = pickingCategory, confirmDelete = confirmDelete, confirmMerge = confirmMerge,
+        onMerge = {
+            val ids = selected
+            selected = emptySet(); confirmMerge = false
+            vm.merge(ids) { done ->
+                if (done) coroutines.launch {
+                    val r = snack.showSnackbar(mergedText, actionLabel = undoText, duration = SnackbarDuration.Long)
+                    if (r == SnackbarResult.ActionPerformed) vm.undoMerge()
+                }
+            }
+        },
+        onDismissMerge = { confirmMerge = false },
         onPick = { c -> vm.setCategory(selected, c); selected = emptySet(); pickingCategory = false },
         onDelete = { vm.delete(selected); selected = emptySet(); confirmDelete = false },
         onDismissPicker = { pickingCategory = false }, onDismissDelete = { confirmDelete = false },
@@ -259,10 +284,19 @@ fun TransactionsRoute(
 
 @Composable
 private fun BulkDialogs(
-    count: Int, pickingCategory: Boolean, confirmDelete: Boolean,
+    count: Int, pickingCategory: Boolean, confirmDelete: Boolean, confirmMerge: Boolean, onMerge: () -> Unit, onDismissMerge: () -> Unit,
     onPick: (Category) -> Unit, onDelete: () -> Unit, onDismissPicker: () -> Unit, onDismissDelete: () -> Unit,
 ) {
     if (pickingCategory) CategorySheet(current = null, onPick = onPick, onDismiss = onDismissPicker, title = t("Category for {n} transactions", "n" to count))
+    if (confirmMerge) {
+        AlertDialog(
+            onDismissRequest = onDismissMerge,
+            title = { Text(t("Merge into one payment?")) },
+            text = { Text(t("The messages stay linked, and you can split them again from the transaction page.")) },
+            confirmButton = { TextButton(onClick = onMerge) { Text(t("Merge"), fontWeight = FontWeight.SemiBold) } },
+            dismissButton = { TextButton(onClick = onDismissMerge) { Text(t("Cancel")) } },
+        )
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = onDismissDelete,

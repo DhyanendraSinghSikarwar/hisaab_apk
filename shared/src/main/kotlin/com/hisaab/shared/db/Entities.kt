@@ -133,6 +133,8 @@ data class AccountEntity(
     @ColumnInfo(defaultValue = "NULL") val loanRateBps: Int? = null,
     @ColumnInfo(defaultValue = "NULL") val loanTenureMonths: Int? = null,
     @ColumnInfo(defaultValue = "NULL") val loanStartDay: Long? = null,
+    /** Shown together with this account in every list and total (a visual merge). Messages and transactions stay as they are. */
+    @ColumnInfo(defaultValue = "NULL") val mergedIntoId: Long? = null,
 )
 
 /** What happens to a deposit on its maturity date. Paid out: it leaves the lists. Renewed: it stays. */

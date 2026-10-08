@@ -145,4 +145,42 @@ class FeedbackCasesTest {
         )
         assertNull(onlyPayee?.accountLast4)
     }
+
+    @Test
+    fun `ui phrases from notifications never become a merchant`() {
+        for (phrase in listOf("View Details", "Know more", "Check balance", "Tap to view", "Download", "Learn more", "Track order", "Explore", "Open app")) {
+            val got = free.fromNotification("Google Pay", "Payment successful", "₹144 paid. $phrase", Fixture.RECEIVED_AT)
+            assertNotNull(got, phrase)
+            assertNull(got!!.merchant, phrase)
+        }
+        val real = free.fromNotification("Google Pay", "₹250 paid to Swiggy", "View Details", Fixture.RECEIVED_AT)
+        assertEquals("Swiggy", real!!.merchant)
+    }
+
+    @Test
+    fun `listed Indian banks are recognised by their sender code`() {
+        val cases = mapOf(
+            "VM-NSBANK-S" to "Nagrik Sahakari Bank", "AX-CENTBK-S" to "Central Bank of India", "VK-MAHABK-S" to "Bank of Maharashtra",
+            "AD-CANBNK-S" to "Canara Bank", "JD-UNIONB-S" to "Union Bank of India", "TM-BOIIND-S" to "Bank of India",
+            "AX-FEDBNK-S" to "Federal Bank", "VM-SIBSMS-S" to "South Indian Bank", "BP-JKBANK-S" to "Jammu & Kashmir Bank",
+            "AD-SARBNK-S" to "Saraswat Bank", "VK-PYTMPB-S" to "Paytm Payments Bank", "VM-UCOBNK-S" to "UCO Bank",
+        )
+        for ((sender, bank) in cases) {
+            val tx = registry.parse(
+                "Dear Customer, A/c XXXXXX4821 is debited by Rs.1,250.00 on 05-10-2026 via UPI/527812345678. Avl Bal Rs.18,340.50",
+                sender, Fixture.RECEIVED_AT, Source.SMS,
+            )
+            assertNotNull(tx, sender)
+            assertEquals(bank, tx!!.bankName, sender)
+            assertEquals(TransactionType.DEBIT, tx.type, sender)
+            assertEquals(125000L, tx.amountMinor, sender)
+            assertEquals("4821", tx.accountLast4, sender)
+        }
+    }
+
+    @Test
+    fun `no two banks claim one sender code`() {
+        val keys = registry.parsers.flatMap { it.senderKeys }
+        assertEquals(keys.size, keys.toSet().size)
+    }
 }

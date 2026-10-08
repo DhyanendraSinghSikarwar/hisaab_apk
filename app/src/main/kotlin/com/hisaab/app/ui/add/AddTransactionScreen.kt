@@ -324,7 +324,7 @@ private fun AccountPicker(accounts: List<AccountEntity>, selected: Long?, onPick
     Column {
         OutlinedCard(Modifier.fillMaxWidth().clickable { open = true }) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (current != null) AccountAvatar(current.bankName, current.kind, current.accountType, size = 32.dp)
+                if (current != null) AccountAvatar(current.bankName, current.kind, current.accountType, business = current.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = current.cardNetwork, size = 32.dp)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(t("Account"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -334,10 +334,10 @@ private fun AccountPicker(accounts: List<AccountEntity>, selected: Long?, onPick
         }
         DropdownMenu(open, { open = false }) {
             DropdownMenuItem(text = { Text(t("None (cash or other)")) }, onClick = { onPick(null); open = false })
-            accounts.forEach { a ->
+            accounts.filter { it.mergedIntoId == null }.forEach { a ->
                 DropdownMenuItem(
                     text = { Text("${a.nickname ?: a.bankName} ••${a.last4}") },
-                    leadingIcon = { AccountAvatar(a.bankName, a.kind, a.accountType, size = 24.dp) },
+                    leadingIcon = { AccountAvatar(a.bankName, a.kind, a.accountType, business = a.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = a.cardNetwork, size = 24.dp) },
                     onClick = { onPick(a.id); open = false },
                 )
             }

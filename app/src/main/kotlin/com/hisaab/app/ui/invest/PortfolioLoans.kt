@@ -46,7 +46,7 @@ internal fun PortfolioLoansCard(accounts: List<com.hisaab.shared.db.AccountWithA
                     l?.nextDue?.let { t("next {date}", "date" to it.format(DUE)) },
                     a.last4.takeIf { it.isNotBlank() }?.let { "••$it" },
                 ).joinToString(" · ").ifEmpty { t("Loan") },
-                leading = { AccountAvatar(a.bankName, a.kind, a.accountType, size = 36.dp) },
+                leading = { AccountAvatar(a.bankName, a.kind, a.accountType, business = a.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = a.cardNetwork, size = 36.dp) },
                 onClick = { onOpenLoan(a.id) },
             ) {
                 Text(owed(a)?.let { "−" + Money.format(it, showPaise = false) } ?: "—", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Hx.neg)

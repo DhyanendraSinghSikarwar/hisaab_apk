@@ -157,4 +157,46 @@ class DuplicateMatcherTest {
         assertEquals(40, store.rows.size)
         assertEquals(40, store.rows.count { it.sources == setOf("SMS", "EMAIL") })
     }
+
+    // A payment-app notification with a rounded amount and no merchant, then the card SMS with paise.
+    private val cardSms = "Rs.144.93 spent on your SBI Credit Card ending 5678 at JIOHOTSTAR on 07/10/26. Trxn. not done by you? Report at sbicard.com"
+    private fun notification(amount: String, title: String = "Payment successful", body: String = "$amount paid. View Details", at: Long = t0 + 60 * minute) =
+        com.hisaab.parser.FreeTextParser().fromNotification("Google Pay", title, body, at)!!
+
+    @Test
+    fun `rounded app notification matches the sms with paise even without a merchant`() {
+        val app = notification("₹144")
+        assertEquals(14400L, app.amountMinor)
+        assertEquals(null, app.merchant)
+        val sms = registry.parse(cardSms, "VM-SBICRD", t0 + 3 * 60 * minute, Source.SMS)!!
+        assertEquals(14493L, sms.amountMinor)
+        // notification first, then the SMS
+        val s1 = Store()
+        val d1 = ingest(s1, app, sms)
+        assertInstanceOf(DedupDecision.Duplicate::class.java, d1[1])
+        assertEquals(1, s1.rows.size)
+        // SMS first, then the notification
+        val s2 = Store()
+        val d2 = ingest(s2, sms, app)
+        assertInstanceOf(DedupDecision.Duplicate::class.java, d2[1])
+        assertEquals(1, s2.rows.size)
+    }
+
+    @Test
+    fun `rounded app match needs the same merchant, direction and day`() {
+        val sms = registry.parse(cardSms, "VM-SBICRD", t0, Source.SMS)!!
+        val other = notification("₹144", title = "₹144 paid to Swiggy", body = "Payment successful")
+        assertEquals(DedupDecision.New, ingest(Store(), sms, other)[1])
+        val nextWeek = notification("₹144", at = t0 + 7 * 24 * 60 * minute)
+        assertEquals(DedupDecision.New, ingest(Store(), sms, nextWeek)[1])
+        val offBy = notification("₹145")
+        assertEquals(DedupDecision.New, ingest(Store(), sms, offBy)[1])
+    }
+
+    @Test
+    fun `two bank sms with different paise are not merged`() {
+        val a = registry.parse(cardSms, "VM-SBICRD", t0, Source.SMS)!!
+        val b = registry.parse(cardSms.replace("144.93", "144.00"), "VM-SBICRD", t0 + 5 * minute, Source.SMS)!!
+        assertEquals(DedupDecision.New, ingest(Store(), a, b)[1])
+    }
 }

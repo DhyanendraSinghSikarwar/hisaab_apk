@@ -165,8 +165,8 @@ class LedgerSource @Inject constructor(
         val lastMonth = YearMonth.from(to)
         val months = (11 downTo 0).map { lastMonth.minusMonths(it.toLong()) }
         val start = minOf(pFrom, months.first().atDay(1))
-        combine(transactions.observeBetween(millis(start), endMillis(to)), accounts.observeWithActivity(millis(from.withDayOfMonth(1)))) { all, accs ->
-            val usage = accs.associate { it.id to it.usage }
+        combine(transactions.observeBetween(millis(start), endMillis(to)), accounts.observeWithActivity(millis(from.withDayOfMonth(1))), accounts.observeMerged()) { all, accs, merged ->
+            val usage = accs.associate { it.id to it.usage } + merged.associate { it.id to it.usage }
             val book = all.filter { inBook(it, f.book, usage) }
             fun between(a: LocalDate, b: LocalDate) = book.filter { Periods.localDate(it.timestamp).let { d -> !d.isBefore(a) && !d.isAfter(b) } }
             LedgerSlice(

@@ -41,7 +41,7 @@ object AppLogos {
         r("""\bpnb\b|punjab national""", "pnb"), r("""\bau\b|\bau small|\baubank""", "au"),
         r("""\bfederal|\bfedbnk""", "federal"), r("""\bcanara""", "canara"), r("""union bank|\bubi\b|\bunion\b""", "union"),
         r("""\brbl""", "rbl"), r("""chartered|\bscb\b""", "scb"), r("""\bamex|american express""", "amex"),
-        r("""onecard|\bonecrd""", "onecard"), r("""bank of india|\bboi\b""", "boi"), r("""overseas|\biob\b""", "iob"),
+        r("""onecard|\bonecrd""", "onecard"), r("""central bank|\bcentbk\b""", "centralbank"), r("""bank of india|\bboi\b""", "boi"), r("""overseas|\biob\b""", "iob"),
         r("""indian bank|\bindbnk""", "indianbank"), r("""\bidbi""", "idbi"), r("""\bciti""", "citi"),
         r("""\bbandhan""", "bandhan"), r("""\bequitas""", "equitas"), r("""\bjupiter""", "jupiter"), r("""\bslice""", "slice"),
     )

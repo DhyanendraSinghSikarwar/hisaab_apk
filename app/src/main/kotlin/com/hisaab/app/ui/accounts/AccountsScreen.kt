@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MergeType
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -81,6 +82,7 @@ import com.hisaab.app.ui.components.pressable
 import com.hisaab.app.ui.components.Info
 import com.hisaab.app.ui.components.InfoButton
 import com.hisaab.app.ui.components.KindColors
+import com.hisaab.app.ui.theme.Hx
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.parser.model.AccountKind
@@ -118,6 +120,8 @@ data class AccountsState(
     /** Removed from view by the user; shown again from the bottom of the screen. */
     val hidden: List<AccountWithActivity> = emptyList(),
     val duplicates: List<MergeSuggestion> = emptyList(),
+    /** Accounts shown together with another (see [AccountEntity.mergedIntoId]); they are left out of every list. */
+    val mergedChildren: List<com.hisaab.shared.db.AccountEntity> = emptyList(),
 )
 
 data class AccountEdit(
@@ -140,12 +144,18 @@ class AccountsViewModel @Inject constructor(
     private val filters: com.hisaab.app.ui.ledger.ViewFilterStore,
     private val transactions: com.hisaab.shared.db.TransactionDao,
     private val repo: com.hisaab.shared.repo.TransactionRepository,
+    private val unlockDetails: com.hisaab.email.statement.StatementPasswordStore,
 ) : ViewModel() {
     /** Deletes the account or card. With [withTransactions] its transactions go too, and their messages are never read again. */
     fun delete(a: AccountWithActivity, withTransactions: Boolean) = viewModelScope.launch {
         if (withTransactions) repo.deleteTransactions(transactions.idsForAccount(a.id))
+        dao.unmergeChildren(a.id)
         dao.delete(a.id)
+        unlockDetails.removeAccountDetails(a.id)
     }
+
+    /** Rebuilds accounts from stored messages for transactions that lost theirs; [done] gets how many were restored. */
+    fun restoreMissing(done: (Int) -> Unit) = viewModelScope.launch { done(runCatching { repo.restoreMissingAccounts() }.getOrDefault(0)) }
 
     init { viewModelScope.launch { dao.closeMatured(java.time.LocalDate.now(Periods.zone).toEpochDay()) } }
 
@@ -172,14 +182,15 @@ class AccountsViewModel @Inject constructor(
     /** The lists follow the global book (the Book chip): Business shows only Business accounts and cards; All shows everything. */
     val state = combine(
         dao.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())), dismissed, filters.filter.map { it.book }.distinctUntilChanged(), notDuplicates,
-    ) { everything, dismissedCards, book, notDup ->
+        dao.observeMerged(),
+    ) { everything, dismissedCards, book, notDup, mergedChildren ->
         val all = everything.filter { book == com.hisaab.app.ui.ledger.Book.ALL || it.usage.name == book.name }
         val visible = all.filter { !it.hidden }
         val accounts = visible.filter { it.kind == AccountKind.ACCOUNT && it.accountType?.liquid != false }
         val cards = visible.filter { it.kind == AccountKind.CARD }
         val deposits = visible.filter { it.kind == AccountKind.ACCOUNT && it.accountType?.liquid == false }
         AccountsState(accounts, cards, deposits, suggestions(cards, accounts).filter { it.card.id !in dismissedCards }, everything.associateBy { it.id },
-            hidden = all.filter { it.hidden }, duplicates = duplicates(visible).filter { it.key !in notDup })
+            hidden = all.filter { it.hidden }, duplicates = duplicates(visible).filter { it.key !in notDup }, mergedChildren = mergedChildren)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AccountsState())
 
     /**
@@ -239,21 +250,17 @@ class AccountsViewModel @Inject constructor(
     }
 
     /**
-     * Merges [source] into [target]: its transactions, linked debit cards and recurring payments move over,
-     * and its loan terms too when [target] has none. [target]'s settings are kept; [source] is deleted.
+     * Shows [source] together with [target] in every list and total. Display only: no transaction, message or
+     * setting changes, and [source] keeps receiving its own transactions. Whatever was shown with [source] follows it.
      */
     fun merge(source: AccountWithActivity, target: AccountWithActivity) = viewModelScope.launch {
-        val src = dao.getById(source.id) ?: return@launch
-        val dst = dao.getById(target.id) ?: return@launch
-        transactions.moveAccount(src.id, dst.id, dst.last4)
-        dao.moveLinkedCards(src.id, dst.id)
-        dao.moveRecurring(src.id, dst.id)
-        if (dst.linkedAccountId == null && src.linkedAccountId != null && src.linkedAccountId != dst.id) dao.link(dst.id, src.linkedAccountId)
-        val dstHasTerms = dst.loanPrincipalMinor != null || dst.loanRateBps != null || dst.loanTenureMonths != null || dst.loanStartDay != null
-        val srcHasTerms = src.loanPrincipalMinor != null || src.loanRateBps != null || src.loanTenureMonths != null || src.loanStartDay != null
-        if (!dstHasTerms && srcHasTerms) dao.setLoanTerms(dst.id, src.loanPrincipalMinor, src.loanRateBps, src.loanTenureMonths, src.loanStartDay)
-        dao.delete(src.id)
+        dao.repointMerged(source.id, target.id)
+        dao.setMergedInto(source.id, target.id)
     }
+
+    /** Shows [a] on its own again. */
+    fun unmerge(a: com.hisaab.shared.db.AccountEntity) = viewModelScope.launch { dao.setMergedInto(a.id, null) }
+
     fun setHidden(a: AccountWithActivity, hidden: Boolean) = viewModelScope.launch { dao.setHidden(a.id, hidden) }
 
     fun save(a: AccountWithActivity, e: AccountEdit) = viewModelScope.launch {
@@ -288,11 +295,23 @@ fun AccountsRoute(
     var editing by remember { mutableStateOf<AccountWithActivity?>(null) }
     var adding by remember { mutableStateOf(false) }
     var merging by remember { mutableStateOf<MergeSuggestion?>(null) }
+    var menu by remember { mutableStateOf(false) }
+    val snack = remember { androidx.compose.material3.SnackbarHostState() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, floatingActionButton = {
         androidx.compose.material3.FloatingActionButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, t("Add")) }
-    }, topBar = {
+    }, snackbarHost = { androidx.compose.material3.SnackbarHost(snack) }, topBar = {
         Column {
-            TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(t("Accounts")) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } })
+            TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(t("Accounts")) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
+                actions = {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, t("More")) }
+                    androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        androidx.compose.material3.DropdownMenuItem(text = { Text(t("Restore missing accounts")) }, onClick = {
+                            menu = false
+                            vm.restoreMissing { n -> scope.launch { snack.showSnackbar(t("Restored {n} accounts", "n" to n)) } }
+                        })
+                    }
+                })
             PrimaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
                 listOf(
                     Triple(t("Accounts"), Icons.Filled.AccountBalance, s.accounts.size),
@@ -349,7 +368,7 @@ fun AccountsRoute(
                 }
                 items(hiddenHere, key = { "h${it.id}" }) { a ->
                     Row(Modifier.fillMaxWidth().animateItem().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        AccountAvatar(a.bankName, a.kind, a.accountType, size = 32.dp)
+                        AccountAvatar(a.bankName, a.kind, a.accountType, business = a.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = a.cardNetwork, size = 32.dp)
                         Spacer(Modifier.width(10.dp))
                         Text("${title(a)} ••${a.last4}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -369,6 +388,7 @@ fun AccountsRoute(
         val sameKind = s.byId.values.filter { it.kind == a.kind && it.id != a.id }
             .sortedWith(compareByDescending<AccountWithActivity> { it.bankName == a.bankName }.thenBy { it.bankName })
         EditSheet(a, accounts = s.accounts + s.deposits, mergeTargets = sameKind, onMerge = { target -> merging = MergeSuggestion(a, target) },
+            mergedAccounts = s.mergedChildren.filter { it.mergedIntoId == a.id }, onUnmerge = vm::unmerge,
             onDismiss = { editing = null }, onSave = { e -> vm.save(a, e); editing = null },
             onHide = { vm.setHidden(a, true); editing = null },
             onDelete = { withTx -> vm.delete(a, withTx); editing = null })
@@ -403,7 +423,7 @@ private fun MergeRow(a: AccountWithActivity, onClick: (() -> Unit)? = null) {
         Modifier.fillMaxWidth().let { if (onClick != null) it.clickable(onClick = onClick) else it }.padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AccountAvatar(a.bankName, a.kind, a.accountType, size = 32.dp)
+        AccountAvatar(a.bankName, a.kind, a.accountType, business = a.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = a.cardNetwork, size = 32.dp)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(title(a) + (a.last4.takeIf { it.isNotBlank() }?.let { " ••$it" } ?: ""), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
@@ -422,8 +442,8 @@ private fun MergeDialog(m: MergeSuggestion, onDismiss: () -> Unit, onConfirm: ()
         title = { Text(t("Merge into {name}?", "name" to into)) },
         text = {
             Text(
-                t("{n} transactions move from {from} to {into}. {into} keeps its settings; {from} is removed. This can't be undone.",
-                    "n" to m.source.transactionCount, "from" to from, "into" to into),
+                t("{from} will show together with {into}. You can unmerge any time. Your messages and transactions aren't changed.",
+                    "from" to from, "into" to into),
                 style = MaterialTheme.typography.bodyMedium,
             )
         },
@@ -505,33 +525,49 @@ private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, on
         colors = CardDefaults.cardColors(containerColor = accent?.copy(alpha = 0.10f) ?: MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Row(Modifier.padding(start = 14.dp, top = 14.dp, bottom = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            AccountAvatar(a.bankName, a.kind, a.accountType)
+            AccountAvatar(a.bankName, a.kind, a.accountType, business = a.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = a.cardNetwork)
             Spacer(Modifier.width(12.dp))
+            val credit = a.isCreditCardRow
+            val bill = if (credit) cardBill(a.id) else null
             Column(Modifier.weight(1f)) {
                 Text(title(a), style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 val kindLabel = t(a.accountType?.label ?: if (a.kind == AccountKind.CARD) "Card" else "Bank account")
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(kindLabel + (a.last4.takeIf { it.isNotBlank() }?.let { " · ••$it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = KindColors.of(a.kind, a.accountType))
-                    a.cardNetwork?.let { n -> Spacer(Modifier.width(6.dp)); BrandMark(Brands.forNetwork(n), size = 20.dp) }
-                    if (a.usage == com.hisaab.shared.db.AccountUsage.BUSINESS) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            t("Business"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
-                        )
-                    }
-                }
+                Text(kindLabel + (a.last4.takeIf { it.isNotBlank() }?.let { " · ••$it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = KindColors.of(a.kind, a.accountType), maxLines = 1)
+                val muted = MaterialTheme.colorScheme.onSurfaceVariant
                 val sub = when {
                     linked != null -> t("Linked to {name} ••{last}", "name" to title(linked), "last" to linked.last4)
                     a.maturityDay != null -> maturityLine(a.maturityDay!!, a.maturityAction)
-                    else -> t("Spent this month {amount} · {n} transactions", "amount" to Money.format(a.monthSpent, showPaise = false), "n" to a.transactionCount)
+                    else -> null
                 }
-                Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                if (credit && sub == null) {
+                    if (bill?.known != true) Text(t("No statement yet"), style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1)
+                    else Row {
+                        bill.unbilledMinor?.let {
+                            Text(t("Unbilled {amount}", "amount" to Money.format(it, showPaise = false)), style = MaterialTheme.typography.bodySmall, color = Hx.warn, maxLines = 1)
+                        }
+                    }
+                    a.currentBalanceMinor?.let {
+                        Text(t("Limit left {amount}", "amount" to Money.format(it, showPaise = false)), style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
+                    }
+                } else if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 2)
             }
             Column(horizontalAlignment = Alignment.End) {
-                val (value, caption) = valueFor(a, linked)
-                Text(value, style = MaterialTheme.typography.titleMedium)
-                Text(caption, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (credit && linked == null) {
+                    val billed = bill?.billedMinor?.takeIf { it > 0 }
+                    Text(
+                        if (billed != null) Money.format(billed, showPaise = false) else if (bill?.known == true) t("No dues") else "—",
+                        style = MaterialTheme.typography.titleMedium, color = if (billed != null) Hx.neg else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    val due = bill?.dueDay?.takeIf { billed != null }
+                    if (due != null) {
+                        val (label, colour) = dueLabel(due)
+                        Text(label, style = MaterialTheme.typography.labelSmall, color = colour)
+                    } else Text(t("billed"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    val (value, caption) = valueFor(a, linked)
+                    Text(value, style = MaterialTheme.typography.titleMedium)
+                    Text(caption, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, t("Edit")) }
         }
@@ -562,6 +598,9 @@ private fun EditSheet(
     /** Other accounts or cards of the same kind, to merge this one into. */
     mergeTargets: List<AccountWithActivity> = emptyList(),
     onMerge: (AccountWithActivity) -> Unit = {},
+    /** Accounts currently shown together with this one. */
+    mergedAccounts: List<com.hisaab.shared.db.AccountEntity> = emptyList(),
+    onUnmerge: (com.hisaab.shared.db.AccountEntity) -> Unit = {},
 ) {
     var showMerge by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -653,7 +692,7 @@ private fun EditSheet(
                         Modifier.fillMaxWidth().clickable { linkedId = if (linkedId == acc.id) null else acc.id }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        AccountAvatar(acc.bankName, acc.kind, acc.accountType, size = 32.dp)
+                        AccountAvatar(acc.bankName, acc.kind, acc.accountType, business = acc.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = acc.cardNetwork, size = 32.dp)
                         Spacer(Modifier.width(10.dp))
                         Text("${title(acc)} ••${acc.last4}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                         if (linkedId == acc.id) Icon(Icons.Filled.Check, t("Linked"), tint = MaterialTheme.colorScheme.primary)
@@ -689,6 +728,21 @@ private fun EditSheet(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Swatch(null, selected = color == null) { color = null }
                 SWATCHES.forEach { c -> Swatch(c, selected = color == c.toArgb()) { color = c.toArgb() } }
+            }
+
+            BankDetailsSection(a.id, a.bankName)
+
+            if (mergedAccounts.isNotEmpty()) {
+                Label(t("Merged accounts"))
+                mergedAccounts.forEach { m ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AccountAvatar(m.bankName, m.kind, m.accountType, business = m.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = m.cardNetwork, size = 32.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text((m.nickname ?: m.bankName) + (m.last4.takeIf { it.isNotBlank() }?.let { " ••$it" } ?: ""), Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                        TextButton(onClick = { onUnmerge(m) }) { Text(t("Unmerge")) }
+                    }
+                }
             }
 
             if (mergeTargets.isNotEmpty()) {

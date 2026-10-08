@@ -14,6 +14,9 @@ import com.hisaab.parser.bank.KotakBankParser
 import com.hisaab.parser.bank.LenderParser
 import com.hisaab.parser.bank.Lenders
 import com.hisaab.parser.bank.LoanStatus
+import com.hisaab.parser.bank.IndianBanks
+import com.hisaab.parser.bank.ListedBank
+import com.hisaab.parser.bank.ListedBankParser
 import com.hisaab.parser.bank.PnbParser
 import com.hisaab.parser.bank.SbiParser
 import com.hisaab.parser.bank.YesBankParser
@@ -104,13 +107,22 @@ class ParserRegistry(
 
         fun isStatementSubject(subject: String?): Boolean = subject != null && STATEMENT_SUBJECT.containsMatchIn(subject)
 
-        fun default(config: ParserConfig = ParserConfig()): ParserRegistry = ParserRegistry(
-            parsers = listOf(
+        fun default(config: ParserConfig = ParserConfig()): ParserRegistry {
+            val core: List<BankParser> = listOf(
                 HdfcBankParser(config), IciciBankParser(config), SbiParser(config), AxisBankParser(config),
                 KotakBankParser(config), IdfcFirstBankParser(config), YesBankParser(config), BankOfBarodaParser(config),
                 PnbParser(config), AuBankParser(config),
-            ) + Lenders.parsers(config),
-            fallback = GenericBankParser(config),
-        )
+            ) + Lenders.parsers(config)
+            // The listed banks (Central Bank, Bank of Maharashtra, Canara, co-operative banks …) never take a sender
+            // code or mail domain that a parser above already owns, so two parsers can never claim one sender.
+            val taken = core.flatMap { it.senderKeys }.toMutableSet()
+            val listed = IndianBanks.ALL.mapNotNull { bank ->
+                val headers = bank.headers.filter { it.uppercase() !in taken }.toSet()
+                val domains = bank.domains.filter { it.lowercase() !in taken }.toSet()
+                taken += headers.map { it.uppercase() } + domains.map { it.lowercase() }
+                if (headers.isEmpty() && domains.isEmpty()) null else ListedBankParser(ListedBank(bank.name, headers, domains), config)
+            }
+            return ParserRegistry(parsers = core + listed, fallback = GenericBankParser(config))
+        }
     }
 }

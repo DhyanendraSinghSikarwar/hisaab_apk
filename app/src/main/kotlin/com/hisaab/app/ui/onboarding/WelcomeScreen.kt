@@ -91,6 +91,7 @@ class WelcomeViewModel @Inject constructor(
         passwords.setIdentity(com.hisaab.parser.statement.Identity(
             name.trim(), dob, pan.trim().ifEmpty { null }, mobile.ifBlank { null },
             altName = altName.trim().ifEmpty { null }, altPhone = altPhone?.ifBlank { null },
+            email = (email ?: p.email)?.ifBlank { null },
         ))
         settings.saveProfile(name, email ?: p.email.orEmpty(), mobile, p.occupation.orEmpty())
     }

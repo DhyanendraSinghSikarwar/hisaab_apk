@@ -106,6 +106,7 @@ class ProfileViewModel @Inject constructor(
 ) : ViewModel() {
     val profile = settings.settings.map { it.profile }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val identity = passwords.identity.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val bankDetails = passwords.accountDetailsCount.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val count = transactions.observeTransactionCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val since = mutableStateOf<Long?>(null)
 
@@ -118,7 +119,7 @@ class ProfileViewModel @Inject constructor(
         // Alternates live only in the sealed identity, never in plain settings.
         passwords.setIdentity(com.hisaab.parser.statement.Identity(
             name.trim().ifEmpty { null }, dob, pan.trim().ifEmpty { null }, phone.trim().ifEmpty { null },
-            altName = altName.trim().ifEmpty { null }, altPhone = altPhone.trim().ifEmpty { null },
+            altName = altName.trim().ifEmpty { null }, altPhone = altPhone.trim().ifEmpty { null }, email = email.trim().ifEmpty { null },
         ))
         then()
         // New details may open statements that were waiting for a password.
@@ -208,6 +209,7 @@ fun ProfileRoute(
     val profile by vm.profile.collectAsStateWithLifecycle()
     val identity by vm.identity.collectAsStateWithLifecycle()
     val count by vm.count.collectAsStateWithLifecycle()
+    val bankDetails by vm.bankDetails.collectAsStateWithLifecycle()
     val cropSource by vm.cropSource.collectAsStateWithLifecycle()
     val saving by vm.savingPhoto.collectAsStateWithLifecycle()
     val p = profile ?: return
@@ -272,6 +274,15 @@ fun ProfileRoute(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     AlternateFields(altName, { altName = it }, altPhone, { altPhone = it })
                     StatementDetailsFields(dob, { dob = it }, pan, { pan = it })
+                    com.hisaab.app.ui.components.HRow(
+                        title = t("Bank details"),
+                        subtitle = if (bankDetails > 0) t("{n} accounts have unlock details", "n" to bankDetails)
+                        else t("Customer ID, account number and more"),
+                    ) {}
+                    Text(
+                        t("Added on each account (Accounts, edit). Name, mobile and email there follow this profile unless set."),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

@@ -164,7 +164,7 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AccountAvatar(acc.bankName, acc.kind, acc.accountType, size = 52.dp)
+                AccountAvatar(acc.bankName, acc.kind, acc.accountType, business = acc.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = acc.cardNetwork, size = 52.dp)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(t(acc.accountType?.label ?: if (acc.kind == com.hisaab.parser.model.AccountKind.CARD) "Card" else "Bank account"),
