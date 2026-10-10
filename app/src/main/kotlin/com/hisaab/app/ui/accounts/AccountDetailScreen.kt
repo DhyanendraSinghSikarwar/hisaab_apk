@@ -156,6 +156,7 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
     val card by vm.card.collectAsStateWithLifecycle()
     val acc = a
     var editing by remember { mutableStateOf(false) }
+    var amounts by remember { mutableStateOf(false) }
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
             colors = com.hisaab.app.ui.theme.clearTopBar(),
@@ -180,8 +181,9 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
             }
 
             card?.let {
-                CardSummaryGrid(it)
+                CardSummaryGrid(it) { amounts = true }
                 CardDueActions(acc.id, it.position.dueDay, it.position.billedMinor)
+                if (amounts) CardAmountsSheet(acc.id, acc.bankName, acc.last4, it.position, onDismiss = { amounts = false })
             }
 
             val now = LocalDate.now(Periods.zone).year
@@ -302,7 +304,7 @@ private fun TwoLineChart(months: List<MonthTotal>, spentColor: Color, incomeColo
 
 /** Limit, headroom, billed (red), unbilled (amber) and utilisation for a credit card. */
 @Composable
-private fun CardSummaryGrid(c: CardSummary) {
+private fun CardSummaryGrid(c: CardSummary, onAdjust: () -> Unit) {
     val p = c.position
     val billed = p.billedMinor?.takeIf { it > 0 }
     val outstanding = p.outstandingMinor?.takeIf { it > 0 }
@@ -324,17 +326,17 @@ private fun CardSummaryGrid(c: CardSummary) {
                             due?.let { t("Pay by {date}", "date" to it) + if (p.estimated) " · " + t("est.") else "" },
                             p.minDueMinor?.takeIf { it > 0 }?.let { t("Min {amount}", "amount" to money(it)) },
                         ).joinToString(" · ").ifBlank { null },
-                        Modifier.weight(1f),
+                        Modifier.weight(1f), p.billedEdited || p.minDueEdited || p.dueEdited, onAdjust,
                     )
-                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f))
+                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f), p.unbilledEdited, onAdjust)
                 }
                 outstanding != null -> {
                     CardStat(t("Outstanding"), money(outstanding), Hx.warn, t("No statement yet"), Modifier.weight(1f))
-                    CardStat(t("Billed to pay"), "—", Hx.text2, null, Modifier.weight(1f))
+                    CardStat(t("Billed to pay"), "—", Hx.text2, null, Modifier.weight(1f), false, onAdjust)
                 }
                 else -> {
-                    CardStat(t("Billed to pay"), t("No dues"), Hx.text2, null, Modifier.weight(1f))
-                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f))
+                    CardStat(t("Billed to pay"), t("No dues"), Hx.text2, null, Modifier.weight(1f), false, onAdjust)
+                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f), p.unbilledEdited, onAdjust)
                 }
             }
         }
@@ -353,9 +355,19 @@ private fun CardSummaryGrid(c: CardSummary) {
 }
 
 @Composable
-private fun CardStat(label: String, value: String, color: Color, note: String?, modifier: Modifier) {
+private fun CardStat(label: String, value: String, color: Color, note: String?, modifier: Modifier, edited: Boolean = false, onAdjust: (() -> Unit)? = null) {
     HCard(modifier, padding = 14.dp) {
-        Text(label, fontSize = 12.sp, color = Hx.text2)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 12.sp, color = Hx.text2, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+            if (edited) Text("  " + t("Edited"), fontSize = 10.sp, color = Hx.text2, maxLines = 1)
+            Spacer(Modifier.weight(1f))
+            onAdjust?.let {
+                androidx.compose.material3.TextButton(
+                    onClick = it, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.height(24.dp),
+                ) { Text(t("Adjust"), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Hx.accent) }
+            }
+        }
         Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
         note?.let { Text(it, fontSize = 11.sp, color = Hx.text2, maxLines = 1) }
     }

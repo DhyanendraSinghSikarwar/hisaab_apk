@@ -188,3 +188,5 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] Card bill due reminders (5d/2d/due/overdue, Mark paid, Remind tomorrow, Credit cards switch in Alerts, Mark paid/Undo on card detail and Home)
 - [x] Portfolio net worth card is the Home-style hero card with 1M/6M/1Y/3Y/All range; Home no longer shows Net worth
 - [x] UPI payment via PhonePe not tracked: notification listener reads title/text/big/sub/lines and parses any layout (amount/payee split, no symbol, failed/pending/offers skipped, bill pay as debit), logs every payment-app notification with a skip reason, Data sources warning card when off, PhonePe/GPay/Paytm email+SMS receipt parser, tests
+- [x] Home credit cards rows decluttered (2 lines); card detail: edit billed/unbilled (override); Transactions: remove income/expense bar
+- [x] Spent this month: follows the global Period and Book filters; in-card eye removed

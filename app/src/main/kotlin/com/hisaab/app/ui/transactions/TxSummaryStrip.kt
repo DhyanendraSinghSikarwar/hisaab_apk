@@ -17,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -26,8 +25,8 @@ import androidx.compose.ui.unit.sp
 import com.hisaab.app.ui.theme.Hx
 
 /**
- * The period's income, expenses and net as three equal columns split by hairlines, with a slim income-versus-expenses
- * bar beneath. Each pair is (label, formatted value); [netNegative] turns Net red.
+ * The period's income, expenses and net as three equal columns split by hairlines. Each pair is
+ * (label, formatted value); [netNegative] turns Net red.
  */
 @Composable
 internal fun TxSummaryStrip(
@@ -41,14 +40,6 @@ internal fun TxSummaryStrip(
             SummaryCell(expenses, Hx.neg, Modifier.weight(1f))
             SummaryDivider()
             SummaryCell(net, if (netNegative) Hx.neg else Hx.pos, Modifier.weight(1f))
-        }
-        val total = inMinor + outMinor
-        if (total > 0) {
-            val share = (inMinor.toFloat() / total).coerceIn(0.02f, 0.98f)
-            Row(Modifier.padding(top = 10.dp).fillMaxWidth().height(4.dp).clip(CircleShape)) {
-                Box(Modifier.weight(share).fillMaxHeight().background(Hx.pos))
-                Box(Modifier.weight(1f - share).fillMaxHeight().background(Hx.neg))
-            }
         }
     }
 }

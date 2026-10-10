@@ -64,12 +64,70 @@ class MonthSpendTest {
             today, zone,
         )
         assertEquals(30_000L, r.spent)
-        assertEquals(30_000L, r.lastSamePeriod)
-        assertEquals(530_000L, r.lastMonthSpent)
+        assertEquals(30_000L, r.previousSamePeriod)
+        assertEquals(530_000L, r.previousSpent)
         assertEquals(0, r.changePercent)
         assertEquals(10, r.thisCum.size)
         assertEquals(30, r.lastCum.size)
         assertNull(MonthSpend.compute(listOf(tx(d(3), 300)), today, zone).changePercent)
+    }
+
+    private val all = listOf(tx(d(3), 300), tx(l(4), 200), tx(l(20), 100), tx(LocalDate.of(2026, 8, 15), 50))
+
+    @Test fun lastMonthSelectedComparesWholePreviousMonth() {
+        val r = MonthSpend.compute(all, l(1), LocalDate.of(2026, 9, 30), LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31), today, zone)
+        assertEquals(30_000L, r.spent)
+        assertEquals(30, r.thisCum.size)
+        assertEquals(5_000L, r.previousSpent)
+        assertEquals(5_000L, r.previousSamePeriod)
+        assertEquals(500, r.changePercent)
+    }
+
+    @Test fun customRangeComparesEqualLengthBefore() {
+        val r = MonthSpend.compute(all, d(1), d(10), l(21), l(30), today, zone)
+        assertEquals(30_000L, r.spent)
+        assertEquals(0L, r.previousSpent)
+        assertNull(r.changePercent)
+        val r2 = MonthSpend.compute(all, l(1), l(10), LocalDate.of(2026, 8, 22), LocalDate.of(2026, 8, 31), today, zone)
+        assertEquals(20_000L, r2.spent)
+        assertEquals(10, r2.thisCum.size)
+        assertEquals(10, r2.lastCum.size)
+    }
+
+    @Test fun futureDaysOfRunningPeriodIgnored() {
+        val r = MonthSpend.compute(all + tx(d(20), 999), d(1), d(31), l(1), l(30), today, zone)
+        assertEquals(30_000L, r.spent)
+        assertEquals(10, r.thisCum.size)
+        assertEquals(31, r.days)
+    }
+
+    @Test fun noComparisonWhenNoPreviousPeriod() {
+        val r = MonthSpend.compute(all, LocalDate.of(2026, 1, 1), today, null, null, today, zone)
+        assertEquals(65_000L, r.spent)
+        assertEquals(false, r.hasPrevious)
+        assertNull(r.changePercent)
+        assertEquals(0L, r.previousSpent)
+        assertEquals(emptyList<Long>(), r.lastCum)
+    }
+
+    /** The Book rule (usage only; no account = personal) is applied by the caller; the breakdown then covers only in-book spend. */
+    @Test fun bookFilteredBreakdownSumsToTotal() {
+        val business = setOf(7L)
+        val txs = listOf(tx(d(1), 100, account = 1), tx(d(2), 400, account = 7), tx(d(3), 50, account = null))
+        fun inBook(t: TransactionEntity, personal: Boolean?) = when (personal) {
+            null -> true
+            true -> t.accountId == null || t.accountId !in business
+            false -> t.accountId != null && t.accountId in business
+        }
+        val personal = MonthSpend.compute(txs.filter { inBook(it, true) }, today, zone)
+        val biz = MonthSpend.compute(txs.filter { inBook(it, false) }, today, zone)
+        val everything = MonthSpend.compute(txs.filter { inBook(it, null) }, today, zone)
+        assertEquals(15_000L, personal.spent)
+        assertEquals(40_000L, biz.spent)
+        assertEquals(55_000L, everything.spent)
+        for (r in listOf(personal, biz, everything)) assertEquals(r.spent, r.byAccount.sumOf { it.amount })
+        assertEquals(listOf<Long?>(1L, null), personal.byAccount.map { it.accountId })
+        assertEquals(listOf<Long?>(7L), biz.byAccount.map { it.accountId })
     }
 
     @Test fun breakdownSumsToTotalAndIncomeSaved() {

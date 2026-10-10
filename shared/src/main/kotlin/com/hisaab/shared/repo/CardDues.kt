@@ -27,14 +27,48 @@ data class CardPosition(
     val outstandingMinor: Long? = null,
     /** True when no statement was seen: [billedMinor] and [dueDay] were worked out from the usual statement day. */
     val estimated: Boolean = false,
+    /** Which figures come from a manual [CardOverride]. */
+    val billedEdited: Boolean = false,
+    val minDueEdited: Boolean = false,
+    val dueEdited: Boolean = false,
+    val unbilledEdited: Boolean = false,
+    /** The app-calculated position when an override is applied, for "Calculated ₹x" notes. */
+    val calculated: CardPosition? = null,
 ) {
+    val edited: Boolean get() = billedEdited || minDueEdited || dueEdited || unbilledEdited
     /** What the card owes now: the billed amount, else the outstanding figure. */
     val owedMinor: Long get() = billedMinor?.takeIf { it > 0 } ?: outstandingMinor?.takeIf { it > 0 } ?: 0L
     val known: Boolean get() = billedMinor != null || unbilledMinor != null || outstandingMinor != null
 }
 
+/**
+ * Figures the user set by hand for one card; a null field is not overridden. Kept as a statement row of kind
+ * [CardDues.KIND_OVERRIDE] (billed in `totalDueMinor`, unbilled in `closingMinor`, [setAtEpochMs] in `processedAt`), so it stays on the phone.
+ */
+data class CardOverride(
+    val cardId: Long,
+    val billedMinor: Long? = null,
+    val minDueMinor: Long? = null,
+    val dueEpochDay: Long? = null,
+    val unbilledMinor: Long? = null,
+    val setAtEpochMs: Long,
+) {
+    val isEmpty: Boolean get() = billedMinor == null && minDueMinor == null && dueEpochDay == null && unbilledMinor == null
+}
+
 /** Computes [CardPosition]s and records card due messages as statement rows. */
 object CardDues {
+    /** A manual [CardOverride] row. */
+    const val KIND_OVERRIDE = "CARD_OVERRIDE"
+
+    fun overrideKey(bank: String?, last4: String?) = "cardovr:${bank?.lowercase().orEmpty()}:$last4"
+
+    /** The override held by [rows], if any. [cardId] is carried through unchanged. */
+    fun overrideOf(rows: List<StatementEntity>, cardId: Long = 0): CardOverride? =
+        rows.filter { it.kind == KIND_OVERRIDE }.maxByOrNull { it.processedAt }?.let {
+            CardOverride(cardId, it.totalDueMinor, it.minDueMinor, it.dueEpochDay, it.closingMinor, it.processedAt).takeIf { o -> !o.isEmpty }
+        }
+
     /** [StatementEntity.kind] of a payment the issuer acknowledged; its amount is in `debitsMinor`, its day in `statementEpochDay`. */
     const val KIND_PAYMENT = "CARD_PAYMENT"
     const val KIND_DUE = "CREDIT_CARD"
@@ -67,6 +101,32 @@ object CardDues {
      * movements over the last [WINDOW_DAYS] days.
      */
     fun position(rows: List<StatementEntity>, availableMinor: Long?, flow: List<CardFlow>, today: LocalDate, zone: ZoneId): CardPosition {
+        val real = rows.filter { it.kind != KIND_OVERRIDE }
+        val base = basePosition(real, availableMinor, flow, today, zone)
+        val o = overrideOf(rows) ?: return base
+        val setDay = Instant.ofEpochMilli(o.setAtEpochMs).atZone(zone).toLocalDate().toEpochDay()
+        // A newer real statement or due record supersedes the manual figures.
+        if (real.any { it.kind != KIND_PAYMENT && (it.totalDueMinor != null || it.dueEpochDay != null) && (it.statementEpochDay ?: 0L) > setDay }) return base
+        val paid = maxOf(
+            flow.filter { it.type == TransactionType.TRANSFER && it.timestamp >= o.setAtEpochMs }.sumOf { it.amountMinor },
+            real.filter { it.kind == KIND_PAYMENT && (it.statementEpochDay ?: 0L) >= setDay }.sumOf { it.debitsMinor ?: 0L },
+        )
+        val billed = o.billedMinor?.let { it - paid }
+        // Paid off: the manual figures are done with.
+        if (billed != null && billed <= 0L) return base
+        val spent = net(flow, o.setAtEpochMs)
+        return base.copy(
+            billedMinor = billed ?: base.billedMinor,
+            minDueMinor = if (o.billedMinor != null) o.minDueMinor else o.minDueMinor ?: base.minDueMinor,
+            dueDay = o.dueEpochDay?.let(LocalDate::ofEpochDay) ?: base.dueDay,
+            unbilledMinor = o.unbilledMinor?.let { it + spent } ?: base.unbilledMinor,
+            estimated = if (o.billedMinor != null) false else base.estimated,
+            billedEdited = o.billedMinor != null, minDueEdited = o.minDueMinor != null, dueEdited = o.dueEpochDay != null,
+            unbilledEdited = o.unbilledMinor != null, calculated = base,
+        )
+    }
+
+    private fun basePosition(rows: List<StatementEntity>, availableMinor: Long?, flow: List<CardFlow>, today: LocalDate, zone: ZoneId): CardPosition {
         val newest = compareBy<StatementEntity>({ it.statementEpochDay ?: 0L }, { it.processedAt })
         val bills = rows.filter { it.kind != KIND_PAYMENT }
         val bill = bills.filter { it.totalDueMinor != null }.maxWithOrNull(newest)
@@ -118,6 +178,29 @@ object CardDues {
     /** The spend and payment keys of a due message, one row per statement or payment so re-reading a message adds nothing. */
     internal fun keyOf(d: CardDue, day: Long) =
         if (d.paymentMinor != null) "cardpay:${d.bank}:${d.last4}:$day:${d.paymentMinor}" else "carddue:${d.bank}:${d.last4}:$day"
+}
+
+/** Saves and clears a card's manual [CardOverride] (a statement row of kind [CardDues.KIND_OVERRIDE]). */
+@Singleton
+class CardOverrideStore @Inject constructor(private val statements: StatementDao) {
+    /** Stores [o] for the card [bank] ••[last4]; an empty override clears it. */
+    suspend fun save(bank: String?, last4: String, o: CardOverride, now: Long = System.currentTimeMillis()) {
+        if (o.isEmpty) return clear(bank, last4)
+        val key = CardDues.overrideKey(bank, last4)
+        val existing = statements.byKey(key)
+        statements.upsert(
+            StatementEntity(
+                id = existing?.id ?: 0, key = key, source = "MANUAL", sender = bank.orEmpty(), subject = null, fileName = "", receivedAt = now,
+                status = StatementEntity.PARSED, transactionCount = 0, holdingCount = 0, filePath = null, bankName = bank, last4 = last4,
+                processedAt = now, kind = CardDues.KIND_OVERRIDE, totalDueMinor = o.billedMinor, minDueMinor = o.minDueMinor,
+                dueEpochDay = o.dueEpochDay, closingMinor = o.unbilledMinor,
+            ),
+        )
+    }
+
+    suspend fun clear(bank: String?, last4: String) {
+        statements.byKey(CardDues.overrideKey(bank, last4))?.let { statements.delete(it.id) }
+    }
 }
 
 /** Stores [CardDue]s from SMS and email where the card screens read them (see [CardDues.position]). */

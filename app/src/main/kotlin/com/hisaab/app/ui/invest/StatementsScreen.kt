@@ -80,6 +80,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -92,7 +93,7 @@ class StatementsViewModel @Inject constructor(
     private val passwords: StatementPasswordStore,
     private val processor: StatementProcessor,
 ) : ViewModel() {
-    val statements = statements.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val statements = statements.observeAll().map { l -> l.filter { it.kind != com.hisaab.shared.repo.CardDues.KIND_OVERRIDE && it.kind != com.hisaab.shared.repo.CardDues.KIND_PAYMENT } }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val saved = passwords.saved.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val busy = MutableStateFlow(false)
     private val _messages = Channel<String>(Channel.BUFFERED)

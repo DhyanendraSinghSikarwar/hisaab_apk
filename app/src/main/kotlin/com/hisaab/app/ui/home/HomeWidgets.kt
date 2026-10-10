@@ -499,46 +499,65 @@ fun CreditCardsWidget(w: HomeWidgets, onOpenCard: (Long) -> Unit, edit: WidgetEd
             exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(130)) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(80)),
         ) {
         Column {
-            cards.forEach { c ->
-                val billed = c.billedMinor?.takeIf { it > 0 }
-                val outstanding = c.outstandingMinor?.takeIf { billed == null && it > 0 }
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpenCard(c.id) }.padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AccountAvatar(c.name, com.hisaab.parser.model.AccountKind.CARD, null, size = 36.dp, network = c.network)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            c.name + (c.last4.takeIf { it.isNotBlank() }?.let { " ••$it" } ?: ""), fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                        c.availableMinor?.let {
-                            Text(t("Limit left {amount}", "amount" to Money.format(it, showPaise = false)) + if (c.availableEstimated) " · " + t("est.") else "", fontSize = 11.sp, color = Hx.text2, maxLines = 1)
-                        }
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Column(horizontalAlignment = Alignment.End) {
-                        if (billed != null) Text(Money.format(billed, showPaise = false), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Hx.neg, maxLines = 1)
-                        else if (outstanding != null) {
-                            Text(Money.format(outstanding, showPaise = false), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Hx.warn, maxLines = 1)
-                            Text(t("Outstanding"), fontSize = 11.sp, color = Hx.warn, maxLines = 1)
-                        } else Text(t("No dues"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.text2, maxLines = 1)
-                        c.dueDay?.takeIf { billed != null }?.let { due ->
-                            val days = java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), due)
-                            Text(
-                                t("Pay by {date}", "date" to due.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))) + (if (days < 0) " · " + t("Overdue") else " · " + t("{n} days left", "n" to days.toString())) + if (c.estimated) " · " + t("est.") else "", fontSize = 11.sp, maxLines = 1,
-                                color = when { days < 0 -> Hx.neg; days <= 5 -> Hx.warn; else -> Hx.text2 },
-                            )
-                        }
-                        c.unbilledMinor?.takeIf { it > 0 }?.let {
-                            Text(t("Unbilled {amount}", "amount" to Money.format(it, showPaise = false)), fontSize = 11.sp, color = Hx.warn, maxLines = 1)
-                        }
-                    }
-                }
-                com.hisaab.app.ui.accounts.CardDueActions(c.id, c.dueDay, c.billedMinor, Modifier.padding(start = 48.dp))
+            cards.forEachIndexed { i, c ->
+                if (i > 0) androidx.compose.material3.HorizontalDivider(color = Hx.border.copy(alpha = 0.6f), thickness = 0.5.dp)
+                CardHomeRow(c, onOpenCard)
             }
         }
         }
+    }
+}
+
+/** ₹12,345 under a lakh, else ₹1.2L / ₹3.4Cr. */
+private fun cardAmount(minor: Long) = if (minor < 1_00_00_000L) Money.format(minor, showPaise = false) else Money.compact(minor)
+
+private val CARD_DUE_DATE = DateTimeFormatter.ofPattern("d MMM")
+
+/** Two lines: name and what is owed; then one status (due soon, due date, unbilled or limit left). */
+@Composable
+private fun CardHomeRow(c: com.hisaab.app.ui.ledger.CardLimit, onOpenCard: (Long) -> Unit) {
+    val billed = c.billedMinor?.takeIf { it > 0 }
+    val outstanding = c.outstandingMinor?.takeIf { billed == null && it > 0 }
+    val unbilled = c.unbilledMinor?.takeIf { it > 0 }
+    val due = c.dueDay?.takeIf { billed != null }
+    val days = due?.let { java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), it) }
+    val paid = com.hisaab.app.ui.accounts.cardDuePaid(c.id, due)
+    val amountOnly = billed == null && outstanding == null && unbilled != null
+    val owed = billed ?: outstanding ?: unbilled
+    val amountColour = when { paid -> Hx.text2; billed != null -> Hx.neg; else -> Hx.warn }
+    val (status, statusColour) = when {
+        paid -> t("Paid") to Hx.text2
+        due != null && days != null && days < 0 -> t("Overdue · {date}", "date" to due.format(CARD_DUE_DATE)) to Hx.neg
+        due != null && days != null && days == 0L -> t("Due today") to Hx.warn
+        due != null && days != null -> t("Due {date} · {n} days", "date" to due.format(CARD_DUE_DATE), "n" to days.toString()) to if (days <= 5) Hx.warn else Hx.text2
+        unbilled != null && !amountOnly -> t("Unbilled {amount}", "amount" to cardAmount(unbilled)) to Hx.text2
+        c.availableMinor != null -> t("Limit left {amount}", "amount" to cardAmount(c.availableMinor)) to Hx.text2
+        else -> null to Hx.text2
+    }
+    val canPay = billed != null && !paid && days != null && days <= 7
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpenCard(c.id) }.padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AccountAvatar(c.name, AccountKind.CARD, null, size = 36.dp, network = c.network)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    c.name, Modifier.weight(1f, fill = false), fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                c.last4.takeIf { it.isNotBlank() }?.let { Text(" ••$it", fontSize = 12.sp, color = Hx.text2, maxLines = 1) }
+                Spacer(Modifier.width(8.dp))
+                if (owed != null) {
+                    Text(
+                        (if (c.estimated && billed != null) "~" else "") + cardAmount(owed), fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        color = amountColour, maxLines = 1,
+                    )
+                } else Text(t("No dues"), fontSize = 13.sp, color = Hx.text2, maxLines = 1)
+            }
+            status?.let { Text(it, fontSize = 11.sp, color = statusColour, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+        if (canPay && due != null) com.hisaab.app.ui.accounts.MarkPaidButton(c.id, due)
     }
 }

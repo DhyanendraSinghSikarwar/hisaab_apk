@@ -61,6 +61,7 @@ import com.hisaab.app.ui.format.AmountPrivacy
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.app.ui.ledger.Book
+import com.hisaab.app.ui.ledger.PeriodKind
 import com.hisaab.app.ui.ledger.ViewFilterStore
 import com.hisaab.app.ui.theme.Hx
 import com.hisaab.parser.model.AccountKind
@@ -77,7 +78,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -93,10 +93,16 @@ data class SpendRow(
     val business: Boolean, val amount: Long,
 )
 
-/** [other] is spend on accounts that are not listed (hidden, merged or no account), so the rows and it add up to the total. */
-data class SpentMonth(val result: MonthSpendResult, val rows: List<SpendRow>, val other: Long, val month: YearMonth)
+/** How the shown period is worded: the current month, last month, this week or any other period. */
+enum class SpentScope { THIS_MONTH, LAST_MONTH, PAST_MONTH, THIS_WEEK, OTHER }
 
-/** This calendar month's spend, whatever period Home is set to; follows the Book filter only. */
+/**
+ * [other] is spend on accounts that are not listed (hidden, merged or no account), so the rows and it add up to the total.
+ * [periodLabel] is the filter's own label for the period.
+ */
+data class SpentMonth(val result: MonthSpendResult, val rows: List<SpendRow>, val other: Long, val scope: SpentScope, val periodLabel: String)
+
+/** Spend for the global period and Book filters, against the period before. */
 @HiltViewModel
 class SpentThisMonthViewModel @Inject constructor(
     transactions: TransactionDao,
@@ -104,26 +110,36 @@ class SpentThisMonthViewModel @Inject constructor(
     filters: ViewFilterStore,
 ) : ViewModel() {
     @OptIn(ExperimentalCoroutinesApi::class)
-    val spent: StateFlow<SpentMonth?> = filters.filter.map { it.book }.distinctUntilChanged().flatMapLatest { book ->
+    val spent: StateFlow<SpentMonth?> = filters.filter.flatMapLatest { f ->
         val today = LocalDate.now(Periods.zone)
-        val from = today.withDayOfMonth(1).minusMonths(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
-        val to = today.plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli() - 1
-        combine(transactions.observeBetween(from, to), accounts.observeWithActivity(0L)) { txs, accs ->
-            val usage = accs.associate { it.id to it.usage }
+        val (start, end) = f.range
+        val (pStart, pEnd) = f.previous
+        val from = minOf(start, pStart).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
+        val to = minOf(end, today).plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli() - 1
+        val scope = when {
+            f.kind == PeriodKind.MONTH && f.month == YearMonth.from(today) -> SpentScope.THIS_MONTH
+            f.kind == PeriodKind.MONTH -> SpentScope.PAST_MONTH
+            f.kind == PeriodKind.LAST_MONTH -> SpentScope.LAST_MONTH
+            f.kind == PeriodKind.THIS_WEEK -> SpentScope.THIS_WEEK
+            else -> SpentScope.OTHER
+        }
+        combine(transactions.observeBetween(from, to), accounts.observeWithActivity(0L), accounts.observeMerged()) { txs, accs, merged ->
+            // The same Book rule as LedgerSource: account usage only, merged accounts included, no account counts as personal.
+            val usage = accs.associate { it.id to it.usage } + merged.associate { it.id to it.usage }
             val inBook = txs.filter {
-                when (book) {
+                when (f.book) {
                     Book.ALL -> true
                     Book.PERSONAL -> it.accountId == null || usage[it.accountId] != AccountUsage.BUSINESS
                     Book.BUSINESS -> it.accountId != null && usage[it.accountId] == AccountUsage.BUSINESS
                 }
             }
-            val r = MonthSpend.compute(inBook, today, Periods.zone)
-            val byId = accs.associateBy { it.id }
+            val r = MonthSpend.compute(inBook, start, end, pStart, pEnd, today, Periods.zone)
+            val byId = accs.filter { !it.hidden }.associateBy { it.id }
             val rows = r.byAccount.mapNotNull { s ->
                 val a = s.accountId?.let { byId[it] } ?: return@mapNotNull null
                 SpendRow(a.id, a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName, a.last4, a.kind, a.accountType, a.cardNetwork, a.usage == AccountUsage.BUSINESS, s.amount)
             }
-            SpentMonth(r, rows, r.spent - rows.sumOf { it.amount }, YearMonth.from(today))
+            SpentMonth(r, rows, r.spent - rows.sumOf { it.amount }, scope, f.label)
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 }
@@ -142,42 +158,66 @@ fun SpentThisMonthWidget(
     vm: SpentThisMonthViewModel = hiltViewModel(),
 ) {
     val data by vm.spent.collectAsState()
-    WidgetCard(t("Spent this month"), edit = edit, hero = true) {
-        val s = data
+    val s = data
+    val title = when (s?.scope) {
+        null, SpentScope.THIS_MONTH -> t("Spent this month")
+        SpentScope.LAST_MONTH -> t("Spent last month")
+        SpentScope.THIS_WEEK -> t("Spent this week")
+        else -> t("Spent · {period}", "period" to t(s?.periodLabel.orEmpty()))
+    }
+    WidgetCard(title, edit = edit, hero = true) {
         if (s == null) {
             Text(t("Loading…"), color = Hx.text2, fontSize = 13.sp)
             return@WidgetCard
         }
         val r = s.result
+        val prevLabel = when (s.scope) {
+            SpentScope.THIS_MONTH -> t("Last month")
+            SpentScope.LAST_MONTH, SpentScope.PAST_MONTH -> t("Previous month")
+            else -> t("Previous period")
+        }
+        val thisLabel = when (s.scope) {
+            SpentScope.THIS_MONTH -> t("This month")
+            SpentScope.LAST_MONTH -> t("Last month")
+            SpentScope.PAST_MONTH -> t(s.periodLabel)
+            else -> t("This period")
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             com.hisaab.app.ui.components.AnimatedAmount(
                 r.spent, Modifier.weight(1f, fill = false), style = TextStyle(fontSize = 30.sp),
                 color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold,
             )
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                if (AmountPrivacy.hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                if (AmountPrivacy.hidden) t("Show") else t("Hide"), tint = Hx.text2,
-                modifier = Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onToggleHide).padding(6.dp),
+        }
+        if (r.hasPrevious) {
+            val amount = Money.format(r.previousSpent, showPaise = false)
+            Text(
+                when (s.scope) {
+                    SpentScope.THIS_MONTH -> t("Last month: {amount}", "amount" to amount)
+                    SpentScope.LAST_MONTH, SpentScope.PAST_MONTH -> t("Previous month: {amount}", "amount" to amount)
+                    else -> t("Previous period: {amount}", "amount" to amount)
+                },
+                Modifier.padding(top = 2.dp), fontSize = 13.sp, color = Hx.text2,
             )
         }
-        Text(
-            t("Last month: {amount}", "amount" to Money.format(r.lastMonthSpent, showPaise = false)),
-            Modifier.padding(top = 2.dp), fontSize = 13.sp, color = Hx.text2,
-        )
         r.changePercent?.let { pct ->
             val less = pct <= 0
             val tone = if (less) Hx.pos else Hx.neg
+            val n = abs(pct)
             Text(
-                if (less) t("{n}% less vs last month", "n" to abs(pct)) else t("{n}% more vs last month", "n" to pct),
+                when (s.scope) {
+                    SpentScope.THIS_MONTH -> if (less) t("{n}% less vs last month", "n" to n) else t("{n}% more vs last month", "n" to n)
+                    SpentScope.LAST_MONTH, SpentScope.PAST_MONTH ->
+                        if (less) t("{n}% less vs previous month", "n" to n) else t("{n}% more vs previous month", "n" to n)
+                    else -> if (less) t("{n}% less vs previous period", "n" to n) else t("{n}% more vs previous period", "n" to n)
+                },
                 Modifier.padding(top = 8.dp).clip(RoundedCornerShape(50)).background(tone.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
                 fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tone,
             )
         }
         Spacer(Modifier.height(14.dp))
-        SpendLines(r, s.month.lengthOfMonth())
+        SpendLines(r, thisLabel, prevLabel)
         Spacer(Modifier.height(16.dp))
-        Text(t("This month"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.text2)
+        Text(thisLabel, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.text2)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Stat(t("Income"), r.income, Hx.pos, Modifier.weight(1f))
@@ -205,7 +245,8 @@ private fun Stat(label: String, minor: Long, color: Color, modifier: Modifier) {
 
 /** Cumulative spend, this month solid in the accent and last month dashed and muted, with the top and bottom of the scale. */
 @Composable
-private fun SpendLines(r: MonthSpendResult, days: Int) {
+private fun SpendLines(r: MonthSpendResult, thisLabel: String, prevLabel: String) {
+    val days = maxOf(r.days, r.lastCum.size)
     val accent = Hx.accent
     val muted = Hx.text2.copy(alpha = 0.6f)
     val grid = Hx.border
@@ -242,8 +283,8 @@ private fun SpendLines(r: MonthSpendResult, days: Int) {
         }
     }
     Row(Modifier.padding(top = 6.dp, start = 44.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        LegendItem(t("This month"), Hx.accent, dashed = false)
-        LegendItem(t("Last month"), Hx.text2.copy(alpha = 0.6f), dashed = true)
+        LegendItem(thisLabel, Hx.accent, dashed = false)
+        if (r.hasPrevious) LegendItem(prevLabel, Hx.text2.copy(alpha = 0.6f), dashed = true)
     }
 }
 
@@ -283,7 +324,7 @@ private fun ByAccount(s: SpentMonth, onOpenAccount: ((Long) -> Unit)?) {
     ) {
         Column {
             if (s.rows.isEmpty() && s.other == 0L) {
-                Text(t("No spending this month."), fontSize = 13.sp, color = Hx.text2, modifier = Modifier.padding(vertical = 6.dp))
+                Text(if (s.scope == SpentScope.THIS_MONTH) t("No spending this month.") else t("No spending in this period."), fontSize = 13.sp, color = Hx.text2, modifier = Modifier.padding(vertical = 6.dp))
             }
             val total = s.result.spent.coerceAtLeast(1L)
             s.rows.forEach { row ->

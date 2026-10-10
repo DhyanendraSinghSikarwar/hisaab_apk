@@ -205,8 +205,15 @@ class NetWorthSource @Inject constructor(
         val loanAccs = visible.filter { it.accountType == AccountType.LOAN && f.countsLiability(LiabilityKind.LOANS) }
         val loans = loanAccs.sumOf { kotlin.math.abs(it.currentBalanceMinor ?: 0L) }
         // Latest statement per card, kept when the card (or, for an unknown card, the personal book) is in view.
-        val latest = i.statements.filter { it.last4 != null && it.kind != CardDues.KIND_PAYMENT }.groupBy { it.bankName to it.last4 }.values
-            .map { l -> l.maxBy { it.statementEpochDay ?: 0 } }
+        val real = i.statements.filter { it.last4 != null && it.kind != CardDues.KIND_PAYMENT && it.kind != CardDues.KIND_OVERRIDE }
+        val overrides = i.statements.filter { it.kind == CardDues.KIND_OVERRIDE && it.totalDueMinor != null }
+        // A manual billed amount stands in for the statement it was set against, until a newer one arrives.
+        val latest = real.groupBy { it.bankName to it.last4 }.values.map { l ->
+            val top = l.maxBy { it.statementEpochDay ?: 0 }
+            val o = overrides.firstOrNull { it.last4 == top.last4 && it.bankName.equals(top.bankName, ignoreCase = true) }
+            val setDay = o?.let { java.time.Instant.ofEpochMilli(it.processedAt).atZone(Periods.zone).toLocalDate().toEpochDay() }
+            if (o != null && (top.statementEpochDay ?: 0L) <= setDay!!) top.copy(totalDueMinor = o.totalDueMinor) else top
+        }
         val dues = latest.filter { it.totalDueMinor != null }.filter { st ->
             val card = cardFor(st, i.accounts)
             (card == null || !card.hidden) && inBook(card?.usage ?: AccountUsage.PERSONAL, b)
