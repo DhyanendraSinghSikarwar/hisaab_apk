@@ -93,7 +93,10 @@ abstract class BaseBankParser(protected val config: ParserConfig) : BankParser {
         val merchant = MerchantNormalizer.normalize(raw, type, channel, text)
 
         val balance = hit?.balance?.let(Money::parseSigned) ?: BalanceExtractor.balance(text, lower)
-        val limit = if (kind == AccountKind.CARD) BalanceExtractor.limit(text, lower) else null
+        // A credit card's "Avl bal" is its available limit, never a bank balance.
+        val limit = if (kind == AccountKind.CARD) {
+            BalanceExtractor.limit(text, lower) ?: balance?.takeIf { CREDIT_CARD.containsMatchIn(text) && !DEBIT_CARD.containsMatchIn(text) }
+        } else null
         // A debit card reports its bank account's balance ("Bal Rs.5,73,096"); a credit card reports a limit.
         val isDebitCard = kind == AccountKind.CARD &&
             (DEBIT_CARD.containsMatchIn(text) || (balance != null && limit == null && !CREDIT_CARD.containsMatchIn(text)))

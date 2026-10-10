@@ -50,6 +50,7 @@
                 <data android:scheme="hisaab" android:host="budgets" />
                 <data android:scheme="hisaab" android:host="bills" />
                 <data android:scheme="hisaab" android:host="transaction" />
+                <data android:scheme="hisaab" android:host="account" />
             </intent-filter>
         </activity>
 
@@ -83,6 +84,7 @@
 
         <!-- Category buttons on the new-transaction notification. -->
         <receiver android:name=".notify.CategoryActionReceiver" android:exported="false" />
+        <receiver android:name=".notify.CardDueActionReceiver" android:exported="false" />
 
         <receiver
             android:name=".widget.SpendWidgetReceiver"

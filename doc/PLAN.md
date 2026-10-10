@@ -163,3 +163,28 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] Listed Indian banks (PSU, private, small finance, foreign, payments, co-operative — ~55) with sender codes and mail domains; no duplicate sender claims; unknown BNK/BANK headers still handled generically
 - 2.8.0 includes: reversible account merge + restore, bank unlock details, card icons, manual transaction merge, Nagrik + listed banks
 - 2.8.0 built; parser, shared, email and app unit tests pass (DB v15); not yet run on a device
+
+## 2.9.0 (requested 2026-10-08)
+- [x] Home Credit cards card collapsible, collapsed by default
+- [x] Card dues from statements/SMS/email: billed (total due), minimum due, due date for HDFC, ICICI, SBI Card, Axis, Kotak, IDFC, Yes, AU, RBL, IndusInd, Amex…; shown on card rows, Home and card detail
+- [x] Card dues: SMS/email "statement generated / bill due" (CardDue) and payment acknowledgements stored as statement rows; statement parser reads HDFC/ICICI/SBI/Axis/Kotak/IDFC/Yes/AU/RBL/IndusInd/Amex/HSBC/SC/Federal layouts
+- [x] Card spends tracked without a statement: outstanding = limit - available, else spends since last bill payment (Outstanding, amber); Home credit cards header should sum CardLimit.owedMinor (lead)
+- [x] Card detail: Edit button (same edit sheet as Accounts)
+- [x] A transaction added/categorised as a loan payment is added to a loan (pick or create)
+- [x] Loans: merge duplicate loans (reversible)
+- [x] Credit-card spend alerts not tracked (Axis newer multi-line layout "Spent INR … / Axis Bank Card no. XX…"): template added + root-cause fix in generic extractors; card-alert corpus for all issuers (HDFC, ICICI, SBI Card, Axis, Kotak, IDFC, Yes, AU, RBL, IndusInd, Amex, HSBC, SC, Citi, Federal, OneCard, BoB…)
+- [x] Card dues shown even without a statement (limit − available, spends since last payment)
+- [x] Groww holdings Excel generalised for other apps; numbers stored as text
+- [x] Release notes for the ⓘ built from commit bullets
+- [x] Home: "Spent this month" card after Portfolio (PennyWise-style: total, last month, % vs last month, cumulative line vs last month, income/expenses/saved); collapsible account- and card-wise monthly spend; card spends counted, card-bill payments from accounts not counted (transfers)
+- [x] Track card payments (spend alerts on credit cards) so they feed spent
+- [x] Transactions tab: tidy filter row (fits width, no clipped chips, no Book chip) and coloured Income/Expenses/Net strip; list/calendar/by-merchant unchanged
+- [x] Card spend raises unbilled and lowers limit left (estimated when SMS has no limit); statement → billed + pay-by date, auto roll-over at statement day; every account balance kept current from SMS/notification/manual (recomputed, no drift)
+- [x] Home: Safe to spend card removed (also from saved layouts and presets)
+- [x] Card bill reminders: notification 5/2/0 days before and 1 day overdue; Mark paid / Remind tomorrow actions; Mark paid on card detail and Home rows; auto-clear when payment seen
+- [x] Card spends update unbilled/limit left at once; balances and limit left recomputed from the last stated figure plus later transactions (est. tag); missing statements estimated from the usual statement day (Billed (estimated), Pay by date)
+- [x] Home: Net worth card removed from Home (stays in Portfolio); Spent this month first, hero style like Net worth
+
+- [x] Card bill due reminders (5d/2d/due/overdue, Mark paid, Remind tomorrow, Credit cards switch in Alerts, Mark paid/Undo on card detail and Home)
+- [x] Portfolio net worth card is the Home-style hero card with 1M/6M/1Y/3Y/All range; Home no longer shows Net worth
+- [x] UPI payment via PhonePe not tracked: notification listener reads title/text/big/sub/lines and parses any layout (amount/payee split, no symbol, failed/pending/offers skipped, bill pay as debit), logs every payment-app notification with a skip reason, Data sources warning card when off, PhonePe/GPay/Paytm email+SMS receipt parser, tests

@@ -2,8 +2,10 @@ package com.hisaab.shared.insight
 
 import com.hisaab.parser.model.Category
 import com.hisaab.parser.model.TransactionType
+import com.hisaab.shared.db.AccountEntity
 import com.hisaab.shared.db.AccountWithActivity
 import com.hisaab.shared.db.TransactionEntity
+import com.hisaab.shared.repo.LoanLinks
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -127,6 +129,8 @@ data class Loan(
     val payments: List<TransactionEntity>,
     /** The account the EMI is debited from, when the debits show it. */
     val payingAccountId: Long?,
+    /** Loan accounts shown together with this one (see `AccountEntity.mergedIntoId`). */
+    val mergedIds: List<Long> = emptyList(),
 ) {
     val detected: Boolean get() = accountId == null
     val closed: Boolean get() = (outstandingMinor == 0L) || (remainingEmis == 0 && terms != null)
@@ -163,31 +167,45 @@ object Loans {
      */
     fun build(
         accounts: List<AccountWithActivity>, payments: List<TransactionEntity>, today: LocalDate, zone: ZoneId,
-        dismissed: Set<String> = emptySet(),
+        dismissed: Set<String> = emptySet(), links: LoanLinks = LoanLinks.NONE, merged: List<AccountEntity> = emptyList(),
     ): List<Loan> {
         val loanAccs = accounts.filter { it.isLoan && !it.hidden }
         val pays = payments.filter(::isPayment)
-        val loanIds = loanAccs.map { it.id }.toSet()
+        val parent = merged.mapNotNull { m -> m.mergedIntoId?.let { m.id to it } }.toMap()
+        fun root(id: Long): Long {
+            var x = id
+            repeat(8) { x = parent[x] ?: return x }
+            return x
+        }
+        val kids = loanAccs.associate { a -> a.id to merged.filter { it.id != a.id && root(it.id) == a.id } }
+        val loanIds = loanAccs.map { it.id }.toSet() + kids.values.flatten().map { it.id }
+        val accIds = loanAccs.map { it.id }.toSet()
+        fun linked(t: TransactionEntity): Long? =
+            (links.byTx[t.id] ?: keyOf(t)?.let(links.byPayee::get))?.let(::root)?.takeIf { it in accIds }
         val claimed = HashSet<Long>()
         val loans = loanAccs.map { a ->
+            val children = kids[a.id].orEmpty()
             val mine = pays.filter { t ->
-                t.accountId == a.id || (t.category == Category.EMI_LOAN && t.accountId !in loanIds && names(t, a))
+                val own = t.accountId == a.id || children.any { it.id == t.accountId }
+                own || (t.category == Category.EMI_LOAN && t.accountId !in loanIds &&
+                    (linked(t) == a.id || (linked(t) == null && names(t, a, children))))
             }
             claimed += mine.map { it.id }
-            val terms = termsOf(a)
-            val outstanding = a.currentBalanceMinor?.let(::abs)
+            val terms = termsOf(a) ?: children.firstNotNullOfOrNull { termsOf(it) }
+            val outstanding = (a.currentBalanceMinor ?: children.filter { it.latestBalanceMinor != null }
+                .maxByOrNull { it.balanceUpdatedAt ?: 0 }?.latestBalanceMinor)?.let(::abs)
             summarise(
                 key = "a${a.id}", accountId = a.id, name = a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName, bank = a.bankName,
                 last4 = a.last4, txs = mine, terms = terms, bankOutstanding = outstanding, today = today, zone = zone,
                 loanIds = loanIds,
-            )
+            ).copy(mergedIds = children.map { it.id })
         }
         val detected = pays.filter { it.category == Category.EMI_LOAN && it.id !in claimed && it.accountId !in loanIds }
             .groupBy { keyOf(it) }.filterKeys { it != null && it !in dismissed }
             .mapNotNull { (k, group) ->
                 val months = group.map { YearMonth.from(date(it, zone)) }.distinct()
                 val last = group.maxOf { date(it, zone) }
-                if (months.size < 2 || last.isBefore(today.minusDays(75))) return@mapNotNull null
+                if ((months.size < 2 && k !in links.manualPayees) || last.isBefore(today.minusDays(75))) return@mapNotNull null
                 val name = group.maxBy { it.timestamp }.let { it.merchant ?: it.upiId ?: "EMI" }
                 summarise(
                     key = "e$k", accountId = null, name = name, bank = name, last4 = null, txs = group, terms = null,
@@ -197,19 +215,65 @@ object Loans {
         return loans.sortedByDescending { it.outstandingMinor ?: 0 } + detected.sortedBy { it.nextDue }
     }
 
-    private fun names(t: TransactionEntity, a: AccountWithActivity): Boolean {
+    private fun names(t: TransactionEntity, a: AccountWithActivity, children: List<AccountEntity>): Boolean {
         val text = listOfNotNull(t.merchant, t.upiId, t.note).joinToString(" ").lowercase()
         if (text.isBlank()) return false
-        return (a.last4.length >= 4 && text.contains(a.last4)) ||
-            listOfNotNull(a.nickname, a.bankName).any { n -> sameName(t.merchant, n) }
+        val last4s = listOf(a.last4) + children.map { it.last4 }
+        return last4s.any { it.length >= 4 && text.contains(it) } ||
+            (listOfNotNull(a.nickname, a.bankName) + children.flatMap { listOfNotNull(it.nickname, it.bankName) })
+                .any { n -> sameName(t.merchant, n) }
     }
 
-    /** "Propelld" names "Propelld Technologies" and the reverse; short names must match exactly. */
+    /** Two loans that look like one: the same last digits, or one name starting with the other (5+ letters) or the same lender with no number to tell them apart. */
+    data class Duplicate(val from: Loan, val into: Loan) {
+        val key: String get() {
+            val x = from.accountId ?: 0L
+            val y = into.accountId ?: 0L
+            return "${minOf(x, y)}-${maxOf(x, y)}"
+        }
+    }
+
+    /** Likely duplicate pairs among loan accounts, [into] being the one with more payments (or terms). */
+    fun duplicates(loans: List<Loan>, ignored: Set<String> = emptySet()): List<Duplicate> {
+        val accs = loans.filter { it.accountId != null }
+        val out = ArrayList<Duplicate>()
+        val used = HashSet<Long>()
+        for (i in accs.indices) for (j in i + 1 until accs.size) {
+            val a = accs[i]; val b = accs[j]
+            if (a.accountId in used || b.accountId in used) continue
+            if (!similar(a, b)) continue
+            val (into, from) = if (compareValuesBy(a, b, { it.terms != null }, { it.payments.size }) >= 0) a to b else b to a
+            val d = Duplicate(from, into)
+            if (d.key in ignored) continue
+            out += d; used += a.accountId!!; used += b.accountId!!
+        }
+        return out
+    }
+
+    private fun similar(a: Loan, b: Loan): Boolean {
+        val la = a.last4.orEmpty(); val lb = b.last4.orEmpty()
+        if (la.length >= 3 && la == lb) return true
+        if (la.isNotEmpty() && lb.isNotEmpty() && la != lb) return false
+        val na = a.name.trim().lowercase(); val nb = b.name.trim().lowercase()
+        if (na.isEmpty() || nb.isEmpty()) return false
+        if (na == nb) return true
+        if (minOf(na.length, nb.length) >= 5 && (na.startsWith(nb) || nb.startsWith(na))) return true
+        val ba = a.bankName.trim().lowercase()
+        return ba.isNotEmpty() && ba == b.bankName.trim().lowercase()
+    }
+
     private fun sameName(merchant: String?, name: String): Boolean {
         val m = merchant?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
         val n = name.trim().lowercase().takeIf { it.isNotEmpty() } ?: return false
         if (m == n) return true
         return minOf(m.length, n.length) >= 5 && (m.startsWith("$n ") || n.startsWith("$m "))
+    }
+
+    fun termsOf(a: AccountEntity): LoanTerms? {
+        val p = a.loanPrincipalMinor ?: return null
+        val n = a.loanTenureMonths ?: return null
+        if (p <= 0 || n <= 0) return null
+        return LoanTerms(p, a.loanRateBps ?: 0, n, a.loanStartDay?.let(LocalDate::ofEpochDay))
     }
 
     fun termsOf(a: AccountWithActivity): LoanTerms? {

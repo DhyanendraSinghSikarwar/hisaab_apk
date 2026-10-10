@@ -226,6 +226,7 @@ private fun EntryRow(e: ActivityEntry) {
         if (e.skipped > 0) add(t("{n} duplicates", "n" to e.skipped))
         if (e.statements > 0) add(t("{n} statements", "n" to e.statements))
         if (e.locked > 0) add(t("{n} locked", "n" to e.locked))
+        e.note?.let { add(t("Skipped: {reason}", "reason" to it)) }
     }
     val title = t(e.source.label) + if (e.runs > 1) " · ×${e.runs}" else ""
     HRow(

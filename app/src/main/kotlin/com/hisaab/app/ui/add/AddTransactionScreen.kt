@@ -115,6 +115,8 @@ data class AddState(
     val scanning: Boolean = false,
     val message: String? = null,
     val saved: Boolean = false,
+    /** A loan payment was saved: ask which loan it belongs to before leaving. */
+    val loanAsk: Boolean = false,
 )
 
 @HiltViewModel
@@ -160,6 +162,8 @@ class AddTransactionViewModel @Inject constructor(
         )
     }
 
+    fun loanDone() = _state.update { it.copy(loanAsk = false) }
+
     fun save() = viewModelScope.launch {
         val s = _state.value
         val minor = Money.parseInput(s.amount)?.takeIf { it > 0 } ?: run {
@@ -179,6 +183,7 @@ class AddTransactionViewModel @Inject constructor(
         _state.update {
             it.copy(
                 saved = true,
+                loanAsk = s.category == Category.EMI_LOAN && s.type == TransactionType.DEBIT && s.merchant.trim().length >= 2,
                 message = if (outcome == IngestOutcome.MERGED) t("This matched a transaction already recorded, so the two were merged.") else null,
             )
         }
@@ -200,7 +205,8 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
     var pickingDate by remember { mutableStateOf(false) }
     var pickingTime by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::scan) }
-    LaunchedEffect(s.saved, s.message) { if (s.saved && s.message == null) onDone() }
+    LaunchedEffect(s.saved, s.message, s.loanAsk) { if (s.saved && s.message == null && !s.loanAsk) onDone() }
+    if (s.saved && s.loanAsk) com.hisaab.app.ui.loans.LoanLinkPrompt(com.hisaab.app.ui.loans.LoanRequest(merchant = s.merchant.trim()), onDone = vm::loanDone)
 
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(), title = { Text(t("Add transaction")) }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } })

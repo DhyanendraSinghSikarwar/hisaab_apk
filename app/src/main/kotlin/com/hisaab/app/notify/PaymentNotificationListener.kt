@@ -48,16 +48,26 @@ class PaymentNotificationListener : NotificationListenerService() {
         val n = sbn.notification ?: return
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0 || n.flags and Notification.FLAG_ONGOING_EVENT != 0) return
         val extras = n.extras ?: return
-        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
-        val body = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString()
+        // Apps put the useful line in different fields: read them all and let the parser combine them.
+        val parts = listOfNotNull(
+            extras.getCharSequence(Notification.EXTRA_TITLE), extras.getCharSequence(Notification.EXTRA_TITLE_BIG),
+            extras.getCharSequence(Notification.EXTRA_TEXT), extras.getCharSequence(Notification.EXTRA_BIG_TEXT),
+            extras.getCharSequence(Notification.EXTRA_SUB_TEXT), extras.getCharSequence(Notification.EXTRA_INFO_TEXT),
+            extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT),
+        ).map { it.toString() } + (extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map { it.toString() }.orEmpty())
+        val distinct = parts.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         // WhatsApp also posts chats: only its payment notifications are read, never a conversation.
-        if (sbn.packageName in CHAT_APPS && !isChatPayment(n, body)) return
+        if (sbn.packageName in CHAT_APPS && !isChatPayment(n, distinct.joinToString("\n"))) return
 
         val deps = EntryPointAccessors.fromApplication(applicationContext, Deps::class.java)
         deps.scope().launch {
-            if (!deps.settings().settings.first().appNotificationsEnabled) return@launch
-            val tx = parser.fromNotification(app, title, body, sbn.postTime) ?: return@launch
-            val raw = listOfNotNull(title, body).joinToString("\n")
+            if (!deps.settings().settings.first().appNotificationsEnabled) {
+                logSkip(deps, "app notifications are off in settings")
+                return@launch
+            }
+            val read = parser.readNotification(app, distinct, sbn.postTime)
+            val tx = read.tx ?: run { logSkip(deps, read.skipReason ?: "not understood"); return@launch }
+            val raw = distinct.joinToString("\n")
             // The same notification is often re-posted (updated); its key plus text identifies it.
             val id = "app:" + sha("${sbn.packageName}|${sbn.key}|$raw")
             val outcome = deps.repository().ingest(IncomingMessage(tx, id, raw, sourceName = "APP"))
@@ -71,6 +81,15 @@ class PaymentNotificationListener : NotificationListenerService() {
             if (outcome != IngestOutcome.ALREADY_PROCESSED) deps.notifier().onTransactionsChanged()
             deps.newTransactions().onIngested(outcome, "APP", id)
         }
+    }
+
+    /** Counts and a generic reason only: the notification text is never logged. */
+    private suspend fun logSkip(deps: Deps, reason: String) {
+        deps.activity().record(
+            com.hisaab.app.log.ActivityEntry(
+                System.currentTimeMillis(), com.hisaab.app.log.ActivitySource.NOTIFICATIONS, read = 1, relevant = 0, note = reason,
+            ),
+        )
     }
 
     private fun sha(s: String) = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).take(16).joinToString("") { "%02x".format(it) }
@@ -109,11 +128,11 @@ class PaymentNotificationListener : NotificationListenerService() {
         )
 
         /** A payment notification, not a message: no conversation style, not a message category, and payment wording up front. */
-        private fun isChatPayment(n: Notification, body: String?): Boolean {
+        private fun isChatPayment(n: Notification, body: String): Boolean {
             if (n.category == Notification.CATEGORY_MESSAGE) return false
             if (n.extras?.containsKey(Notification.EXTRA_MESSAGES) == true) return false
             val channel = if (android.os.Build.VERSION.SDK_INT >= 26) n.channelId.orEmpty() else ""
-            return body != null && CHAT_PAYMENT.containsMatchIn(body) && (channel.isEmpty() || !channel.contains("chat", ignoreCase = true))
+            return body.lines().any { CHAT_PAYMENT.containsMatchIn(it) } && (channel.isEmpty() || !channel.contains("chat", ignoreCase = true))
         }
 
         fun hasAccess(context: Context): Boolean =

@@ -37,7 +37,7 @@ class HoldingRepository @Inject constructor(private val dao: HoldingDao) {
                 written += dao.insert(
                     HoldingEntity(kind = s.kind, name = s.name, identifier = HoldingMatch.normalisedId(s.identifier), units = s.units,
                         valueMinor = s.valueMinor, investedMinor = s.investedMinor, asOf = s.asOf,
-                        source = source, note = null, updatedAt = now),
+                        source = source, note = s.platform, updatedAt = now),
                 )
                 changed++
                 continue
@@ -60,6 +60,7 @@ class HoldingRepository @Inject constructor(private val dao: HoldingDao) {
             dao.update(
                 existing.copy(identifier = id, units = s.units ?: existing.units, valueMinor = s.valueMinor ?: existing.valueMinor,
                     investedMinor = invested, asOf = s.asOf, source = source, updatedAt = now,
+                    note = if (existing.source == SOURCE_MANUAL) existing.note else s.platform ?: existing.note,
                     previousValueMinor = if (moved) existing.valueMinor else existing.previousValueMinor,
                     previousAsOf = if (moved) existing.asOf else existing.previousAsOf),
             )

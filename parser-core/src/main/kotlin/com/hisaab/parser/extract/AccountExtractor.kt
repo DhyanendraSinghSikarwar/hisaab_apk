@@ -17,7 +17,7 @@ object AccountExtractor {
     private val SHORT_ENDING = rx("""\b(card|a/c|ac|acct|account)(?:\s*(?:no|number|num)\.?)?\s+(?:ending|ends)(?:\s+(?:with|in))?\s*[x*]*(\d{2})\b""")
 
     /** Words before the other party's number: "to A/c XX5678", "from A/c" on a credit. */
-    private val TO_BEFORE = rx("""\bto\s+(?:the\s+)?(?:[\w'’]+\s+){0,2}$""")
+    private val TO_BEFORE = rx("""\bto\s+(?:the\s+)?(?:(?!from\b)[\w'’]+\s+){0,2}$""")
     private val PAYER_BEFORE = rx("""\b(?:from|by|remitter|sender)\s+(?:the\s+)?(?:[\w'’]+\s+){0,2}$""")
     /** Always the other party, whatever the direction: "Beneficiary A/c XX9876", "in favour of a/c". */
     private val BENEFICIARY_BEFORE = rx("""\b(?:benef\w*|bene|payee|recipient|in\s+favou?r\s+of)\s*[:\-]?\s*(?:the\s+)?(?:[\w'’]+\s+){0,2}$""")

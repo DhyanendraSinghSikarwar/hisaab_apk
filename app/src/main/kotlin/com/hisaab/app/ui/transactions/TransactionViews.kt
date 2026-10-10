@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -131,16 +132,16 @@ internal fun SearchBox(query: String, matches: Int, onChange: (String) -> Unit, 
 /** A compact filter chip, optionally led by a logo or icon. */
 @Composable
 private fun FilterChip(text: String, on: Boolean, onClick: () -> Unit, leading: (@Composable () -> Unit)? = null) {
-    val shape = RoundedCornerShape(9.dp)
+    val shape = RoundedCornerShape(18.dp)
     Row(
-        Modifier.height(30.dp).clip(shape).background(if (on) Hx.accentSoft else Hx.surface2)
+        Modifier.height(36.dp).clip(shape).background(if (on) Hx.accentSoft else Color.Transparent)
             .border(1.dp, if (on) Hx.accent else Hx.border, shape).clickable(onClick = onClick)
-            .padding(start = if (leading != null) 6.dp else 11.dp, end = 11.dp),
+            .padding(start = if (leading != null) 8.dp else 14.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (leading != null) { leading(); Spacer(Modifier.width(6.dp)) }
         Text(
-            text, color = if (on) Hx.accent else MaterialTheme.colorScheme.onSurface, fontSize = 12.5.sp,
+            text, color = if (on) Hx.accent else MaterialTheme.colorScheme.onSurface, fontSize = 13.sp,
             fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }
@@ -179,16 +180,20 @@ internal fun TxFilters(
     kind: TxKind, bank: String?, source: TxSource?, banks: List<BankOption>, sourceChips: List<TxSource>, reviewCount: Int,
     onKind: (TxKind) -> Unit, onBank: (String?) -> Unit, onSource: (TxSource?) -> Unit, onClear: () -> Unit,
     modifier: Modifier = Modifier,
+    leading: @Composable () -> Unit = {},
 ) {
     val active = kind != TxKind.ALL || bank != null || source != null
     // A bank chosen in an earlier period stays selectable so it can be cleared.
     val bankOptions = if (bank != null && banks.none { it.key == bank }) listOf(BankOption(bank, bank.removeSuffix(" Bank"), bank, 0)) + banks else banks
     val kinds = TxKind.CHIPS + if (kind == TxKind.REVIEW) listOf(TxKind.REVIEW) else emptyList()
     val sources = sourceChips
+    val bg = MaterialTheme.colorScheme.background
+    Box(modifier.fillMaxWidth()) {
     Row(
-        modifier.fillMaxWidth().padding(horizontal = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 28.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
+        leading()
         DropChip(
             t("Type"), if (kind == TxKind.ALL) null else t(kind.label),
             kinds.map { DropOption(t(it.label), kind == it) }, { onKind(kinds[it]) },
@@ -207,10 +212,17 @@ internal fun TxFilters(
             { onSource(if (it == 0) null else sources[it - 1]) },
         )
         if (active) {
-            IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.Clear, t("Clear filters"), tint = Hx.accent, modifier = Modifier.size(18.dp))
-            }
+            Text(
+                t("Clear"), color = Hx.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                modifier = Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).clickable(onClick = onClear)
+                    .padding(horizontal = 10.dp).wrapContentHeight(Alignment.CenterVertically),
+            )
         }
+    }
+    Box(
+        Modifier.align(Alignment.CenterEnd).width(24.dp).height(36.dp)
+            .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color.Transparent, bg))),
+    )
     }
 }
 

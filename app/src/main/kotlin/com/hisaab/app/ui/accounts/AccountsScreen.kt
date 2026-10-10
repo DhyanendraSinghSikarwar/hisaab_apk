@@ -398,6 +398,27 @@ fun AccountsRoute(
     }
 }
 
+/**
+ * The account edit sheet (name, type, network, balance, linking, merge, hide, delete) for [accountId], usable from any screen.
+ * [onDone] runs when the sheet closes; [onGone] when the account was hidden, deleted or merged away, so the caller can leave its page.
+ */
+@Composable
+internal fun AccountEditHost(accountId: Long, onDone: () -> Unit, onGone: () -> Unit = onDone, vm: AccountsViewModel = hiltViewModel()) {
+    val s by vm.state.collectAsStateWithLifecycle()
+    var merging by remember { mutableStateOf<MergeSuggestion?>(null) }
+    val a = s.byId[accountId] ?: return
+    val sameKind = s.byId.values.filter { it.kind == a.kind && it.id != a.id }
+        .sortedWith(compareByDescending<AccountWithActivity> { it.bankName == a.bankName }.thenBy { it.bankName })
+    EditSheet(a, accounts = s.accounts + s.deposits, mergeTargets = sameKind, onMerge = { target -> merging = MergeSuggestion(a, target) },
+        mergedAccounts = s.mergedChildren.filter { it.mergedIntoId == a.id }, onUnmerge = vm::unmerge,
+        onDismiss = onDone, onSave = { e -> vm.save(a, e); onDone() },
+        onHide = { vm.setHidden(a, true); onGone() },
+        onDelete = { withTx -> vm.delete(a, withTx); onGone() })
+    merging?.let { m ->
+        MergeDialog(m, onDismiss = { merging = null }, onConfirm = { vm.merge(m.source, m.target); merging = null; onGone() })
+    }
+}
+
 /** "These look like the same card": merge, or say they are not. */
 @Composable
 private fun DuplicateCard(m: MergeSuggestion, onMerge: () -> Unit, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
@@ -541,28 +562,38 @@ private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, on
                 }
                 if (credit && sub == null) {
                     if (bill?.known != true) Text(t("No statement yet"), style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1)
-                    else Row {
-                        bill.unbilledMinor?.let {
+                    else {
+                        bill.minDueMinor?.takeIf { it > 0 }?.let {
+                            Text(t("Min {amount}", "amount" to Money.format(it, showPaise = false)), style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1)
+                        }
+                        bill.unbilledMinor?.takeIf { it > 0 }?.let {
                             Text(t("Unbilled {amount}", "amount" to Money.format(it, showPaise = false)), style = MaterialTheme.typography.bodySmall, color = Hx.warn, maxLines = 1)
                         }
                     }
                     a.currentBalanceMinor?.let {
-                        Text(t("Limit left {amount}", "amount" to Money.format(it, showPaise = false)), style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
+                        Text(t("Limit left {amount}", "amount" to Money.format(it, showPaise = false)) + if (a.balanceIsEstimated) " · " + t("est.") else "", style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
                     }
                 } else if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 2)
             }
             Column(horizontalAlignment = Alignment.End) {
                 if (credit && linked == null) {
                     val billed = bill?.billedMinor?.takeIf { it > 0 }
+                    val outstanding = bill?.outstandingMinor?.takeIf { billed == null && it > 0 }
                     Text(
-                        if (billed != null) Money.format(billed, showPaise = false) else if (bill?.known == true) t("No dues") else "—",
-                        style = MaterialTheme.typography.titleMedium, color = if (billed != null) Hx.neg else MaterialTheme.colorScheme.onSurfaceVariant,
+                        when {
+                            billed != null -> Money.format(billed, showPaise = false)
+                            outstanding != null -> Money.format(outstanding, showPaise = false)
+                            bill?.known == true -> t("No dues")
+                            else -> "—"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = when { billed != null -> Hx.neg; outstanding != null -> Hx.warn; else -> MaterialTheme.colorScheme.onSurfaceVariant },
                     )
                     val due = bill?.dueDay?.takeIf { billed != null }
                     if (due != null) {
-                        val (label, colour) = dueLabel(due)
+                        val (label, colour) = dueLabel(due, bill?.estimated == true)
                         Text(label, style = MaterialTheme.typography.labelSmall, color = colour)
-                    } else Text(t("billed"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else Text(if (outstanding != null) t("Outstanding") else if (billed != null && bill?.estimated == true) t("Billed (estimated)") else t("billed"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     val (value, caption) = valueFor(a, linked)
                     Text(value, style = MaterialTheme.typography.titleMedium)

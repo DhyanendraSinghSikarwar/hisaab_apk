@@ -76,7 +76,7 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         val last4 = MASKED_NUMBER.find(header)?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() } ?: AccountExtractor.extract(header)?.last4
         val bank = BANKS.firstOrNull { it.first.containsMatchIn(header) }?.second ?: sender.substringBefore('<').trim().ifEmpty { "Statement" }
         depositKind(header)?.let { return deposit(lines, header, it, bank, last4, sender, receivedAt) }
-        val holdings = holdings(lines, receivedAt)
+        val holdings = holdings(lines, receivedAt, sender)
         val rows = if (holdings.isNotEmpty() || EpfPassbook.isEpf(lines)) emptyList() else rows(lines, bank, last4, isCard, sender, receivedAt)
         val kind = when {
             holdings.isNotEmpty() || INVESTMENT_STATEMENT.containsMatchIn(header) || INVESTMENT_SENDER.containsMatchIn(sender) -> StatementKind.INVESTMENT
@@ -86,51 +86,107 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         }
         return StatementResult(
             bank, last4, if (isCard) AccountKind.CARD else AccountKind.ACCOUNT, rows.map { it.first }, holdings, rows.map { it.second },
-            statementKind = kind, summary = summary(lines),
+            statementKind = kind, summary = summary(lines, java.time.Instant.ofEpochMilli(receivedAt).atZone(config.zone).toLocalDate()),
             holdingsCheck = if (holdings.isEmpty() && rows.isNotEmpty()) null else HoldingsCheckReader.check(lines, holdings),
         )
     }
 
-    // Summary figures: "Total Amount Due: 12,345.00", or labels on one line and values on the next.
+    // Summary figures: "Total Amount Due: 12,345.00", labels with their values below (a header row, or one label per line).
 
-    fun summary(lines: List<String>): StatementSummary {
+    /** A label's value, as printed: amounts with their Cr/Dr, or the dates found. */
+    private class Pool(val amounts: MutableList<CardFigures.Amount>, val dates: MutableList<String>)
+
+    private fun poolOf(line: String) = Pool(CardFigures.amounts(line).toMutableList(), DATE_ANY.findAll(line).map { it.value }.toMutableList())
+
+    private fun labelsOf(line: String): List<Pair<String, MatchResult>> {
+        val all = SUMMARY_LABELS.mapNotNull { (key, rx) -> rx.find(line)?.let { key to it } }.sortedBy { it.second.range.first }
+        val out = ArrayList<Pair<String, MatchResult>>()
+        for (l in all) if (out.isEmpty() || l.second.range.first > out.last().second.range.last) out += l
+        return out
+    }
+
+    fun summary(lines: List<String>, ref: LocalDate? = null): StatementSummary {
         var total: Long? = null
         var min: Long? = null
-        var due: LocalDate? = null
+        var due: String? = null
         var limit: Long? = null
-        var stmt: LocalDate? = null
+        var stmt: String? = null
+        var period: String? = null
         val found = HashMap<String, Long>()
         val top = lines.take(SUMMARY_LINES)
-        for ((i, line) in top.withIndex()) {
-            // The header of the transactions table ("Narration ... Closing Balance") is not a summary.
-            if (TABLE_HEADER.containsMatchIn(line)) continue
-            val labels = SUMMARY_LABELS.mapNotNull { (key, rx) -> rx.find(line)?.let { key to it } }.sortedBy { it.second.range.first }
-            if (labels.isEmpty()) continue
-            val next = top.getOrNull(i + 1).orEmpty()
-            val nextAmounts = AMOUNT_ANY.findAll(next).map { it.value }.toMutableList()
-            val nextDates = DATE_ANY.findAll(next).map { it.value }.toMutableList()
-            for ((idx, entry) in labels.withIndex()) {
-                val (key, m) = entry
-                // The value is between this label and the next one on the same line, or else the next unused value below.
-                val end = labels.getOrNull(idx + 1)?.second?.range?.first ?: line.length
-                val sameLine = line.substring(m.range.last + 1, end)
-                if (key == "due_date" || key == "stmt_date") {
-                    val d = (DATE_ANY.find(sameLine)?.value ?: nextDates.removeFirstOrNull())?.let(::parseDate)
-                    if (key == "due_date" && due == null) due = d
-                    if (key == "stmt_date" && stmt == null) stmt = d
-                } else {
-                    val a = (AMOUNT_ANY.find(sameLine)?.value ?: nextAmounts.removeFirstOrNull())?.let { Money.parse(it)?.minor ?: 0L.takeIf { _ -> it.replace(",", "").toDoubleOrNull() == 0.0 } }
-                    when (key) {
-                        "total" -> if (total == null) total = a
-                        "min" -> if (min == null) min = a
-                        "limit" -> if (limit == null) limit = a
-                        else -> if (a != null) found.putIfAbsent(key, a)
-                    }
-                }
+        fun give(key: String, amount: CardFigures.Amount?, date: String?) {
+            when (key) {
+                "total" -> if (total == null && amount != null) total = if (amount.credit) 0L else amount.minor
+                "min" -> if (min == null && amount != null) min = if (amount.credit) 0L else amount.minor
+                "limit" -> if (limit == null && amount != null) limit = amount.minor
+                "due_date" -> if (due == null) due = date
+                "stmt_date" -> if (stmt == null) stmt = date
+                "period" -> if (period == null) period = date
+                else -> if (amount != null) found.putIfAbsent(key, amount.minor)
             }
         }
+        var i = 0
+        while (i < top.size) {
+            val line = top[i]
+            // The header of the transactions table ("Narration ... Closing Balance") is not a summary.
+            val labels = if (TABLE_HEADER.containsMatchIn(line)) emptyList() else labelsOf(line)
+            if (labels.isEmpty()) { i++; continue }
+            val pending = ArrayList<String>()
+            for ((idx, entry) in labels.withIndex()) {
+                val (key, m) = entry
+                // The value is between this label and the next one on the same line.
+                val end = labels.getOrNull(idx + 1)?.second?.range?.first ?: line.length
+                val same = poolOf(line.substring(m.range.last + 1, end))
+                if (key in DATE_KEYS) {
+                    val d = if (key == "period") same.dates.lastOrNull() else same.dates.firstOrNull()
+                    if (d != null) give(key, null, d) else pending += key
+                } else {
+                    val a = same.amounts.firstOrNull()
+                    if (a != null) give(key, a, null) else pending += key
+                }
+            }
+            var next = i + 1
+            if (pending.isNotEmpty()) {
+                // More labels on the lines below (one per line), then the values: in the same order.
+                var k = i + 1
+                while (k < top.size && k <= i + LABEL_BLOCK) {
+                    val l = labelsOf(top[k])
+                    if (l.isEmpty() || TABLE_HEADER.containsMatchIn(top[k])) break
+                    val withValue = l.withIndex().any { (idx, e) ->
+                        val end = l.getOrNull(idx + 1)?.second?.range?.first ?: top[k].length
+                        poolOf(top[k].substring(e.second.range.last + 1, end)).let { it.amounts.isNotEmpty() || it.dates.isNotEmpty() }
+                    }
+                    if (withValue) break
+                    l.forEach { pending += it.first }
+                    k++
+                }
+                val pool = Pool(ArrayList(), ArrayList())
+                var taken = 0
+                val needDates = pending.count { it in DATE_KEYS }
+                val needAmounts = pending.size - needDates
+                while (k < top.size && taken < pending.size && labelsOf(top[k]).isEmpty() && (pool.amounts.size < needAmounts || pool.dates.size < needDates)) {
+                    val p = poolOf(top[k])
+                    if (p.amounts.isEmpty() && p.dates.isEmpty()) break
+                    pool.amounts += p.amounts
+                    pool.dates += p.dates
+                    taken++
+                    k++
+                }
+                for (key in pending) {
+                    if (key in DATE_KEYS) {
+                        // "Statement Period 12/09/2026 to 11/10/2026": the end of the period.
+                        val d = if (key == "period") (if (pool.dates.size >= 2) pool.dates.removeAt(1).also { pool.dates.removeAt(0) } else pool.dates.removeFirstOrNull()) else pool.dates.removeFirstOrNull()
+                        give(key, null, d)
+                    } else give(key, pool.amounts.removeFirstOrNull(), null)
+                }
+                next = if (k > i + 1) k else i + 1
+            }
+            i = next
+        }
+        val stmtDate = (stmt ?: period)?.let { CardFigures.parse(it, ref, forward = false) }
+        val dueDate = due?.let { CardFigures.parse(it, stmtDate ?: ref, forward = true) }
         return StatementSummary(
-            total, min, due, limit, stmt,
+            total, min, dueDate, limit, stmtDate,
             openingMinor = found["opening"], closingMinor = found["closing"], debitsMinor = found["debits"],
             creditsMinor = found["credits"], availableMinor = found["available"],
         )
@@ -154,7 +210,7 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
      * of them, so the rows are not returned as transactions.
      */
     private fun deposit(lines: List<String>, header: String, kind: DepositKind, bank: String, last4: String?, sender: String, receivedAt: Long): StatementResult {
-        val sum = summary(lines)
+        val sum = summary(lines, java.time.Instant.ofEpochMilli(receivedAt).atZone(config.zone).toLocalDate())
         val top = lines.take(SUMMARY_LINES).joinToString("\n")
         val number = DepositParser.numbered(TextNormalizer.normalize(header))?.second ?: last4
         val rows = rows(lines, bank, number, false, sender, receivedAt)
@@ -232,8 +288,10 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
 
     // Holdings.
 
-    private fun holdings(lines: List<String>, receivedAt: Long): List<HoldingSnapshot> {
+    private fun holdings(lines: List<String>, receivedAt: Long, sender: String): List<HoldingSnapshot> {
         val asOf = asOfDate(lines, receivedAt)
+        // A spreadsheet of holdings: read by column, whichever platform exported it.
+        HoldingSheet.read(lines, asOf, HoldingProfiles.platformOf(sender))?.let { return it }
         // EPFO member passbook: no ISINs, its rows are contributions, not bank transactions.
         if (EpfPassbook.isEpf(lines)) return EpfPassbook.read(lines, asOf)
         val usd = usdRate(lines)
@@ -317,7 +375,7 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         // NPS Statement of Transaction: per-tier value and contributions, no ISINs.
         if (NpsStatement.isNps(lines)) return found + NpsStatement.read(lines, asOf)
         // App statements without ISINs (Groww "Holdings statement"): a table of units, invested and current value.
-        if (found.isEmpty()) return HoldingTable.read(lines, asOf, usd) { ISIN.containsMatchIn(it) }
+        if (found.isEmpty()) return HoldingTable.read(lines, asOf, usd, HoldingProfiles.platformOf(sender)) { ISIN.containsMatchIn(it) }
         return found
     }
 
@@ -345,16 +403,22 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
 
     private companion object {
         const val HEADER_LINES = 40
-        const val SUMMARY_LINES = 80
-        val AMOUNT_ANY = rx("""\d{1,3}(?:,\d{2,3})*\.\d{2}|\d+\.\d{2}""")
-        val DATE_ANY = rx("""\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{1,2}[\s-][A-Za-z]{3}[a-z]*[\s,-]+\d{2,4}""")
+        const val SUMMARY_LINES = 120
+        const val LABEL_BLOCK = 8
+        val DATE_ANY = CardFigures.DATE
+        val DATE_KEYS = setOf("due_date", "stmt_date", "period")
         val SUMMARY_LABELS = listOf(
-            "total" to rx("""total\s+(?:amount\s+)?dues?\b|total\s+outstanding|closing\s+balance\s+due"""),
-            "min" to rx("""minimum\s+(?:amount\s+)?dues?\b|min\.?\s+amt\.?\s+due"""),
+            "total" to rx(
+                """total\s+(?:(?:amount|amt|payment)\.?\s+)?(?:due|payable|outstanding)\b|total\s+dues?\b|closing\s+balance\s+due|new\s+balance\b|""" +
+                    """(?<!minimum\s)(?<!min\s)(?<!min\.\s)(?<!past\s)(?<!overdue\s)\bamount\s+(?:due|payable)\b""",
+            ),
+            "min" to rx("""min(?:imum)?\.?(?:\s+(?:amount|amt|payment))?\.?\s+dues?\b|minimum\s+payable\b"""),
             "due_date" to rx("""(?:payment\s+)?due\s+date\b"""),
             "limit" to rx("""(?<!available\s)(?<!avl\.\s)(?:total\s+)?credit\s+limit\b"""),
-            "stmt_date" to rx("""statement\s+date\b"""),
-            "available" to rx("""avail(?:able|\.)?\s+(?:credit\s+)?limit|avl\.?\s+(?:credit\s+|cr\.?\s+)?limit"""),
+            "stmt_date" to rx("""statement\s+(?:generation\s+|closing\s+)?date\b|statement\s+dated\b|bill(?:ing)?\s+date\b"""),
+            "period" to rx("""(?:statement|billing)\s+period\b"""),
+            "cash_limit" to rx("""(?:available\s+)?cash\s+(?:advance\s+)?limit\b"""),
+            "available" to rx("""avail(?:able|\.)?\s+(?:credit\s+)?limit|avl\.?\s+(?:credit\s+|cr\.?\s+)?limit|available\s+credit\b"""),
             "opening" to rx("""(?:opening|previous)\s+(?:statement\s+)?bal(?:ance)?\b"""),
             "closing" to rx("""closing\s+bal(?:ance)?\b(?!\s+due)"""),
             "debits" to rx("""total\s+(?:debits?|withdrawals?)\b|(?<!no\.\s)(?<!no\s)\bdebits\b|\bwithdrawals\b"""),
@@ -374,11 +438,16 @@ class StatementParser(private val config: ParserConfig = ParserConfig()) {
         )
         val TABLE_HEADER = rx("""\b(?:narration|particulars|description|chq|cheque|value\s+dt|txn\s+date|tran\s+date)\b""")
         val INVESTMENT_STATEMENT = rx("""consolidated\s+account\s+statement|\bCAS\b|demat|holding\s+statement|portfolio|mutual\s+fund|\bfolio\b|US\s+stocks|statement\s+of\s+transaction|\bPRAN\b|\bNPS\b""")
-        val INVESTMENT_SENDER = rx("""camsonline|kfintech|karvy|nsdl|cdsl|indmoney|zerodha|groww|upstox|angelone|dhan\.co|kuvera|proteantech|npscra|kfintech-cra|camsnps|npstrust""")
+        val INVESTMENT_SENDER = rx("""camsonline|kfintech|karvy|nsdl|cdsl|indmoney|zerodha|groww|upstox|angelone|dhan\.co|kuvera|icicidirect|icicisecurities|hdfcsec|kotaksecurities|paytmmoney|etmoney|mfcentral|proteantech|npscra|kfintech-cra|camsnps|npstrust""")
         val BANK_STATEMENT = rx("""account\s+statement|statement\s+of\s+account|savings\s+account|current\s+account""")
         val NOON: LocalTime = LocalTime.NOON
-        val CARD_STATEMENT = rx("""\bcredit\s+card\b|\bcard\s+statement\b|\bminimum\s+amount\s+due\b|\btotal\s+amount\s+due\b""")
-        val MASKED_NUMBER = rx("""(?:\d{4}|[x*]{4})[\s-]?[x*]{4}[\s-]?[x*]{4}[\s-]?(\d{4})\b|\b[x*]{4,}(\d{4})\b""")
+        val CARD_STATEMENT = rx(
+            """\bcredit\s+cards?\b|\bcard\s+statement\b|\bminimum\s+(?:amount|payment)\s+due\b|\btotal\s+(?:amount|payment)\s+due\b|\bcredit\s+limit\b|\bnew\s+balance\b""",
+        )
+        val MASKED_NUMBER = rx(
+            """(?:\d{4}|[x*]{4})[\s-]?[x*]{4}[\s-]?[x*]{4}[\s-]?(\d{4})\b|\b\d{4}[\s-]?\d{2}[x*]{2}[\s-]?[x*]{4}[\s-]?(\d{4})\b|""" +
+                """\b\d{4,6}[x*]{4,}[\s-]?(\d{4})\b|\b[x*]{2,}[\s-]?(\d{4})\b""",
+        )
         val LEADING_DATE = rx("""^\s*(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{1,2}[\s-][A-Za-z]{3}[a-z]*[\s,-]+\d{2,4})""")
         val SECOND_DATE = rx("""\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b""")
         val AMOUNT = rx("""(\d{1,3}(?:,\d{2,3})*\.\d{2}|\d+\.\d{2})\s*(Cr|CR|Dr|DR|C|D)?\b""")

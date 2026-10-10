@@ -166,6 +166,15 @@ interface TransactionDao {
     )
     fun monthlyForAccount(accountId: Long, from: Long, to: Long, offsetMillis: Long): Flow<List<MonthTotal>>
 
+    /** A card's money movements since [from], oldest first: spends (DEBIT), refunds (CREDIT) and bill payments (TRANSFER). */
+    @Query(
+        """SELECT timestamp, type, inrMinor AS amountMinor FROM transactions
+           WHERE inrMinor IS NOT NULL AND duplicateOfId IS NULL AND timestamp >= :from
+             AND (accountId = :accountId OR accountId IN (SELECT id FROM accounts WHERE mergedIntoId = :accountId))
+           ORDER BY timestamp""",
+    )
+    fun cardFlowSince(accountId: Long, from: Long): Flow<List<CardFlow>>
+
     @Query("SELECT MIN(timestamp) FROM transactions WHERE accountId = :accountId OR accountId IN (SELECT id FROM accounts WHERE mergedIntoId = :accountId)")
     suspend fun firstTimestampFor(accountId: Long): Long?
 
@@ -456,7 +465,15 @@ interface AccountDao {
                             FROM transactions t
                             WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id OR c.mergedIntoId = a.id OR c.linkedAccountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = a.id)))
                             AND a.manualBalanceAt IS NOT NULL
-                            AND t.timestamp > a.manualBalanceAt AND t.needsReview = 0 AND t.inrMinor IS NOT NULL), 0) AS changeSinceManual
+                            AND t.timestamp > a.manualBalanceAt AND t.needsReview = 0 AND t.inrMinor IS NOT NULL), 0) AS changeSinceManual,
+                  COALESCE((SELECT SUM(CASE WHEN t.type = 'CREDIT' THEN t.inrMinor
+                                            WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.inrMinor
+                                            WHEN t.type = 'TRANSFER' AND a.kind = 'CARD' THEN t.inrMinor
+                                            ELSE 0 END)
+                            FROM transactions t
+                            WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id OR c.mergedIntoId = a.id OR c.linkedAccountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = a.id)))
+                            AND a.balanceUpdatedAt IS NOT NULL AND (a.accountType IS NULL OR a.accountType NOT IN ('FD', 'RD', 'PPF', 'LOAN'))
+                            AND t.timestamp > a.balanceUpdatedAt AND t.needsReview = 0 AND t.inrMinor IS NOT NULL), 0) AS changeSinceReported
            FROM accounts a
            WHERE a.mergedIntoId IS NULL OR a.mergedIntoId NOT IN (SELECT x.id FROM accounts x)
            ORDER BY a.bankName, a.last4""",

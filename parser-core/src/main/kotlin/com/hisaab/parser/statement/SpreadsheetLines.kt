@@ -17,11 +17,18 @@ object SpreadsheetLines {
 
     fun toLines(rows: List<List<String>>): List<String> {
         // A holdings sheet (Scheme Name, Units, Invested Value, Current Value...) keeps its cells as written: its columns are not bank amounts.
-        val headerIndex = if (rows.any { isHoldingsHeader(it) }) -1 else rows.indexOfFirst { isHeader(it) }
+        val holdings = rows.any { HoldingColumns.isHeader(it) }
+        val headerIndex = if (holdings || rows.any { isHoldingsHeader(it) }) -1 else rows.indexOfFirst { isHeader(it) }
         val header = rows.getOrNull(headerIndex).orEmpty().map { it.trim().lowercase() }
         val roles = header.map(::roleOf)
         val out = ArrayList<String>(rows.size)
         for ((r, row) in rows.withIndex()) {
+            if (holdings) {
+                // Cells stay apart, blanks included, so HoldingSheet can read the columns; a blank row ends a table.
+                val cells = row.map { it.trim() }.dropLastWhile { it.isEmpty() }
+                if (cells.isNotEmpty() || out.lastOrNull() != HoldingSheet.SEP) out += if (cells.isEmpty()) HoldingSheet.SEP else cells.joinToString(HoldingSheet.SEP)
+                continue
+            }
             val cells = if (headerIndex < 0 || r <= headerIndex) {
                 row.map { it.trim() }
             } else {
@@ -114,7 +121,7 @@ object SpreadsheetLines {
                 !quoted && (ch == '\n' || ch == '\r') -> {
                     if (ch == '\r' && body.getOrNull(i + 1) == '\n') i++
                     row += cell.toString(); cell.setLength(0)
-                    if (row.any { it.isNotBlank() }) rows += row
+                    if (row.any { it.isNotBlank() }) rows += row else if (rows.isNotEmpty() && rows.last().isNotEmpty()) rows.add(emptyList())
                     row = ArrayList()
                 }
                 else -> cell.append(ch)

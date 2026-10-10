@@ -55,8 +55,11 @@ data class ActivityEntry(
     /** Error class (e.g. "IOException", "auth"), never its message. */
     val error: String? = null,
     val runs: Int = 1,
+    /** A short generic reason (e.g. "failed or pending payment") when a notification was read but not understood. Never text from it. */
+    val note: String? = null,
 ) {
     internal fun toJson(): JSONObject = JSONObject().apply {
+        note?.let { put("note", it) }
         put("at", at); put("src", source.name); put("read", read); put("rel", relevant); put("add", added); put("mrg", merged)
         put("rev", review); put("skp", skipped); put("eml", emails); put("st", statements); put("lck", locked); put("ms", millis)
         put("runs", runs); error?.let { put("err", it) }
@@ -64,7 +67,7 @@ data class ActivityEntry(
 
     internal operator fun plus(o: ActivityEntry) = copy(
         read = read + o.read, relevant = relevant + o.relevant, added = added + o.added, merged = merged + o.merged,
-        review = review + o.review, skipped = skipped + o.skipped, millis = millis + o.millis, error = o.error ?: error, runs = runs + o.runs,
+        review = review + o.review, skipped = skipped + o.skipped, millis = millis + o.millis, error = o.error ?: error, runs = runs + o.runs, note = o.note ?: note,
     )
 
     internal companion object {
@@ -73,7 +76,7 @@ data class ActivityEntry(
             return ActivityEntry(
                 o.getLong("at"), source, o.optInt("read"), o.optInt("rel"), o.optInt("add"), o.optInt("mrg"), o.optInt("rev"),
                 o.optInt("skp"), o.optInt("eml"), o.optInt("st"), o.optInt("lck"), o.optLong("ms"),
-                o.optString("err").ifEmpty { null }, o.optInt("runs", 1),
+                o.optString("err").ifEmpty { null }, o.optInt("runs", 1), o.optString("note").ifEmpty { null },
             )
         }
     }

@@ -251,7 +251,7 @@ fun MoreRoute(contentPadding: PaddingValues, onOpen: (String) -> Unit, vm: MoreV
                     val notifOn = (app?.appNotificationsEnabled ?: false) && notifAccess
                     t("SMS {sms} · Email {email} · Notifications {notif}", "sms" to mark(smsOn), "email" to mark(mailOn), "notif" to mark(notifOn))
                 },
-                Icons.Filled.Hub, p[2], alert = !smsOk,
+                Icons.Filled.Hub, p[2], alert = !smsOk || !((app?.appNotificationsEnabled ?: false) && notifAccess),
             ),
             Entry("activity", t("Activity log"), t("Each sync, on this phone"), Icons.Filled.History, p[5]),
         ),

@@ -194,7 +194,14 @@ fun InvestmentsRoute(
                             animate = !donutPlayed, onAnimated = { donutPlayed = true },
                         )
                     } else Unit
-                    "networth" -> item(key = "networth") { NetWorthCard(nw, range, onRange = { range = it }, modifier = Modifier.animateItem()) }
+                    "networth" -> item(key = "networth") {
+                        val pts = rangePoints(nw.history, RANGES.getOrNull(range)?.second)
+                        com.hisaab.app.ui.home.NetWorthHeroCard(
+                            nw, pts.firstOrNull()?.netMinor?.takeIf { pts.size >= 2 }, Modifier.animateItem(),
+                            periodLabel = t(RANGES[range].first), rangeLabels = RANGES.map { t(it.first) }, range = range, onRange = { range = it },
+                            chart = pts.takeIf { it.size >= 2 }?.map { it.netMinor.toFloat() },
+                        )
+                    }
                     "holdings" -> holdingsSection(model, filter, onClearFilter = { filterName = null },
                         onEdit = { editing = it }, onOpenAccounts = onOpenAccounts)
                     "maturity" -> item(key = "maturity") { MaturityCard(nw.accounts, onOpen = { onOpenAccounts(2) }, onOpenLoan = onOpenLoan, modifier = Modifier.animateItem()) }

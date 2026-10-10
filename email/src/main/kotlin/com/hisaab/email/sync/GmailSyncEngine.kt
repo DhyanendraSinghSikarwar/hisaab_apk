@@ -30,6 +30,9 @@ interface EmailSink {
 
     /** A lender's email that is not a payment: disbursal, outstanding amount or EMI reminder. */
     suspend fun loanStatus(status: LoanStatus) {}
+
+    /** A card issuer's statement-generated or bill-due email, or a payment it acknowledges. */
+    suspend fun cardDue(due: com.hisaab.parser.statement.CardDue) {}
 }
 
 enum class SyncMode { FULL, INCREMENTAL, FALLBACK_FULL, DISABLED }
@@ -151,6 +154,7 @@ class GmailSyncEngine(
             out += IncomingMessage(it, messageId, content.text, subject = content.subject)
         }
         if (out.isEmpty()) registry.loanStatus(content.text, content.from, content.receivedAt, Source.EMAIL)?.let { sink.loanStatus(it) }
+        registry.cardDue(content.text, content.from, content.receivedAt)?.let { sink.cardDue(it) }
         // Not a bank alert: maybe a mutual fund purchase confirmation (SIP instalment, units allotted).
         if (out.isEmpty() && pdf != null) out += pdf.readEmail(messageId, content.from, content.subject, content.text, content.receivedAt)
         if (readPdf && pdf != null) {

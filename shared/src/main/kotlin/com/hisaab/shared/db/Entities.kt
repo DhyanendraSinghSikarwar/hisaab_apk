@@ -235,6 +235,7 @@ data class BudgetEntity(
 
 // Query result shapes.
 data class CategoryTotal(val category: Category, val total: Long)
+data class CardFlow(val timestamp: Long, val type: TransactionType, val amountMinor: Long)
 data class DayTotal(val day: Long, val total: Long)
 data class MonthTotal(val month: String, val spent: Long, val income: Long)
 data class MerchantTotal(val name: String, val total: Long, val count: Int)
@@ -268,8 +269,14 @@ data class AccountWithActivity(
     val loanRateBps: Int? = null,
     val loanTenureMonths: Int? = null,
     val loanStartDay: Long? = null,
+    /** Net effect on the balance (or a card's available limit) of the transactions after [balanceUpdatedAt], the last stated figure's time. */
+    val changeSinceReported: Long = 0,
 ) {
     val isLoan: Boolean get() = accountType == AccountType.LOAN
+
+    /** True when [currentBalanceMinor] is the last stated figure moved on by later transactions, not a figure a message stated. */
+    val balanceIsEstimated: Boolean
+        get() = !balanceIsManual && changeSinceReported != 0L && (if (kind == AccountKind.CARD) availableLimitMinor else latestBalanceMinor) != null
 
     val isDebitCard: Boolean get() = kind == AccountKind.CARD && accountType == AccountType.DEBIT_CARD
 
@@ -278,7 +285,7 @@ data class AccountWithActivity(
 
     /** A bank account's balance, or a card's available limit. Null when neither the bank nor the user gave one. */
     val currentBalanceMinor: Long?
-        get() = AccountBalances.current(kind, latestBalanceMinor, availableLimitMinor, balanceUpdatedAt, manualBalanceMinor, manualBalanceAt, changeSinceManual)
+        get() = AccountBalances.current(kind, latestBalanceMinor, availableLimitMinor, balanceUpdatedAt, manualBalanceMinor, manualBalanceAt, changeSinceManual, changeSinceReported)
 
     /** True when [currentBalanceMinor] comes from the balance the user set rather than a bank message. */
     val balanceIsManual: Boolean
@@ -302,7 +309,7 @@ object AccountBalances {
 
     fun current(
         kind: AccountKind, reportedBalance: Long?, reportedLimit: Long?, reportedAt: Long?,
-        manual: Long?, manualAt: Long?, changeSinceManual: Long,
+        manual: Long?, manualAt: Long?, changeSinceManual: Long, changeSinceReported: Long = 0,
     ): Long? = if (usesManual(kind, reportedBalance, reportedLimit, reportedAt, manual, manualAt)) manual!! + changeSinceManual
-    else if (kind == AccountKind.CARD) reportedLimit else reportedBalance
+    else (if (kind == AccountKind.CARD) reportedLimit else reportedBalance)?.let { it + changeSinceReported }
 }

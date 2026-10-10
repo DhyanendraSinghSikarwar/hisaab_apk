@@ -158,6 +158,7 @@ class SettingsViewModel @Inject constructor(
     fun setSmsEnabled(value: Boolean) = viewModelScope.launch { appSettings.setSmsEnabled(value) }
     fun setAppNotifications(value: Boolean) = viewModelScope.launch { appSettings.setAppNotificationsEnabled(value) }
     fun setTransactionNotifications(value: Boolean) = viewModelScope.launch { appSettings.setTransactionNotifications(value) }
+    fun setCardDueReminders(value: Boolean) = viewModelScope.launch { appSettings.setCardDueReminders(value) }
     fun setHideAmounts(value: Boolean) = viewModelScope.launch { appSettings.setHideAmounts(value) }
     fun setBudgetAlertPercent(value: Int) = viewModelScope.launch { appSettings.setBudgetAlertPercent(value) }
     fun setDisplayName(value: String) = viewModelScope.launch { appSettings.setDisplayName(value) }

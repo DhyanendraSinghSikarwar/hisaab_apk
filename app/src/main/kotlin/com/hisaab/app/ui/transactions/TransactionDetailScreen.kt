@@ -161,6 +161,7 @@ private fun CategoryPicker(t: com.hisaab.shared.db.TransactionEntity, onPick: (C
     val subs by cats.subs.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf(false) }
     var subOpen by remember { mutableStateOf(false) }
+    var loanRequest by remember { mutableStateOf<com.hisaab.app.ui.loans.LoanRequest?>(null) }
     val own = t.customCategoryId?.let { id -> custom.firstOrNull { it.id == id } }
     val look = own?.let { com.hisaab.app.ui.category.CategoryLook.of(it) } ?: com.hisaab.app.ui.category.CategoryLook.of(t.category)
     val builtIn = if (own == null) t.category else null
@@ -189,14 +190,18 @@ private fun CategoryPicker(t: com.hisaab.shared.db.TransactionEntity, onPick: (C
     if (open) {
         CategorySheet(
             current = if (own == null) t.category else null,
-            onPick = { c -> onPick(c); subOpen = true },
+            onPick = { c ->
+                onPick(c)
+                if (c == Category.EMI_LOAN && t.category != Category.EMI_LOAN) loanRequest = com.hisaab.app.ui.loans.LoanRequest(listOf(t.id)) else subOpen = true
+            },
             onDismiss = { open = false },
             custom = custom, currentCustomId = own?.id,
             onPickCustom = { c -> cats.setCustomCategory(listOf(t.id), c.id); subOpen = true },
             onCreateCustom = { name, icon, color -> cats.createCategory(name, icon, color) { id -> cats.setCustomCategory(listOf(t.id), id) } },
         )
     }
-    if (subOpen && !open) {
+    com.hisaab.app.ui.loans.LoanLinkPrompt(loanRequest, onDone = { loanRequest = null; subOpen = true })
+    if (subOpen && !open && loanRequest == null) {
         com.hisaab.app.ui.category.SubcategorySheet(
             look = look, builtIn = builtIn, custom = subs, current = t.subcategory,
             onPick = { cats.setSubcategory(listOf(t.id), it) },

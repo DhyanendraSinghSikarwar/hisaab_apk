@@ -16,6 +16,8 @@ import com.hisaab.shared.db.AccountType
 import com.hisaab.shared.db.AccountWithActivity
 import com.hisaab.shared.db.StatementDao
 import com.hisaab.shared.db.TransactionDao
+import com.hisaab.shared.repo.CardDues
+import com.hisaab.shared.repo.CardPosition
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,10 +30,20 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
-/** A credit card's latest statement: what it billed, when it is due, and what has been spent since. */
-data class CardBill(val billedMinor: Long?, val dueDay: LocalDate?, val unbilledMinor: Long?) {
-    val known get() = billedMinor != null || unbilledMinor != null
+/** A credit card's billing figures, see [CardPosition]: billed and due date from a statement or due message, else outstanding. */
+data class CardBill(
+    val billedMinor: Long?,
+    val dueDay: LocalDate?,
+    val unbilledMinor: Long?,
+    val minDueMinor: Long? = null,
+    val outstandingMinor: Long? = null,
+    /** Billed and due date were worked out from the usual statement day, no statement was seen. */
+    val estimated: Boolean = false,
+) {
+    val known get() = billedMinor != null || unbilledMinor != null || outstandingMinor != null
 }
+
+internal fun CardPosition.toBill() = CardBill(billedMinor, dueDay, unbilledMinor, minDueMinor, outstandingMinor, estimated)
 
 /** Billing figures for every credit card, by account id. */
 @HiltViewModel
@@ -41,17 +53,14 @@ class CardBillViewModel @Inject constructor(accounts: AccountDao, statements: St
         accs.filter { it.isCreditCardRow } to all
     }.flatMapLatest { (cards, all) ->
         if (cards.isEmpty()) return@flatMapLatest flowOf(emptyMap<Long, CardBill>())
+        val today = LocalDate.now(Periods.zone)
+        val from = today.minusDays(CardDues.WINDOW_DAYS).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
         combine(cards.map { a ->
             val mine = all.filter { it.last4 == a.last4 && (it.bankName == null || it.bankName.equals(a.bankName, ignoreCase = true)) }
-            val bill = mine.filter { it.totalDueMinor != null }.maxByOrNull { it.statementEpochDay ?: 0 }
-            val due = bill?.dueEpochDay?.let(LocalDate::ofEpochDay)
-            val day = bill?.statementEpochDay?.let(LocalDate::ofEpochDay)
-            if (day == null) flowOf(a.id to CardBill(bill?.totalDueMinor, due, null))
-            else {
-                val from = day.plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
-                txs.monthlyForAccount(a.id, from, Long.MAX_VALUE / 2, Periods.offsetMillis(from)).map { rows ->
-                    a.id to CardBill(bill.totalDueMinor, due, rows.sumOf { it.spent })
-                }
+            // A bill older than the window still needs the spends since its statement date.
+            val since = mine.mapNotNull { it.statementEpochDay }.maxOrNull()?.let { LocalDate.ofEpochDay(it).atStartOfDay(Periods.zone).toInstant().toEpochMilli() }
+            txs.cardFlowSince(a.id, minOf(from, since ?: from)).map { flow ->
+                a.id to CardDues.position(mine, a.currentBalanceMinor, flow, today, Periods.zone).toBill()
             }
         }) { it.toMap() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
@@ -59,7 +68,7 @@ class CardBillViewModel @Inject constructor(accounts: AccountDao, statements: St
 
 /** A credit card, as opposed to a bank account, debit card or deposit. */
 internal val AccountWithActivity.isCreditCardRow: Boolean
-    get() = kind == AccountKind.CARD && !isDebitCard && (accountType == AccountType.CREDIT_CARD || (accountType == null && latestBalanceMinor == null))
+    get() = kind == AccountKind.CARD && !isDebitCard && (accountType == AccountType.CREDIT_CARD || (accountType == null && (availableLimitMinor != null || latestBalanceMinor == null)))
 
 /** The billing figures for card [id], or null for none. */
 @Composable
@@ -70,10 +79,12 @@ internal fun cardBill(id: Long, vm: CardBillViewModel = hiltViewModel()): CardBi
 
 private val DUE_FORMAT = DateTimeFormatter.ofPattern("d MMM")
 
-/** "Due 18 Oct" with its colour: red once overdue, amber within five days, muted otherwise. */
+/** "Pay by 18 Oct · 5 days left" with its colour: red once overdue, amber within five days, muted otherwise; "est." when worked out. */
 @Composable
-internal fun dueLabel(due: LocalDate): Pair<String, Color> {
+internal fun dueLabel(due: LocalDate, estimated: Boolean = false): Pair<String, Color> {
     val days = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(Periods.zone), due)
     val colour = when { days < 0 -> Hx.neg; days <= 5 -> Hx.warn; else -> Hx.text2 }
-    return t("Due {date}", "date" to due.format(DUE_FORMAT)) to colour
+    val left = if (days < 0) t("Overdue") else t("{n} days left", "n" to days.toString())
+    val label = t("Pay by {date}", "date" to due.format(DUE_FORMAT)) + " · " + left + if (estimated) " · " + t("est.") else ""
+    return label to colour
 }

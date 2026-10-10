@@ -52,7 +52,8 @@ internal object HoldingTable {
     private class Tok(val value: Double?, val pct: Boolean)
 
     /** Holdings from every table in [lines] whose header names invested and current value. Rows with an ISIN are left to the caller. */
-    fun read(lines: List<String>, asOf: Long, usdRate: Double? = null, hasIsin: (String) -> Boolean): List<HoldingSnapshot> {
+    fun read(lines: List<String>, asOf: Long, usdRate: Double? = null, platform: String? = null, hasIsin: (String) -> Boolean): List<HoldingSnapshot> {
+        HoldingSheet.read(lines, asOf, platform)?.let { return it }
         val out = LinkedHashMap<String, HoldingSnapshot>()
         var cols: List<Col>? = null
         var fundTable = false

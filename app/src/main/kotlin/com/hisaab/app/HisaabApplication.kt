@@ -27,7 +27,8 @@ class HisaabApplication : Application(), Configuration.Provider {
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
 
     @Inject lateinit var languages: com.hisaab.app.i18n.LanguageStore
-    @Inject lateinit var holdings: com.hisaab.shared.repo.HoldingRepository
+    @Inject lateinit var cardDueReminders: com.hisaab.app.notify.CardDueReminderChecker
+    @Inject lateinit var holdings:com.hisaab.shared.repo.HoldingRepository
     @Inject lateinit var statementPasswords: com.hisaab.email.statement.StatementPasswordStore
 
     override fun onCreate() {
@@ -38,6 +39,7 @@ class HisaabApplication : Application(), Configuration.Provider {
         appScope.launch {
             SmsScanScheduler.scanIfPermitted(this@HisaabApplication)
             com.hisaab.app.notify.AlertsWorker.schedule(this@HisaabApplication)
+            runCatching { cardDueReminders.check() }
             com.hisaab.app.sync.NightlySync.schedule(this@HisaabApplication)
             // Deposits paid out on maturity leave the lists; renewed ones stay.
             runCatching { accounts.closeMatured(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toEpochDay()) }

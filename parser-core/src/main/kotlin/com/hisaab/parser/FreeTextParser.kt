@@ -6,6 +6,7 @@ import com.hisaab.parser.extract.ChannelDetector
 import com.hisaab.parser.extract.DateTimeExtractor
 import com.hisaab.parser.extract.GenericPhrases
 import com.hisaab.parser.extract.MerchantExtractor
+import com.hisaab.parser.extract.RawMerchant
 import com.hisaab.parser.extract.ReferenceExtractor
 import com.hisaab.parser.extract.TypeClassifier
 import com.hisaab.parser.hash.TransactionHasher
@@ -68,17 +69,87 @@ class FreeTextParser(private val config: ParserConfig = ParserConfig()) {
      * A payment app's notification ("Paid ₹50 to Raju", "₹200 received from Asha"). Null for offers,
      * cashback, requests, reminders, OTPs and failures, and for anything without an amount and a direction.
      */
-    fun fromNotification(appName: String, title: String?, body: String?, postedAt: Long): ParsedTransaction? {
-        val raw = listOfNotNull(title, body).joinToString(". ").trim()
-        if (raw.length < MIN_LENGTH) return null
-        val text = TextNormalizer.normalize(raw)
+    fun fromNotification(appName: String, title: String?, body: String?, postedAt: Long): ParsedTransaction? =
+        readNotification(appName, listOf(title, body), postedAt).tx
+
+    /** A notification outcome: the transaction, or a short generic [skipReason] (never the text) for the activity log. */
+    class NotificationRead(val tx: ParsedTransaction?, val skipReason: String?)
+
+    /**
+     * Reads a payment app notification made of several text fields (title, text, big text, sub text, lines),
+     * in any layout: amount and payee may sit in different fields, with or without a currency symbol.
+     */
+    fun readNotification(appName: String, parts: List<String?>, postedAt: Long, source: Source = Source.APP): NotificationRead {
+        fun skip(reason: String) = NotificationRead(null, reason)
+        val segments = parts.filterNotNull().flatMap { it.split(FIELD_SPLIT) }
+            .map { TextNormalizer.normalize(it) }.filter { it.isNotBlank() }
+            .flatMap { SENTENCE.split(it) }.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val whole = segments.joinToString(" . ")
+        if (whole.length < MIN_LENGTH) return skip("too short")
+        if (OTP.containsMatchIn(whole)) return skip("otp or security text")
+        if (FAILED.containsMatchIn(whole)) return skip("failed or pending payment")
+        if (REMINDER.containsMatchIn(whole)) return skip("request, reminder or due notice")
+        val kept = segments.filterNot { PROMO.containsMatchIn(it) || UI_TEXT.containsMatchIn(it) }
+            .map { addCurrency(it) }
+        if (kept.isEmpty()) return skip("offer or promotion")
+        val text = kept.joinToString(" . ")
         val lower = text.lowercase()
-        if (RejectionRules.shouldReject(text, lower) || NOT_A_PAYMENT.containsMatchIn(text) || !PAYMENT.containsMatchIn(text)) return null
-        val d = draft(raw, postedAt) ?: return null
-        val type = d.type ?: return null
-        if (type == TransactionType.TRANSFER) return null
-        // A notification is about now: dates in it are usually "valid till" or offer dates.
-        return toParsed(d.copy(time = postedAt, hasExplicitTime = false), type, Source.APP, appName, postedAt, confidence = 0.55f)
+        val signal = SIGNAL.find(text) ?: return skip("no payment wording")
+        val type = if (signal.groups["cr"] != null) TransactionType.CREDIT else TransactionType.DEBIT
+        if (TypeClassifier.classify(text, lower = lower) == TransactionType.TRANSFER) return skip("own transfer or card bill")
+        val money = AmountExtractor.extract(text) ?: return skip("no amount")
+        if (money.minor <= 0) return skip("no amount")
+
+        var (name, vpa) = payee(kept, type)
+        if (name == null && vpa == null && type == TransactionType.DEBIT) {
+            name = BILL_KIND.find(text)?.let { it.groupValues[1].replaceFirstChar(Char::uppercase) + " bill" }
+                ?: if (RECHARGE.containsMatchIn(text)) "Recharge" else null
+        }
+        val channel = ChannelDetector.detect(text, lower).let { if (it == Channel.OTHER && appName in UPI_APPS) Channel.UPI else it }
+        val merchant = MerchantNormalizer.normalize(RawMerchant(name, vpa), type, channel, text)
+        val account = AccountExtractor.extract(text)
+        val draft = TransactionDraft(
+            amountMinor = money.minor, currency = money.currency, type = type, merchant = GenericPhrases.clean(merchant.name),
+            upiId = vpa ?: VPA.find(text)?.value?.lowercase(), reference = UTR.find(text)?.groupValues?.get(1) ?: ReferenceExtractor.normalize(ReferenceExtractor.extract(text, lower)),
+            bankName = bankIn(text), last4 = account?.last4, accountKind = account?.kind ?: AccountKind.ACCOUNT,
+            channel = channel, category = merchant.category,
+            // A notification is about now: dates in it are usually "valid till" or offer dates.
+            time = postedAt, hasExplicitTime = false,
+        )
+        return NotificationRead(toParsed(draft, type, source, appName, postedAt, confidence = 0.55f), null)
+    }
+
+    /** "Paid 250 to X", "250 sent": gives a bare amount next to a payment verb the symbol the extractor needs. */
+    private fun addCurrency(s: String): String {
+        if (CURRENCY_WORD.containsMatchIn(s)) return s
+        return BARE_AFTER.replace(s) { "${it.groupValues[1]} INR ${it.groupValues[2]}" }
+            .let { BARE_BEFORE.replace(it) { m -> "INR ${m.groupValues[1]} ${m.groupValues[2]}" } }
+    }
+
+    /** Payee (debit) or payer (credit): a name, or a UPI id when that is all the notification says. */
+    private fun payee(segments: List<String>, type: TransactionType): Pair<String?, String?> {
+        val candidates = ArrayList<String>()
+        for (s in segments) {
+            val found = if (type == TransactionType.CREDIT) {
+                (SENDER_LEAD.find(s)?.groupValues?.get(1)?.let(::listOf) ?: emptyList()) + FROM_NAME.findAll(s).map { it.groupValues[1] }
+            } else {
+                (PAID_NAME.find(s)?.groupValues?.get(1)?.let(::listOf) ?: emptyList()) +
+                    TO_NAME.findAll(s).map { it.groupValues[1] } + AT_NAME.findAll(s).map { it.groupValues[1] }
+            }
+            candidates += found
+        }
+        for (c in candidates) {
+            val t = c.replace(TRAILING_NOISE, "").trim(' ', '-', '.', ',')
+            if (t.length < 2 || NOT_NAME.containsMatchIn(t) || GenericPhrases.isGeneric(t)) continue
+            val vpa = VPA.find(t)?.value
+            if (vpa != null) {
+                val rest = t.replace(vpa, "").trim(' ', '-', '(', ')')
+                return (if (rest.length >= 2 && rest.any { it.isLetter() }) rest else null) to vpa.lowercase()
+            }
+            if (t.none { it.isLetter() }) continue
+            return t to null
+        }
+        return null to null
     }
 
     fun toParsed(
@@ -110,11 +181,58 @@ class FreeTextParser(private val config: ParserConfig = ParserConfig()) {
     private companion object {
         const val MIN_LENGTH = 8
         const val DAY_MS = 24 * 60 * 60 * 1000L
-        val PAYMENT = rx("""\b(?:paid|sent|received|debited|credited|payment\s+(?:of|to|successful)|transferred|money\s+(?:sent|received)|spent)\b""")
-        val NOT_A_PAYMENT = rx(
-            """\b(?:cashback|reward|scratch\s*card|offer|coupon|voucher|won|win|requested|requesting|request|remind|reminder|due|pending|""" +
-                """processing|expires?|expiring|bill\s+(?:is\s+)?generated|recharge\s+now|pay\s+now|claim|refer)\b""",
+        val UPI_APPS = setOf("PhonePe", "Google Pay", "Paytm", "BHIM", "BHIM SBI Pay", "CRED", "super.money", "Navi", "WhatsApp Pay", "Amazon Pay", "MobiKwik")
+        val FIELD_SPLIT = Regex("""[\r\n]+|\s[•·|]\s|[•·]""")
+        // Sentence end, but not the dot of "Dr." or "Mr.".
+        val SENTENCE = Regex("""(?<!\b(?:Mr|Mrs|Ms|Dr|Smt|Shri|Sri)\.)(?<=[.!?])\s+""")
+        private val I = RegexOption.IGNORE_CASE
+        val OTP = Regex("""\botp\b|one[\s-]?time\s+pass|verification\s+code|\bcvv\b|\bupi\s+pin\b|\bpin\b""", I)
+        val FAILED = Regex(
+            """\b(?:fail(?:ed|ure|s)?|declined|unsuccessful|not\s+successful|could\s*n[o']?t|cancel(?:l)?ed|rejected|reversed|pending|""" +
+                """processing|in\s+progress|refund\s+(?:initiated|in\s+progress)|will\s+be\s+(?:refunded|credited)|timed?\s*out|on\s+hold|""" +
+                """bank\s+server|try\s+again)\b""", I,
         )
+        val REMINDER = Regex(
+            """\b(?:requested|requesting|payment\s+request|collect\s+request|requests?\s+(?:you|money)|remind(?:er|s)?|due|overdue|expir(?:es|ing|ed)|""" +
+                """valid\s+(?:till|until)|bill\s+(?:is\s+)?generated|pay\s+(?:now|again|later)|recharge\s+now|pay\s+bill|scheduled|upcoming|""" +
+                """will\s+be\s+(?:debited|deducted|charged)|set\s*up\s+autopay)\b""", I,
+        )
+        /** Offers, rewards and promotions: the sentence is dropped, the rest of the notification still counts. */
+        val PROMO = Regex(
+            """\b(?:cash\s*back|rewards?|scratch(?:\s*card)?|offers?|coupons?|vouchers?|won|win|claim|refer(?:ral)?|earn(?:ed|s)?|bonus|""" +
+                """discount|get\s+up\s*to|lucky|spin|\d+\s*points?)\b|\d+\s*%""", I,
+        )
+        /** Buttons and links that notifications append. */
+        val UI_TEXT = Regex(
+            """^(?:view|tap|know|check|learn|download|track|explore|open|see|click|share|rate|swipe|repay|invite|enjoy|thank|split|add\s+(?:money|to))\b|\b(?:tap|click|swipe)\s+to\b""", I,
+        )
+        val SIGNAL = Regex(
+            """(?<cr>\b(?:(?:sent|paid)\s+you|received|credited|refund(?:ed)?\s+(?:of\s+\S+\s+\S+\s+)?(?:processed|credited|successful)|money\s+received|payment\s+received)\b)""" +
+                """|(?<db>\b(?:paid|sent|debited|spent|transferred|deducted|charged|purchased|money\s+sent|""" +
+                """payment\b(?!.{0,60}?\breceived\b).{0,60}?\b(?:successful|done|completed|made|sent)|""" +
+                """(?:recharge|bill)(?:\s+(?:payment\s+)?of\s+INR\s*[\d,.]+)?\s+(?:is\s+)?(?:successful|done|completed|paid))\b)""", I,
+        )
+        val CURRENCY_WORD = Regex("""\b(?:INR|USD|EUR|GBP|AED|SGD)\s*\d""", I)
+        const val NUM = """(\d[\d,]*(?:\.\d{1,2})?)"""
+        val BARE_AFTER = Regex("""\b(paid|sent|received|debited|credited|spent|payment\s+of|bill\s+of|recharge\s+of|you)\s+$NUM\b(?!\s*(?:%|days?|hours?|mins?|messages?|times?))""", I)
+        val BARE_BEFORE = Regex("""^$NUM\s+(paid|sent|received|debited|credited)\b""", I)
+        val AMOUNT_WORD = Regex("""\bINR\s*\d""", I)
+        private const val NAME = """([A-Za-z0-9][A-Za-z0-9 &'*_\-./@]{1,50}?)"""
+        private const val NAME_END =
+            """(?=\s+(?:via|using|on|dated|from|ref|refno|utr|upi|for|at|with|txn|transaction|successfully|successful|id|a/c|account|bank|is|was|has|through|thru|date|time|status|amount|debited|credited|reference)\b|\s*[,;:(!]|$)"""
+        val TO_NAME = Regex("""\bto\s+$NAME$NAME_END""", I)
+        val AT_NAME = Regex("""\bat\s+$NAME$NAME_END""", I)
+        /** "You paid Ravi Kumar INR 250": the payee sits between the verb and the amount. */
+        val PAID_NAME = Regex("""\bpaid\s+(?!you\b|INR)$NAME\s+INR\s*\d""", I)
+        val FROM_NAME =Regex("""\bfrom\s+$NAME$NAME_END""", I)
+        val SENDER_LEAD = Regex("""^$NAME\s+(?:has\s+)?(?:sent|paid)\s+you\b""", I)
+        val NOT_NAME = Regex("""^(?:your|you|my|a/c|ac|acct|account|bank|the|a|an|card|wallet|upi|inr|view|see|check|know|get|earn|avoid|us|me|self)\b|^x+\d""", I)
+        val RECHARGE = Regex("""\b(?:mobile\s+|dth\s+|fastag\s+)?recharge\b""", I)
+        val BILL_KIND = Regex("""\b(electricity|water|gas|broadband|postpaid|mobile|dth|phone|internet|insurance)\s+bill\b""", I)
+        val TRAILING_NOISE = Regex("""(?:\s+(?:via|using|on|upi|through|thru|ref|utr)\b.*|\s*\(.*)$""", I)
+        /** The 12-digit UPI reference the bank repeats in its own alert, which beats an app's own transaction id. */
+        val UTR = Regex("""\b(?:utr|rrn|upi\s+ref(?:erence)?(?:\s+(?:no|id))?)\W{0,4}(\d{10,22})\b""", I)
+        val VPA = Regex("""\b[a-z0-9][\w.\-]{1,}@[a-z][a-z0-9]{1,20}\b""", I)
         val BANKS = listOf(
             rx("""\bHDFC\b""") to "HDFC Bank", rx("""\bICICI\b""") to "ICICI Bank", rx("""\bSBI\b|state\s+bank""") to "SBI",
             rx("""\bAxis\b""") to "Axis Bank", rx("""\bKotak\b""") to "Kotak Mahindra Bank", rx("""\bIDFC\b""") to "IDFC FIRST Bank",

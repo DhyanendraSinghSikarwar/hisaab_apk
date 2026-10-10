@@ -266,7 +266,7 @@ internal fun AllocationCard(
 
 // ---- 3. Net worth ----
 
-private val RANGES = listOf("1M" to 30L, "6M" to 182L, "1Y" to 365L, "3Y" to 1095L, "All" to null)
+internal val RANGES = listOf("1M" to 30L, "6M" to 182L, "1Y" to 365L, "3Y" to 1095L, "All" to null)
 
 /**
  * The history inside a range. The last point before the range starts is carried to its first day, so every

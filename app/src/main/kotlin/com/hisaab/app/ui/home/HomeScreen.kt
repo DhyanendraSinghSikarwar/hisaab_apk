@@ -216,7 +216,8 @@ fun HomeScreen(
                 val edit: WidgetEdit? = null
                 Box(Modifier.animateItem().enterOnce(index).padding(horizontal = 14.dp)) {
                     when (key) {
-                        "networth" -> NetWorthWidget(widgets, onOpenInvestments, edit)
+                        "networth" -> Unit
+                        "spent" -> SpentThisMonthWidget(onToggleHide, onOpenAccount, edit)
                         "cards" -> CreditCardsWidget(widgets, onOpenAccount, edit)
                         "cashflow" -> CashFlowWidget(widgets, onOpenAnalytics, edit)
                         "safe" -> SafeWidget(widgets, onOpenBudgets, edit)
@@ -266,34 +267,14 @@ fun HomeScreen(
 }
 
 /**
- * The ＋ button opens two choices (a transaction, or a recurring payment or income); below it, refresh
- * syncs SMS and every connected inbox, and spins while that runs.
+ * The refresh button syncs SMS and every connected inbox, and spins while that runs. Adding a transaction
+ * lives on the Transactions tab.
  */
 @Composable
 private fun HomeFabs(onAdd: () -> Unit, onAddRecurring: () -> Unit, syncing: Boolean, onSync: () -> Unit, modifier: Modifier = Modifier) {
-    var open by rememberSaveable { mutableStateOf(false) }
-    val turn by animateFloatAsState(if (open) 45f else 0f, label = "plus")
     val spin = rememberInfiniteTransition(label = "sync")
     val angle by spin.animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "angle")
     Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        AnimatedVisibility(
-            open,
-            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
-        ) {
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ExtendedFloatingActionButton(
-                    onClick = { open = false; onAddRecurring() }, icon = { Icon(Icons.Filled.EventRepeat, null) },
-                    text = { Text(t("Recurring / subscription")) },
-                )
-                ExtendedFloatingActionButton(
-                    onClick = { open = false; onAdd() }, icon = { Icon(Icons.Filled.Receipt, null) }, text = { Text(t("Transaction")) },
-                )
-            }
-        }
-        FloatingActionButton(onClick = { open = !open }, containerColor = MaterialTheme.colorScheme.secondaryContainer) {
-            Icon(Icons.Filled.Add, if (open) t("Close") else t("Add"), modifier = Modifier.rotate(turn))
-        }
         FloatingActionButton(onClick = { if (!syncing) onSync() }, containerColor = MaterialTheme.colorScheme.primaryContainer) {
             Icon(Icons.Filled.Sync, if (syncing) t("Syncing") else t("Sync everything"), modifier = Modifier.rotate(if (syncing) -angle else 0f))
         }

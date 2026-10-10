@@ -105,6 +105,10 @@ interface StatementDao {
 
     @Query("DELETE FROM statements WHERE id = :id")
     suspend fun delete(id: Long)
+
+    /** Every statement or due notice with a billed amount for the card ending [last4]. */
+    @Query("SELECT * FROM statements WHERE last4 = :last4 AND totalDueMinor IS NOT NULL")
+    suspend fun billsFor(last4: String): List<StatementEntity>
 }
 
 @Dao

@@ -85,6 +85,7 @@ object SpreadsheetExtractor {
         try {
             val rows = ArrayList<List<String>>()
             for (sheet in workbook.sheets) {
+                if (rows.isNotEmpty()) rows.add(emptyList())
                 for (r in 0 until sheet.rows) {
                     rows += sheet.getRow(r).map { cell ->
                         when (cell) {
@@ -137,7 +138,8 @@ object SpreadsheetExtractor {
         val dateStyles = entries["xl/styles.xml"]?.let(::dateStyles).orEmpty()
         val sheets = entries.keys.filter { SHEET.matches(it) }.sortedBy { SHEET.find(it)!!.groupValues[1].toInt() }
         val rows = ArrayList<List<String>>()
-        for (s in sheets) rows += sheetRows(entries.getValue(s), strings, dateStyles)
+        // A blank row between sheets ends a holdings table at the sheet's end.
+        for (s in sheets) { if (rows.isNotEmpty()) rows.add(emptyList()); rows += sheetRows(entries.getValue(s), strings, dateStyles) }
         return rows
     }
 
@@ -254,7 +256,10 @@ object SpreadsheetExtractor {
                         if (r.size == col) r += cell else r[col] = cell
                         col++
                     }
-                    "row" -> { row?.let { if (it.any { c -> c.isNotBlank() }) rows += it }; row = null }
+                    "row" -> {
+                        row?.let { if (it.any { c -> c.isNotBlank() }) rows += it else if (rows.isNotEmpty() && rows.last().isNotEmpty()) rows.add(emptyList()) }
+                        row = null
+                    }
                 }
             }
         }

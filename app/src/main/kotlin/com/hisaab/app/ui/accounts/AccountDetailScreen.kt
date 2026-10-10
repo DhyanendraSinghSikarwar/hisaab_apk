@@ -76,6 +76,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import com.hisaab.shared.db.StatementDao
+import com.hisaab.shared.repo.CardDues
+import com.hisaab.shared.repo.CardPosition
+import androidx.compose.material.icons.filled.Edit
 import com.hisaab.shared.db.StatementEntity
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emptyFlow
@@ -106,15 +109,12 @@ class AccountDetailViewModel @Inject constructor(handle: SavedStateHandle, accou
     }.flatMapLatest { pair ->
         if (pair == null) return@flatMapLatest flow<CardSummary?> { emit(null) }
         val (a, mine) = pair
-        val bill = mine.filter { it.totalDueMinor != null }.maxByOrNull { it.statementEpochDay ?: 0 }
-        val limit = mine.filter { it.creditLimitMinor != null }.maxByOrNull { it.statementEpochDay ?: 0 }?.creditLimitMinor
-        val day = bill?.statementEpochDay?.let(LocalDate::ofEpochDay)
-        if (day == null) flow { emit(CardSummary(limit, a.currentBalanceMinor, bill, null)) }
-        else {
-            val from = day.plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
-            dao.monthlyForAccount(id, from, Long.MAX_VALUE / 2, Periods.offsetMillis(from)).map { rows ->
-                CardSummary(limit, a.currentBalanceMinor, bill, rows.sumOf { it.spent })
-            }
+        val today = LocalDate.now(Periods.zone)
+        val window = today.minusDays(CardDues.WINDOW_DAYS).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
+        val since = mine.mapNotNull { it.statementEpochDay }.maxOrNull()?.let { LocalDate.ofEpochDay(it).atStartOfDay(Periods.zone).toInstant().toEpochMilli() }
+        dao.cardFlowSince(id, minOf(window, since ?: window)).map { flow ->
+            val p = CardDues.position(mine, a.currentBalanceMinor, flow, today, Periods.zone)
+            CardSummary(p.limitMinor, a.currentBalanceMinor, null, p.unbilledMinor, p, a.balanceIsEstimated)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -137,10 +137,14 @@ class AccountDetailViewModel @Inject constructor(handle: SavedStateHandle, accou
 }
 
 /** A credit card's headroom and statement figures; [unbilledMinor] is null without a statement date. */
-data class CardSummary(val limitMinor: Long?, val availableMinor: Long?, val statement: StatementEntity?, val unbilledMinor: Long?)
+data class CardSummary(
+    val limitMinor: Long?, val availableMinor: Long?, val statement: StatementEntity?, val unbilledMinor: Long?,
+    val position: CardPosition = CardPosition(),
+    /** [availableMinor] was moved on by transactions since the last stated limit. */
+    val availableEstimated: Boolean = false,
+)
 
-private val com.hisaab.shared.db.AccountWithActivity.isCreditCard: Boolean
-    get() = kind == com.hisaab.parser.model.AccountKind.CARD && (accountType == com.hisaab.shared.db.AccountType.CREDIT_CARD || accountType == null)
+private val com.hisaab.shared.db.AccountWithActivity.isCreditCard: Boolean get() = isCreditCardRow
 
 /** One account: its balance, and spending and income month by month as two lines. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -151,11 +155,13 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
     val range by vm.range.collectAsStateWithLifecycle()
     val card by vm.card.collectAsStateWithLifecycle()
     val acc = a
+    var editing by remember { mutableStateOf(false) }
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
             colors = com.hisaab.app.ui.theme.clearTopBar(),
             title = { Text(acc?.let { (it.nickname ?: it.bankName) + " ••" + it.last4 } ?: t("Account")) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
+            actions = { if (acc != null) IconButton(onClick = { editing = true }) { Icon(Icons.Filled.Edit, t("Edit")) } },
         )
     }) { inner ->
         if (acc == null) return@Scaffold
@@ -173,7 +179,10 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
                 }
             }
 
-            card?.let { CardSummaryGrid(it) }
+            card?.let {
+                CardSummaryGrid(it)
+                CardDueActions(acc.id, it.position.dueDay, it.position.billedMinor)
+            }
 
             val now = LocalDate.now(Periods.zone).year
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -221,6 +230,7 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
             Spacer(Modifier.height(16.dp))
         }
     }
+    if (editing && acc != null) AccountEditHost(acc.id, onDone = { editing = false }, onGone = { editing = false; onBack() })
 }
 
 @Composable
@@ -293,27 +303,40 @@ private fun TwoLineChart(months: List<MonthTotal>, spentColor: Color, incomeColo
 /** Limit, headroom, billed (red), unbilled (amber) and utilisation for a credit card. */
 @Composable
 private fun CardSummaryGrid(c: CardSummary) {
-    val st = c.statement
-    val billed = st?.totalDueMinor?.takeIf { it > 0 }
+    val p = c.position
+    val billed = p.billedMinor?.takeIf { it > 0 }
+    val outstanding = p.outstandingMinor?.takeIf { it > 0 }
     val limit = c.limitMinor
     val avail = c.availableMinor
     fun money(v: Long?) = v?.let { Money.format(it, showPaise = false) } ?: "—"
-    val due = st?.dueEpochDay?.let { LocalDate.ofEpochDay(it).format(java.time.format.DateTimeFormatter.ofPattern("d MMM")) }
+    val due = p.dueDay?.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             CardStat(t("Total limit"), money(limit), MaterialTheme.colorScheme.onSurface, null, Modifier.weight(1f))
-            CardStat(t("Limit left"), money(avail), Hx.pos, null, Modifier.weight(1f))
+            CardStat(t("Limit left"), money(avail), Hx.pos, if (c.availableEstimated) t("est.") else null, Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            CardStat(
-                t("Billed to pay"), if (billed != null) money(billed) else t("No dues"), if (billed != null) Hx.neg else Hx.text2,
-                if (billed != null) listOfNotNull(
-                    due?.let { t("Due {date}", "date" to it) },
-                    st?.minDueMinor?.let { t("Min {amount}", "amount" to money(it)) },
-                ).joinToString(" · ").ifBlank { null } else null,
-                Modifier.weight(1f),
-            )
-            CardStat(t("Unbilled"), money(c.unbilledMinor), Hx.warn, null, Modifier.weight(1f))
+            when {
+                billed != null -> {
+                    CardStat(
+                        if (p.estimated) t("Billed (estimated)") else t("Billed to pay"), money(billed), Hx.neg,
+                        listOfNotNull(
+                            due?.let { t("Pay by {date}", "date" to it) + if (p.estimated) " · " + t("est.") else "" },
+                            p.minDueMinor?.takeIf { it > 0 }?.let { t("Min {amount}", "amount" to money(it)) },
+                        ).joinToString(" · ").ifBlank { null },
+                        Modifier.weight(1f),
+                    )
+                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f))
+                }
+                outstanding != null -> {
+                    CardStat(t("Outstanding"), money(outstanding), Hx.warn, t("No statement yet"), Modifier.weight(1f))
+                    CardStat(t("Billed to pay"), "—", Hx.text2, null, Modifier.weight(1f))
+                }
+                else -> {
+                    CardStat(t("Billed to pay"), t("No dues"), Hx.text2, null, Modifier.weight(1f))
+                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f))
+                }
+            }
         }
         if (limit != null && limit > 0 && avail != null) {
             val used = ((limit - avail).toFloat() / limit).coerceIn(0f, 1f)

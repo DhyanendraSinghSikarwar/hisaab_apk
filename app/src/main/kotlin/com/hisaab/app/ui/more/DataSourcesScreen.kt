@@ -191,6 +191,20 @@ fun DataSourcesRoute(
                     style = MaterialTheme.typography.bodyMedium, color = Hx.text2, modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
+            if (!(s.appNotifications && notifAccess)) item("notifWarn") {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Hx.warn.copy(alpha = 0.14f)).padding(start = 14.dp, top = 6.dp, bottom = 6.dp, end = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.NotificationsActive, null, tint = Hx.warn, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        t("App notifications are off. UPI payments from PhonePe, GPay and others without a bank SMS won't be tracked."),
+                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { settings.setAppNotifications(true); if (!notifAccess) openNotifAccess() }) { Text(t("Turn on")) }
+                }
+            }
             item("history") {
                 val lookback = s.mail?.lookbackDays ?: GmailSettings.DEFAULT_LOOKBACK
                 val choices = GmailSettings.LOOKBACK_CHOICES

@@ -34,6 +34,7 @@ class SmsReceiver : BroadcastReceiver() {
         fun notifier(): TransactionsChangedNotifier
         fun settings(): AppSettingsStore
         fun holdings(): HoldingRepository
+        fun cardDues(): com.hisaab.shared.repo.CardDueRecorder
         fun nps(): NpsContributions
         fun newTransactions(): com.hisaab.app.notify.NewTransactionNotifier
         fun activity(): com.hisaab.app.log.ActivityLog
@@ -80,6 +81,7 @@ class SmsReceiver : BroadcastReceiver() {
                         continue
                     }
                     registry.loanStatus(body, sender, sentAt, Source.SMS)?.let { deps.repository().applyLoanStatus(it); changed = true }
+                    registry.cardDue(body, sender, sentAt)?.let { if (deps.cardDues().apply(it, "SMS")) changed = true }
                     val tx = registry.parse(body, sender, System.currentTimeMillis(), Source.SMS) ?: continue
                     val messageId = SmsIds.of(sender, sentAt, body)
                     val outcome = deps.repository().ingest(IncomingMessage(tx, messageId, body))

@@ -240,7 +240,10 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 )
             }
             composable("bench") { ParserBenchRoute(onBack = nav::popBackStack) }
-            composable("account/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
+            composable(
+                "account/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                deepLinks = listOf(navDeepLink { uriPattern = "hisaab://account/{id}" }),
+            ) {
                 com.hisaab.app.ui.accounts.AccountDetailRoute(onBack = nav::popBackStack, onOpenTransactions = { nav.navigate("transactions?accountId=$it") })
             }
             composable("loans") {

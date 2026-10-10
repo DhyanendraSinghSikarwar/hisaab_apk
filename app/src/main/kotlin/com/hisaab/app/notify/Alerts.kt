@@ -124,14 +124,7 @@ class AlertsChecker @Inject constructor(
     private fun notify(key: String, title: String, text: String, link: String) {
         val manager = NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = context.getSystemService(NotificationManager::class.java)
-            if (nm.getNotificationChannel(CHANNEL) == null) {
-                nm.createNotificationChannel(NotificationChannel(CHANNEL, t("Budgets & bills"), NotificationManager.IMPORTANCE_DEFAULT).apply {
-                    description = t("Budget limits, payments due from a low balance, and insurance renewals")
-                })
-            }
-        }
+        ensureBillsChannel(context)
         val open = PendingIntent.getActivity(
             context, key.hashCode(),
             Intent(Intent.ACTION_VIEW, Uri.parse(link), context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
@@ -147,7 +140,20 @@ class AlertsChecker @Inject constructor(
     }
 
     private companion object {
-        const val CHANNEL = "budgets_bills"
+        const val CHANNEL = BILLS_CHANNEL
+    }
+}
+
+internal const val BILLS_CHANNEL = "budgets_bills"
+
+/** Creates the "Budgets & bills" channel if it is missing. */
+internal fun ensureBillsChannel(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val nm = context.getSystemService(NotificationManager::class.java)
+    if (nm.getNotificationChannel(BILLS_CHANNEL) == null) {
+        nm.createNotificationChannel(NotificationChannel(BILLS_CHANNEL, t("Budgets & bills"), NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = t("Budget limits, payments due from a low balance, and insurance renewals")
+        })
     }
 }
 
@@ -163,14 +169,16 @@ class TransactionsChangedHub @Inject constructor(
     }
 }
 
-/** Once a day: payments due from a low balance, insurance renewals, and budgets. */
+/** Once a day: card bill reminders, payments due from a low balance, insurance renewals, and budgets. */
 @HiltWorker
 class AlertsWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val alerts: AlertsChecker,
+    private val cardDues: CardDueReminderChecker,
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        runCatching { cardDues.check() }
         runCatching { alerts.checkUpcoming() }
         runCatching { alerts.checkBudgets() }
         return Result.success()

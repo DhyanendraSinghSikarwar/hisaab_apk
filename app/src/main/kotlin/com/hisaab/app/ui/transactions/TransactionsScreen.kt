@@ -106,6 +106,7 @@ fun TransactionsRoute(
 
     // Long-press starts selecting; while anything is selected, a tap toggles instead of opening.
     var selected by rememberSaveable(stateSaver = LongSetSaver) { mutableStateOf(emptySet<Long>()) }
+    var loanRequest by remember { mutableStateOf<com.hisaab.app.ui.loans.LoanRequest?>(null) }
     var pickingCategory by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmMerge by remember { mutableStateOf(false) }
@@ -160,22 +161,19 @@ fun TransactionsRoute(
     ) { inner ->
         Column(Modifier.padding(top = inner.calculateTopPadding()).fillMaxSize()) {
             // Fixed controls: book and period, any scope from a link, search, and filter chips.
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                BookPeriodChips(showBook = false)
-                scope.accountId?.let { id ->
-                    val a = accounts.firstOrNull { it.id == id }
-                    Pill(a?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: t("One account"), on = true, leading = Icons.Filled.Close) { vm.clearAccount() }
-                }
-                scope.category?.let { c -> Pill(t(c.label), on = true, leading = Icons.Filled.Close) { vm.clearCategory() } }
-            }
-            SearchBox(query, ui.shown.size, vm::setQuery, Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp))
+            SearchBox(query, ui.shown.size, vm::setQuery, Modifier.padding(start = 14.dp, end = 14.dp, top = 4.dp))
             TxFilters(
                 kind, bank, source, ui.banks, ui.sourceChips, ui.reviewCount,
                 onKind = vm::setKind, onBank = vm::setBank, onSource = vm::setSource, onClear = vm::clearFilters,
                 modifier = Modifier.padding(top = 10.dp, bottom = 10.dp),
+                leading = {
+                    BookPeriodChips(showBook = false)
+                    scope.accountId?.let { id ->
+                        val a = accounts.firstOrNull { it.id == id }
+                        Pill(a?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: t("One account"), on = true, leading = Icons.Filled.Close) { vm.clearAccount() }
+                    }
+                    scope.category?.let { c -> Pill(t(c.label), on = true, leading = Icons.Filled.Close) { vm.clearCategory() } }
+                },
             )
 
             LazyColumn(
@@ -184,12 +182,13 @@ fun TransactionsRoute(
                 verticalArrangement = Arrangement.spacedBy(CardGap),
             ) {
                 item(key = "kpi") {
-                    HCard(Modifier.animateItem(), padding = 14.dp) {
+                    HCard(Modifier.animateItem(), padding = 12.dp) {
                         val net = ui.inMinor - ui.outMinor
-                        KpiRow(
-                            Triple(t("In"), Money.format(ui.inMinor, showPaise = false), Hx.pos),
-                            Triple(t("Out"), Money.format(ui.outMinor, showPaise = false), null),
-                            Triple(t("Net"), (if (net < 0) "−" else "+") + Money.format(kotlin.math.abs(net), showPaise = false), if (net < 0) Hx.neg else Hx.pos),
+                        TxSummaryStrip(
+                            t("Income") to Money.format(ui.inMinor, showPaise = false),
+                            t("Expenses") to Money.format(ui.outMinor, showPaise = false),
+                            t("Net") to (if (net < 0) "−" else "+") + Money.format(kotlin.math.abs(net), showPaise = false),
+                            net < 0, ui.inMinor, ui.outMinor,
                         )
                         Text(
                             t("{n} transactions · {period}", "n" to ui.shown.size, "period" to t(ui.periodLabel)) +
@@ -276,10 +275,15 @@ fun TransactionsRoute(
             }
         },
         onDismissMerge = { confirmMerge = false },
-        onPick = { c -> vm.setCategory(selected, c); selected = emptySet(); pickingCategory = false },
+        onPick = { c ->
+            vm.setCategory(selected, c)
+            if (c == Category.EMI_LOAN) loanRequest = com.hisaab.app.ui.loans.LoanRequest(selected.toList())
+            selected = emptySet(); pickingCategory = false
+        },
         onDelete = { vm.delete(selected); selected = emptySet(); confirmDelete = false },
         onDismissPicker = { pickingCategory = false }, onDismissDelete = { confirmDelete = false },
     )
+    com.hisaab.app.ui.loans.LoanLinkPrompt(loanRequest, onDone = { loanRequest = null })
 }
 
 @Composable

@@ -70,6 +70,11 @@ fun AlertsRoute(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
                     HelpText(t("You are also told when a budget is used up."), Modifier.padding(top = 8.dp))
                 }
             }
+            item("cardDue") {
+                HCard(title = t("Credit cards")) {
+                    SettingSwitch(t("Card bill reminders"), t("5 days, 2 days and on the due date"), app.cardDueReminders, vm::setCardDueReminders)
+                }
+            }
         }
     }
 }

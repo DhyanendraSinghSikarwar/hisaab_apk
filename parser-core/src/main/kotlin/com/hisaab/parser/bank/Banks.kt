@@ -54,6 +54,8 @@ class AxisBankParser(config: ParserConfig = ParserConfig()) : BaseBankParser(con
     override val smsHeaders = setOf("AXISBK", "AXISMR", "AXISCC")
     override val emailDomains = setOf("axisbank.com", "axis.bank.in", "axisbank.bank.in")
     override val smsTemplates = listOf(
+        // Newer layout: "Spent INR 1234.56 / Axis Bank Card no. XX1234 / 07-10-26 23:16:18 IST / MERCHANT / Avl Limit: INR 185432.10".
+        Template("""Spent\s+INR\s*(?<amt>$AMT)\.?\s+Axis\s+Bank\s+Card\s+no\.?\s+XX(?<acct>\d{4})\.?\s+[0-9-]+\s+[0-9:]+\s*(?:IST)?\.?\s+(?<merchant>.+?)\.?\s+Avl\s+(?:Credit\s+)?Limit""", DEBIT, AccountKind.CARD),
         Template("""Spent\.?\s+Card\s+no\.\s+XX(?<acct>\d{4})\.\s+INR\s*(?<amt>$AMT)\.\s+[\d-]+\s+[\d:]+\.\s+(?<merchant>[^.]+?)\.\s+Avl""", DEBIT, AccountKind.CARD),
     )
     override val emailTemplates = listOf(

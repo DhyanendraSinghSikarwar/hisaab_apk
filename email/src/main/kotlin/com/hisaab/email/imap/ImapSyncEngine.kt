@@ -85,6 +85,7 @@ class ImapSyncEngine(
         val out = ArrayList<IncomingMessage>(1)
         registry.parse(m.text, m.from, m.receivedAt, Source.EMAIL)?.let { out += IncomingMessage(it, m.id, m.text, subject = m.subject) }
         if (out.isEmpty()) registry.loanStatus(m.text, m.from, m.receivedAt, Source.EMAIL)?.let { sink.loanStatus(it) }
+        registry.cardDue(m.text, m.from, m.receivedAt)?.let { sink.cardDue(it) }
         // Not a bank alert: maybe a mutual fund purchase confirmation (SIP instalment, units allotted).
         if (out.isEmpty() && pdf != null) out += pdf.readEmail(m.id, m.from, m.subject, m.text, m.receivedAt)
         if (readPdf) {

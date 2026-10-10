@@ -25,6 +25,15 @@ object MerchantExtractor {
     private val INFO = Guarded("""\bInfo\s*[:\-]\s*(.{2,60}?)(?=\.\s|\s+Avl\b|\s+The\b|$)""", "info")
     private val ACH = Guarded("""\b(?:ACH|NACH|ECS)(?:[\s\-]*(?:DR|D|CR))?[\s\-/]+([A-Z][A-Z0-9 &.'\-]+?)(?=/|-\d|\.(?:\s|$)|\s+Avl\b|$)""", "ach", "ecs")
 
+    /** "... 05-10-26 23:16:18 IST. First Cry. Avl Limit": a card alert that puts the merchant on its own line after the date. */
+    private val AFTER_DATE = rx(
+        """(?:\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\b20\d{2}-\d{2}-\d{2})(?:[\sT:]+\d{1,2}:\d{2}(?::\d{2})?)?(?:\s*(?:IST|[ap]m))?\.\s+""" +
+            """(?!(?:avl|avbl|available|not|sms|if|call|limit|bal|upi|ref|rrn|utr|imps|neft|txn|transaction|thank|to|for|your|dear|info|total|use|click|visit|report|dispute)\b)""" +
+            """([A-Za-z][A-Za-z0-9 &'*_\-/@]{1,50}?)(?=\.(?:\s|$)|$)""")
+    /** "spent using ICICI Bank Card XX4006 on 05-Oct-26 on SWIGGY." */
+    private val DATE_ON = Guarded("""\b\d{1,2}[-/ ](?:\d{1,2}|[A-Za-z]{3})[-/ ]\d{2,4}\s+on\s+$NOT_A_NAME($BODY)$END""", " on ")
+    private val LONG_DIGITS = rx("""\d{5,}""")
+
     private val HAS_LETTER = rx("""[A-Za-z]{2,}""")
 
     fun extract(text: String, type: TransactionType, lower: String = text.lowercase()): RawMerchant {
@@ -44,6 +53,13 @@ object MerchantExtractor {
                 val candidate = valid(m.groupValues[1]) ?: continue
                 return if (rx === VPA) RawMerchant(null, candidate) else RawMerchant(candidate, vpaIn(candidate))
             }
+        }
+        if (type != TransactionType.CREDIT) {
+            for (m in DATE_ON.findAll(text, lower)) valid(m.groupValues[1])?.let { return RawMerchant(it, null) }
+        }
+        AFTER_DATE.find(text)?.let { m ->
+            val v = m.groupValues[1]
+            if (!LONG_DIGITS.containsMatchIn(v)) valid(v)?.let { return RawMerchant(it, null) }
         }
         return RawMerchant(null, null)
     }

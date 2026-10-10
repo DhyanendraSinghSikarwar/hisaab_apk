@@ -17,11 +17,14 @@ import com.hisaab.parser.bank.LoanStatus
 import com.hisaab.parser.bank.IndianBanks
 import com.hisaab.parser.bank.ListedBank
 import com.hisaab.parser.bank.ListedBankParser
+import com.hisaab.parser.bank.PaymentAppParser
 import com.hisaab.parser.bank.PnbParser
 import com.hisaab.parser.bank.SbiParser
 import com.hisaab.parser.bank.YesBankParser
 import com.hisaab.parser.model.ParsedTransaction
 import com.hisaab.parser.model.Source
+import com.hisaab.parser.statement.CardDue
+import com.hisaab.parser.statement.CardDueParser
 
 /** Maps a sender to its parser through a HashMap. The generic parser handles bank-looking senders nobody claims. */
 class ParserRegistry(
@@ -59,6 +62,17 @@ class ParserRegistry(
         return (parser as? BaseBankParser)?.depositStatus(body, sender, timestamp, source)
     }
 
+    /**
+     * What a card issuer's "statement generated / bill due" message says (total and minimum due, due date), or the
+     * payment it acknowledges. Not a transaction: the reminder rules reject these as transactions.
+     */
+    fun cardDue(body: String, sender: String, timestamp: Long): CardDue? {
+        val parser = resolve(sender) ?: fallback?.takeIf { it.canHandle(sender, body) }
+        if (parser is LenderParser) return null
+        val bank = if (parser == null || parser is GenericBankParser) null else parser.bankName
+        return CardDueParser.parse(body, bank, timestamp)
+    }
+
     fun parse(body: String, sender: String, timestamp: Long, source: Source): ParsedTransaction? {
         val parser = resolve(sender) ?: fallback?.takeIf { it.canHandle(sender, body) } ?: return null
         return parser.parse(body, sender, timestamp, source)
@@ -72,7 +86,7 @@ class ParserRegistry(
         /** CAS and broker statements (CAMS, KFintech, NSDL, CDSL, brokers), EPFO, and card issuers without a parser. */
         val STATEMENT_SENDERS = listOf(
             "camsonline.com", "kfintech.com", "karvy.com", "nsdl.co.in", "nsdl.com", "cdslindia.com", "cdslstatement.com",
-            "indmoney.com", "zerodha.com", "zerodha.net", "groww.in", "upstox.com", "angelone.in", "dhan.co", "kuvera.in",
+            "icicidirect.com", "icicisecurities.com", "hdfcsec.com", "kotaksecurities.com", "indmoney.com", "zerodha.com", "zerodha.net", "groww.in", "upstox.com", "angelone.in", "dhan.co", "kuvera.in",
             "epfindia.gov.in", "sbicard.com", "americanexpress.co.in", "aexp.com", "rblbank.com", "indusind.com", "hsbc.co.in",
             "sc.com", "onecard.in", "federalbank.co.in", "aubank.in",
             "getonecard.app", "slicepay.in", "sliceit.com", "jupiter.money", "fi.money", "scapia.cards", "uni.cards", "bobfinancial.com",
@@ -95,13 +109,13 @@ class ParserRegistry(
         val STATEMENT_SUBJECTS = listOf(
             "Consolidated Account Statement", "NPS Transaction Statement", "PRAN", "EPF Passbook", "Member Passbook",
             "SIP installment", "SIP instalment", "units allotted", "allotment of units",
-            "Statement of Transaction", "NPS contribution", "Holdings statement", "mutual fund statement", "Holdings report", "Balance statement", "Portfolio statement",
+            "Statement of Transaction", "NPS contribution", "Holdings statement", "mutual fund statement", "Holdings report", "Balance statement", "Portfolio statement", "Holdings", "Portfolio report",
             "Fixed Deposit", "Term Deposit", "Recurring Deposit", "Deposit advice", "PPF statement", "Public Provident Fund", "portfolio summary",
         )
         private val STATEMENT_SUBJECT = com.hisaab.parser.text.rx(
             """consolidated\s+account\s+statement|\bCAS\b|\bNPS\b.{0,40}statement|\bPRAN\b|\bEPF\b.{0,30}(?:passbook|statement)|member\s+passbook""" +
                 """|\bSIP\b.{0,60}\b(?:instal+ment|processed|successful|allot+ed)|\bunits?\s+(?:have\s+been\s+)?allot+ed|allotment\s+of\s+units""" +
-                """|statement\s+of\s+transactions?|\bNPS\b.{0,40}(?:contribution|holding|transaction)|holdings?\s+(?:statement|report)|(?:balance|portfolio|investment)\s+(?:statement|report)|mutual\s+fund\s+statement""" +
+                """|statement\s+of\s+transactions?|\bNPS\b.{0,40}(?:contribution|holding|transaction)|\bholdings?\b|portfolio\s+(?:holdings|report)|(?:balance|portfolio|investment)\s+(?:statement|report)|mutual\s+fund\s+statement""" +
                 """|(?:fixed|term|recurring)\s+deposit|deposit\s+advice|\bPPF\b.{0,30}statement|public\s+provident\s+fund|portfolio\s+summary""",
         )
 
@@ -112,7 +126,7 @@ class ParserRegistry(
                 HdfcBankParser(config), IciciBankParser(config), SbiParser(config), AxisBankParser(config),
                 KotakBankParser(config), IdfcFirstBankParser(config), YesBankParser(config), BankOfBarodaParser(config),
                 PnbParser(config), AuBankParser(config),
-            ) + Lenders.parsers(config)
+            ) + Lenders.parsers(config) + PaymentAppParser(config)
             // The listed banks (Central Bank, Bank of Maharashtra, Canara, co-operative banks …) never take a sender
             // code or mail domain that a parser above already owns, so two parsers can never claim one sender.
             val taken = core.flatMap { it.senderKeys }.toMutableSet()

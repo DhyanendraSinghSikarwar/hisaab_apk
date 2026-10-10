@@ -48,6 +48,7 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
     private val holdings: HoldingRepository,
     private val nps: NpsContributions? = null,
     private val activity: ActivityLog? = null,
+    private val cardDues: com.hisaab.shared.repo.CardDueRecorder? = null,
     private val notifier: TransactionsChangedNotifier,
 ) : CoroutineWorker(context, params) {
 
@@ -87,6 +88,8 @@ class OptimizedSmsReaderWorker @AssistedInject constructor(
             val incoming = parseInParallel(bank) + npsInvestments
             // Lender messages that are not payments: disbursals, outstanding amounts, EMI reminders.
             bank.forEach { sms -> registry.loanStatus(sms.body, sms.sender, sms.receivedAt, Source.SMS)?.let { repository.applyLoanStatus(it) } }
+            // Card statement / bill-due messages and payment acknowledgements.
+            bank.forEach { sms -> registry.cardDue(sms.body, sms.sender, sms.receivedAt)?.let { cardDues?.apply(it, "SMS") } }
             parsed += incoming.size
             report += repository.ingestBatch(incoming)
             setProgress(workDataOf(KEY_SCANNED to bankMessages, KEY_FOUND to parsed))

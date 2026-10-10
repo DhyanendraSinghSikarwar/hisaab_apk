@@ -4,6 +4,7 @@ import android.net.Uri
 import com.hisaab.app.ApplicationScope
 import com.hisaab.app.ui.format.Periods
 import com.hisaab.shared.db.AccountDao
+import com.hisaab.shared.db.AccountEntity
 import com.hisaab.shared.db.AccountWithActivity
 import com.hisaab.shared.db.TransactionDao
 import com.hisaab.shared.insight.Loan
@@ -23,6 +24,8 @@ data class LoansSnapshot(
     val loans: List<Loan> = emptyList(),
     val accounts: Map<Long, AccountWithActivity> = emptyMap(),
     val loaded: Boolean = false,
+    /** Loan accounts shown together with another loan (reversible). */
+    val mergedChildren: List<AccountEntity> = emptyList(),
 ) {
     /** Loans still being repaid. */
     val active: List<Loan> get() = loans.filter { !it.closed }
@@ -36,14 +39,19 @@ class LoanSource @Inject constructor(
     transactions: TransactionDao,
     accounts: AccountDao,
     dismissals: LoanDismissals,
+    links: LoanLinkStore,
     @ApplicationScope scope: CoroutineScope,
 ) {
     val snapshot: StateFlow<LoansSnapshot> = combine(
         accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())),
         transactions.observeLoanPayments(),
         dismissals.payees,
-    ) { accs, pays, dismissed ->
-        LoansSnapshot(Loans.build(accs, pays, LocalDate.now(Periods.zone), Periods.zone, dismissed), accs.associateBy { it.id }, loaded = true)
+        links.links,
+        accounts.observeMerged(),
+    ) { accs, pays, dismissed, linked, merged ->
+        val loans = Loans.build(accs, pays, LocalDate.now(Periods.zone), Periods.zone, dismissed, linked, merged)
+        val kids = loans.flatMap { it.mergedIds }.toSet()
+        LoansSnapshot(loans, accs.associateBy { it.id }, loaded = true, mergedChildren = merged.filter { it.id in kids })
     }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(10_000), LoansSnapshot())
 }
 

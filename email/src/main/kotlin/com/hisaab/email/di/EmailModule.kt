@@ -50,7 +50,8 @@ object EmailModule {
     fun gmailApi(client: HttpClient, tokens: AccessTokenProvider): GmailApi = GmailApi(client, tokens)
 
     @Provides
-    fun emailSink(repository: TransactionRepository): EmailSink = object : EmailSink {
+    fun emailSink(repository: TransactionRepository, cardDues: com.hisaab.shared.repo.CardDueRecorder): EmailSink = object : EmailSink {
+        override suspend fun cardDue(due: com.hisaab.parser.statement.CardDue) { cardDues.apply(due, "EMAIL") }
         override suspend fun alreadyProcessed(ids: List<String>) = repository.alreadyProcessedEmails(ids)
         override suspend fun store(messages: List<IncomingMessage>, processed: List<ProcessedEmailEntity>) =
             repository.ingestBatch(messages, processed)

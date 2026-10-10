@@ -34,7 +34,7 @@ object HoldingsCheckReader {
     )
     private val TABLE_WORDS = rx("""\b(?:scheme|fund|name|folio|units?|symbol|instrument|isin)\b""")
     private val FIGURE = Regex("""^(?:₹|Rs\.?|INR)?\(?[+-]?(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?\)?\s*%?$""", RegexOption.IGNORE_CASE)
-    private val CELLS = Regex("""\s{2,}|\t|\|""")
+    private val CELLS = Regex("""\s{2,}|\t|\||¦""")
 
     /** The check for [lines] and the [holdings] read from them; null when the sheet states no totals. */
     fun check(lines: List<String>, holdings: List<HoldingSnapshot>): HoldingsCheck? {
@@ -62,7 +62,7 @@ object HoldingsCheckReader {
             if (labels.isEmpty()) continue
             val tail = text.substring(labels.last().second.last + 1)
             if (labels.size == 1 && labels[0].second.first == 0 && labels[0].first != Key.OTHER) {
-                // "Total Investments  200700.2"
+                // "Total Investments  12500.5"
                 cells(tail).firstOrNull()?.let { put(labels[0].first, number(it)) }
                 continue
             }

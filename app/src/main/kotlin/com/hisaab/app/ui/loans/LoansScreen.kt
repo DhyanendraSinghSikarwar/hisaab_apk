@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CallMerge
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -100,7 +101,9 @@ import com.hisaab.shared.insight.Amortization
 import com.hisaab.shared.insight.Loan
 import com.hisaab.shared.insight.LoanTerms
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -135,7 +138,7 @@ private fun LoanAvatar(loan: Loan, size: androidx.compose.ui.unit.Dp = 40.dp) {
 
 @HiltViewModel
 class LoansViewModel @Inject constructor(
-    source: LoanSource,
+    private val source: LoanSource,
     private val accounts: AccountDao,
     private val transactions: TransactionDao,
     private val dismissals: LoanDismissals,
@@ -147,10 +150,26 @@ class LoansViewModel @Inject constructor(
      * A detected EMI is remembered as "Not a loan" so it never comes back. Either way its payees are dismissed.
      */
     fun remove(loan: Loan, deletePayments: Boolean) = viewModelScope.launch {
-        loan.accountId?.let { accounts.delete(it) }
+        loan.accountId?.let { accounts.unmergeChildren(it); accounts.delete(it) }
         if (loan.detected) dismissals.dismiss(loan.key.drop(1))
         else loan.payments.mapNotNull(Loans::keyOf).distinct().forEach { dismissals.dismiss(it) }
         if (deletePayments) transactions.deleteAll(loan.payments.map { it.id })
+    }
+
+    private val ignoredDuplicates = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Likely duplicate loans, minus the pairs the user dismissed this session. */
+    val duplicates: StateFlow<List<Loans.Duplicate>> = combine(source.snapshot, ignoredDuplicates) { s, ignored -> Loans.duplicates(s.loans, ignored) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun notDuplicates(d: Loans.Duplicate) { ignoredDuplicates.value += d.key }
+
+    /** Shows [from] together with [into]: its payments and terms count there. Display only; fully reversible. */
+    fun merge(from: Loan, into: Loan) = viewModelScope.launch {
+        val src = from.accountId ?: return@launch
+        val dst = into.accountId ?: return@launch
+        accounts.repointMerged(src, dst)
+        accounts.setMergedInto(src, dst)
     }
 
     /** Creates a loan account for a loan the user types in; terms are saved when enough is known to draw a schedule. */
@@ -182,6 +201,9 @@ fun LoansRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit, vm: LoansViewMo
     var editing by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<Loan?>(null) }
+    var merging by remember { mutableStateOf<Loan?>(null) }
+    var confirm by remember { mutableStateOf<Pair<Loan, Loan>?>(null) }
+    val duplicates by vm.duplicates.collectAsStateWithLifecycle()
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(colors = clearTopBar(), title = { Text(t("Loans")) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
@@ -211,8 +233,14 @@ fun LoansRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit, vm: LoansViewMo
                 return@LazyColumn
             }
             if (s.loans.isNotEmpty()) item(key = "hero") { LoansHero(s) }
+            items(duplicates, key = { "dup" + it.key }) { d ->
+                DuplicateCard(d, Modifier.animateItem(), onMerge = { confirm = d.from to d.into }, onDismiss = { vm.notDuplicates(d) })
+            }
             items(accounts, key = { it.key }) { l ->
-                LoanCard(l, Modifier.animateItem().enterOnce(0), editing = editing, onRemove = { removing = l }) { onOpenLoan(l.key) }
+                LoanCard(
+                    l, Modifier.animateItem().enterOnce(0), editing = editing, onRemove = { removing = l },
+                    onMerge = if (accounts.size > 1) ({ merging = l }) else null,
+                ) { onOpenLoan(l.key) }
             }
             if (detected.isNotEmpty()) {
                 item(key = "detected-h") {
@@ -227,6 +255,21 @@ fun LoansRoute(onBack: () -> Unit, onOpenLoan: (String) -> Unit, vm: LoansViewMo
     }
     if (adding) AddLoanSheet(onDismiss = { adding = false }) { lender, last4, day, terms ->
         vm.add(lender, last4, day, terms); adding = false
+    }
+    merging?.let { from ->
+        MergeIntoSheet(from, s.loans.filter { !it.detected && it.key != from.key }, onDismiss = { merging = null }) { into -> merging = null; confirm = from to into }
+    }
+    confirm?.let { (from, into) ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(t("Merge into {name}?", "name" to into.name)) },
+            text = {
+                Text(t("{from} will show together with {into}. You can unmerge any time. Your messages and transactions aren't changed.",
+                    "from" to from.name, "into" to into.name), fontSize = 14.sp)
+            },
+            confirmButton = { TextButton(onClick = { vm.merge(from, into); confirm = null }) { Text(t("Merge")) } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text(t("Cancel")) } },
+        )
     }
     removing?.let { l ->
         RemoveLoanDialog(l, onDismiss = { removing = null }) { deletePayments -> vm.remove(l, deletePayments); removing = null }
@@ -285,7 +328,7 @@ private fun HeroFigure(label: String, value: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun LoanCard(l: Loan, modifier: Modifier = Modifier, editing: Boolean = false, onRemove: () -> Unit = {}, onClick: () -> Unit) {
+private fun LoanCard(l: Loan, modifier: Modifier = Modifier, editing: Boolean = false, onRemove: () -> Unit = {}, onMerge: (() -> Unit)? = null, onClick: () -> Unit) {
     HCard(modifier, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LoanAvatar(l)
@@ -305,6 +348,7 @@ private fun LoanCard(l: Loan, modifier: Modifier = Modifier, editing: Boolean = 
                 Text(rupees(l.outstandingMinor), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Text(t("outstanding"), fontSize = 11.sp, color = Hx.text2)
             }
+            if (editing && onMerge != null) IconButton(onClick = onMerge) { Icon(Icons.Filled.CallMerge, t("Merge…"), tint = Hx.accent) }
             if (editing) IconButton(onClick = onRemove) { Icon(Icons.Filled.Delete, t("Remove loan"), tint = Hx.neg) }
         }
         l.progress?.let { p ->
@@ -317,6 +361,50 @@ private fun LoanCard(l: Loan, modifier: Modifier = Modifier, editing: Boolean = 
                     fontSize = 11.sp, color = Hx.text2,
                 )
             }
+        }
+    }
+}
+
+/** Two loans that look like the same one, with a one-tap merge. */
+@Composable
+private fun DuplicateCard(d: Loans.Duplicate, modifier: Modifier = Modifier, onMerge: () -> Unit, onDismiss: () -> Unit) {
+    HCard(modifier, title = t("Possible duplicate")) {
+        Text(t("{from} and {into} may be the same loan.", "from" to d.from.name, "into" to d.into.name), fontSize = 13.sp, color = Hx.text2)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill(t("Merge"), on = true, leading = Icons.Filled.CallMerge, onClick = onMerge)
+            Pill(t("Not duplicates"), onClick = onDismiss)
+        }
+    }
+}
+
+/** Picks the loan [from] is merged into. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MergeIntoSheet(from: Loan, others: List<Loan>, onDismiss: () -> Unit, onPick: (Loan) -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 32.dp)) {
+            Text(t("Merge {name} into…", "name" to from.name), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
+            others.forEach { l ->
+                HRow(
+                    l.name, listOfNotNull(l.last4?.takeIf { it.isNotBlank() }?.let { "••$it" }, l.emiMinor?.let { t("EMI {amount}", "amount" to rupees(it)) }).joinToString(" · ").ifEmpty { null },
+                    leading = { LoanAvatar(l, 36.dp) }, onClick = { onPick(l) },
+                )
+            }
+        }
+    }
+}
+
+/** Loans shown together with this one, each with Unmerge. */
+@Composable
+private fun MergedLoansCard(children: List<AccountEntity>, onUnmerge: (AccountEntity) -> Unit) {
+    HCard(title = t("Merged loans")) {
+        children.forEachIndexed { i, a ->
+            if (i > 0) HorizontalDivider(color = Hx.border.copy(alpha = 0.6f))
+            HRow(
+                a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName, a.last4.takeIf { it.isNotBlank() }?.let { "••$it" },
+                leading = { AccountAvatar(a.bankName, AccountKind.ACCOUNT, AccountType.LOAN, size = 36.dp) },
+            ) { Pill(t("Unmerge")) { onUnmerge(a) } }
         }
     }
 }
@@ -336,6 +424,8 @@ class LoanDetailViewModel @Inject constructor(
     val snapshot: StateFlow<LoansSnapshot> = source.snapshot
     val loan: StateFlow<Loan?> = source.snapshot.map { s -> s.loans.firstOrNull { it.key == key } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), source.snapshot.value.loans.firstOrNull { it.key == key })
+
+    fun unmerge(a: AccountEntity) = viewModelScope.launch { dao.setMergedInto(a.id, null) }
 
     fun saveTerms(accountId: Long, terms: LoanTerms?) = viewModelScope.launch {
         dao.setLoanTerms(accountId, terms?.principalMinor, terms?.rateBps, terms?.tenureMonths, terms?.startDay?.toEpochDay())
@@ -411,6 +501,8 @@ fun LoanDetailRoute(
                     }
                 }
             }
+            val kids = snap.mergedChildren.filter { it.id in l.mergedIds }
+            if (kids.isNotEmpty()) item(key = "merged") { MergedLoansCard(kids, vm::unmerge) }
             if (l.upcoming.isNotEmpty()) item(key = "schedule") { ScheduleCard(l) }
             item(key = "payments") { PaymentsCard(l, snap.accounts, onOpenTransaction) }
         }

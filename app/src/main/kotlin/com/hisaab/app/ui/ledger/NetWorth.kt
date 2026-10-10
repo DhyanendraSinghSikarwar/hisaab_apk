@@ -13,6 +13,8 @@ import com.hisaab.shared.db.AccountDao
 import com.hisaab.shared.db.AccountType
 import com.hisaab.shared.db.AccountUsage
 import com.hisaab.shared.db.AccountWithActivity
+import com.hisaab.shared.db.CardFlow
+import com.hisaab.shared.repo.CardDues
 import com.hisaab.shared.db.HoldingDao
 import com.hisaab.shared.db.HoldingEntity
 import com.hisaab.shared.db.StatementDao
@@ -84,7 +86,18 @@ data class CardLimit(
     /** Payment due date of the latest statement. */
     val dueDay: LocalDate? = null,
     val network: com.hisaab.shared.db.CardNetwork? = null,
-)
+    /** Minimum due on the latest statement; null once paid or without one. */
+    val minDueMinor: Long? = null,
+    /** What the card owes when no statement is known: limit minus available, else spends since the last bill payment. */
+    val outstandingMinor: Long? = null,
+    /** [billedMinor] and [dueDay] were worked out from the usual statement day. */
+    val estimated: Boolean = false,
+    /** [availableMinor] was moved on by transactions since the last stated limit. */
+    val availableEstimated: Boolean = false,
+) {
+    /** The billed amount, else the outstanding figure; 0 for none. */
+    val owedMinor: Long get() = billedMinor?.takeIf { it > 0 } ?: outstandingMinor?.takeIf { it > 0 } ?: 0L
+}
 
 data class NetWorth(
     val assetsMinor: Long = 0,
@@ -174,7 +187,8 @@ class NetWorthSource @Inject constructor(
     }
 
     private fun isCreditCard(a: AccountWithActivity) =
-        a.kind == AccountKind.CARD && (a.accountType == AccountType.CREDIT_CARD || a.accountType == null)
+        a.kind == AccountKind.CARD && (a.accountType == AccountType.CREDIT_CARD ||
+            (a.accountType == null && (a.availableLimitMinor != null || a.latestBalanceMinor == null)))
 
     private fun cardFor(st: StatementEntity, accs: List<AccountWithActivity>): AccountWithActivity? =
         accs.firstOrNull { it.kind == AccountKind.CARD && it.last4 == st.last4 && it.bankName.equals(st.bankName, ignoreCase = true) }
@@ -191,7 +205,7 @@ class NetWorthSource @Inject constructor(
         val loanAccs = visible.filter { it.accountType == AccountType.LOAN && f.countsLiability(LiabilityKind.LOANS) }
         val loans = loanAccs.sumOf { kotlin.math.abs(it.currentBalanceMinor ?: 0L) }
         // Latest statement per card, kept when the card (or, for an unknown card, the personal book) is in view.
-        val latest = i.statements.filter { it.last4 != null }.groupBy { it.bankName to it.last4 }.values
+        val latest = i.statements.filter { it.last4 != null && it.kind != CardDues.KIND_PAYMENT }.groupBy { it.bankName to it.last4 }.values
             .map { l -> l.maxBy { it.statementEpochDay ?: 0 } }
         val dues = latest.filter { it.totalDueMinor != null }.filter { st ->
             val card = cardFor(st, i.accounts)
@@ -228,7 +242,7 @@ class NetWorthSource @Inject constructor(
             CardLimit(
                 a.id, a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName, a.last4, a.currentBalanceMinor, st?.creditLimitMinor,
                 billedMinor = bill?.totalDueMinor, statementDay = bill?.statementEpochDay?.let(LocalDate::ofEpochDay),
-                dueDay = bill?.dueEpochDay?.let(LocalDate::ofEpochDay), network = a.cardNetwork,
+                dueDay = bill?.dueEpochDay?.let(LocalDate::ofEpochDay), network = a.cardNetwork, availableEstimated = a.balanceIsEstimated,
             )
         }.sortedByDescending { it.availableMinor ?: -1L }
 
@@ -251,16 +265,27 @@ class NetWorthSource @Inject constructor(
         val liabIds = if (f.countsLiability(LiabilityKind.CARD_DUES)) n.accounts.filter(::isCreditCard).map { it.id }.toSet() else emptySet()
         val estimated = WorthHistory.estimate(anchor, txs, assetIds, liabIds, n.holdings.filter { f.countsClass(AssetClass.of(it.kind).name) })
         val tail = if (real.isEmpty()) listOf(todayPoint) else real.dropLastWhile { it.day == today } + todayPoint
-        return n.copy(history = estimated + tail, estimatedBefore = if (estimated.isEmpty()) null else anchor.day, cards = withUnbilled(n.cards, txs))
+        return n.copy(history = estimated + tail, estimatedBefore = if (estimated.isEmpty()) null else anchor.day, cards = withUnbilled(n.cards, txs, i))
     }
 
     /** Unbilled: spends on each card after its latest statement date. */
-    private fun withUnbilled(cards: List<CardLimit>, txs: List<TransactionEntity>): List<CardLimit> = cards.map { c ->
-        val day = c.statementDay ?: return@map c
-        val after = day.plusDays(1).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
-        val spent = txs.filter { it.accountId == c.id && it.duplicateOfId == null && it.type == TransactionType.DEBIT && it.timestamp >= after }
-            .sumOf(LedgerMath::rupees)
-        c.copy(unbilledMinor = spent)
+    private fun withUnbilled(cards: List<CardLimit>, txs: List<TransactionEntity>, i: WorthInputs): List<CardLimit> {
+        val today = LocalDate.now(Periods.zone)
+        val from = today.minusDays(CardDues.WINDOW_DAYS).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
+        val byCard = txs.filter { it.duplicateOfId == null && it.accountId != null }.groupBy { it.accountId }
+        return cards.map { c ->
+            val acc = i.accounts.firstOrNull { it.id == c.id } ?: return@map c
+            val rows = i.statements.filter { it.last4 == acc.last4 && (it.bankName == null || it.bankName.equals(acc.bankName, ignoreCase = true)) }
+            val oldest = rows.mapNotNull { it.statementEpochDay }.maxOrNull()?.let { LocalDate.ofEpochDay(it).atStartOfDay(Periods.zone).toInstant().toEpochMilli() }
+            val since = minOf(from, oldest ?: from)
+            val flow = byCard[c.id].orEmpty().filter { it.timestamp >= since }.sortedBy { it.timestamp }
+                .map { CardFlow(it.timestamp, it.type, LedgerMath.rupees(it)) }
+            val p = CardDues.position(rows, c.availableMinor, flow, today, Periods.zone)
+            c.copy(
+                billedMinor = p.billedMinor, statementDay = p.statementDay ?: c.statementDay, dueDay = p.dueDay, unbilledMinor = p.unbilledMinor,
+                minDueMinor = p.minDueMinor, outstandingMinor = p.outstandingMinor, estimated = p.estimated, limitMinor = c.limitMinor ?: p.limitMinor,
+            )
+        }
     }
 
     private val AccountWithActivity.label: String

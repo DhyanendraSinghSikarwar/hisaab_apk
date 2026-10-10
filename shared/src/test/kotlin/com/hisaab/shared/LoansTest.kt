@@ -4,12 +4,14 @@ import com.hisaab.parser.model.AccountKind
 import com.hisaab.parser.model.Category
 import com.hisaab.parser.model.Channel
 import com.hisaab.parser.model.TransactionType
+import com.hisaab.shared.db.AccountEntity
 import com.hisaab.shared.db.AccountType
 import com.hisaab.shared.db.AccountWithActivity
 import com.hisaab.shared.db.TransactionEntity
 import com.hisaab.shared.insight.Amortization
 import com.hisaab.shared.insight.LoanTerms
 import com.hisaab.shared.insight.Loans
+import com.hisaab.shared.repo.LoanLinks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -113,6 +115,68 @@ class LoansTest {
         )
         assertEquals(listOf("eacme finance"), Loans.build(emptyList(), txs, today, zone).map { it.key })
         assertTrue(Loans.build(emptyList(), txs, today, zone, dismissed = setOf("acme finance")).isEmpty())
+    }
+
+    private fun loanAcc(id: Long, bank: String, last4: String = "") = AccountWithActivity(
+        id = id, bankName = bank, last4 = last4, kind = AccountKind.ACCOUNT, nickname = null, colorArgb = null,
+        latestBalanceMinor = null, availableLimitMinor = null, balanceUpdatedAt = null, monthSpent = 0, transactionCount = 0,
+        accountType = AccountType.LOAN,
+    )
+
+    @Test
+    fun `linked payments and payees count as that loan's payments`() {
+        val today = LocalDate.of(2026, 10, 20)
+        val txs = listOf(
+            tx(LocalDate.of(2026, 9, 10), 700_000, accountId = 1, merchant = "Random Payee"),
+            tx(LocalDate.of(2026, 10, 10), 700_000, accountId = 1, merchant = "Random Payee"),
+            tx(LocalDate.of(2026, 10, 12), 300_000, accountId = 1, merchant = "Other Payee"),
+        )
+        val acc = listOf(loanAcc(9, "Muthoot"))
+        assertEquals(0, Loans.build(acc, txs, today, zone).first().payments.size)
+        val byPayee = Loans.build(acc, txs, today, zone, links = LoanLinks(byPayee = mapOf("random payee" to 9L))).first()
+        assertEquals(2, byPayee.payments.size)
+        assertTrue(Loans.build(acc, txs, today, zone, links = LoanLinks(byPayee = mapOf("random payee" to 9L))).none { it.detected })
+        val byTx = Loans.build(acc, txs, today, zone, links = LoanLinks(byTx = mapOf(txs[2].id to 9L))).first()
+        assertEquals(listOf(300_000L), byTx.payments.map { it.amountMinor })
+    }
+
+    @Test
+    fun `one payment the user filed as a loan shows from the first payment`() {
+        val today = LocalDate.of(2026, 10, 20)
+        val txs = listOf(tx(LocalDate.of(2026, 10, 10), 700_000, accountId = 1, merchant = "Random Payee"))
+        assertTrue(Loans.build(emptyList(), txs, today, zone).isEmpty())
+        val l = Loans.build(emptyList(), txs, today, zone, links = LoanLinks(manualPayees = setOf("random payee")))
+        assertEquals(listOf("erandom payee"), l.map { it.key })
+    }
+
+    @Test
+    fun `a merged loan's payments and terms count under the target and it is not listed`() {
+        val today = LocalDate.of(2026, 10, 20)
+        val target = loanAcc(1, "Bajaj Finance")
+        val child = AccountEntity(
+            id = 2, bankName = "Bajaj Finserv", last4 = "5555", kind = AccountKind.ACCOUNT, createdAt = 0, accountType = AccountType.LOAN,
+            loanPrincipalMinor = 12_000_000, loanRateBps = 0, loanTenureMonths = 12, loanStartDay = LocalDate.of(2026, 1, 5).toEpochDay(),
+            mergedIntoId = 1,
+        )
+        val txs = listOf(
+            tx(LocalDate.of(2026, 9, 5), 1_000_000, accountId = 2),
+            tx(LocalDate.of(2026, 10, 5), 1_000_000, accountId = 1),
+        )
+        val loans = Loans.build(listOf(target), txs, today, zone, merged = listOf(child))
+        assertEquals(1, loans.size)
+        assertEquals(listOf(2L), loans[0].mergedIds)
+        assertEquals(2, loans[0].payments.size)
+        assertEquals(12, loans[0].totalEmis)
+        // Unmerged, the target has neither.
+        assertEquals(1, Loans.build(listOf(target), txs, today, zone).first().payments.size)
+    }
+
+    @Test
+    fun `likely duplicate loans are suggested`() {
+        val a = Loans.build(listOf(loanAcc(1, "Bajaj Finance", "1234"), loanAcc(2, "Bajaj Finance Ltd", ""), loanAcc(3, "HDFC Bank", "9999"), loanAcc(4, "Tata Capital", "9999")), emptyList(), LocalDate.of(2026, 10, 20), zone)
+        val d = Loans.duplicates(a)
+        assertEquals(setOf("1-2", "3-4"), d.map { it.key }.toSet())
+        assertTrue(Loans.duplicates(a, ignored = setOf("1-2")).map { it.key } == listOf("3-4"))
     }
 
     private fun tx(date: LocalDate, amount: Long, accountId: Long, merchant: String? = null, category: Category = Category.EMI_LOAN) =

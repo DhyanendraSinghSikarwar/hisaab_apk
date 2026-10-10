@@ -71,6 +71,8 @@ data class AppSettings(
     val alertedKeys: Set<String> = emptySet(),
     /** A notification for each new transaction, with category buttons. */
     val transactionNotifications: Boolean = true,
+    /** Reminders before a credit card bill's due date. */
+    val cardDueReminders: Boolean = true,
     /** Amounts shown as ₹•••• everywhere until the user taps the eye. On by default. */
     val hideAmounts: Boolean = true,
     /** The user's name, shown at the top of Home. Part of the profile. */
@@ -109,6 +111,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
             budgetAlertPercent = p[BUDGET_ALERT] ?: 90,
             alertedKeys = p[ALERTED].orEmpty(),
             transactionNotifications = p[TX_NOTIFICATIONS] ?: true,
+            cardDueReminders = p[CARD_DUE_REMINDERS] ?: true,
             hideAmounts = p[HIDE_AMOUNTS] ?: true,
             checkUpdates = p[CHECK_UPDATES] ?: true,
             displayName = p[DISPLAY_NAME],
@@ -142,6 +145,7 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
     suspend fun setNotificationsAsked() = store.edit { it[NOTIFICATIONS_ASKED] = true }
     suspend fun setBudgetAlertPercent(value: Int) = store.edit { it[BUDGET_ALERT] = value }
     suspend fun setTransactionNotifications(value: Boolean) = store.edit { it[TX_NOTIFICATIONS] = value }
+    suspend fun setCardDueReminders(value: Boolean) = store.edit { it[CARD_DUE_REMINDERS] = value }
     suspend fun setHideAmounts(value: Boolean) = store.edit { it[HIDE_AMOUNTS] = value }
     suspend fun setCheckUpdates(value: Boolean) = store.edit { it[CHECK_UPDATES] = value }
     suspend fun setDisplayName(value: String) = store.edit { if (value.isBlank()) it.remove(DISPLAY_NAME) else it[DISPLAY_NAME] = value.trim() }
@@ -175,7 +179,8 @@ class AppSettingsStore @Inject constructor(@ApplicationContext context: Context)
         val BUDGET_ALERT = androidx.datastore.preferences.core.intPreferencesKey("budget_alert_percent")
         val ALERTED = androidx.datastore.preferences.core.stringSetPreferencesKey("alerted_keys")
         val TX_NOTIFICATIONS = booleanPreferencesKey("transaction_notifications")
-        val HIDE_AMOUNTS = booleanPreferencesKey("hide_amounts")
+        val CARD_DUE_REMINDERS = booleanPreferencesKey("card_due_reminders")
+        val HIDE_AMOUNTS =booleanPreferencesKey("hide_amounts")
         val CHECK_UPDATES = booleanPreferencesKey("check_updates")
         val DISPLAY_NAME = stringPreferencesKey("display_name")
         val PROFILE_EMAIL = stringPreferencesKey("profile_email")

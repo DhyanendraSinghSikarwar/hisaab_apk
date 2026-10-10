@@ -26,7 +26,7 @@ object TabLayouts {
 
     val DEFAULTS: Map<String, List<Section>> = mapOf(
         HOME to listOf(
-            Section("networth", "Net worth"), Section("cards", "Credit cards"), Section("cashflow", "Cash flow"), Section("safe", "Safe to spend"),
+            Section("spent", "Spent this month"), Section("cards", "Credit cards"), Section("cashflow", "Cash flow"),
             Section("upcoming", "Upcoming"), Section("insights", "Insights"), Section("categories", "Spend by category"),
             Section("recent", "Recent transactions"), Section("budgets", "Budgets"),
         ),
@@ -45,11 +45,11 @@ object TabLayouts {
 
     /** Home presets: the widgets each one shows, in order. Everything else is hidden. */
     val HOME_PRESETS: List<Pair<String, List<String>>> = listOf(
-        "Minimal" to listOf("networth", "cashflow", "upcoming"),
-        "Spender" to listOf("cashflow", "safe", "budgets", "categories", "upcoming", "recent"),
-        "Investor" to listOf("networth", "insights", "upcoming"),
+        "Minimal" to listOf("spent", "cashflow", "upcoming"),
+        "Spender" to listOf("spent", "cashflow", "budgets", "categories", "upcoming", "recent"),
+        "Investor" to listOf("spent", "insights", "upcoming"),
         "Business" to listOf("cashflow", "upcoming", "insights", "recent"),
-        "Everything" to listOf("networth", "cards", "cashflow", "safe", "upcoming", "insights", "categories", "recent", "budgets"),
+        "Everything" to listOf("spent", "cards", "cashflow", "upcoming", "insights", "categories", "recent", "budgets"),
     )
 }
 
@@ -117,6 +117,21 @@ class TabLayoutStore @Inject constructor(@ApplicationContext context: Context) {
                 p[orderKey(TabLayouts.ANALYTICS)] = (saved.filter { it != "when" } + "when").joinToString(",")
             }
         }
+        // 2.9: "Spent this month" sits right after Net worth, also for a saved order.
+        if (p[SPENT_ADDED] != true) {
+            p[SPENT_ADDED] = true
+            p[orderKey(TabLayouts.HOME)]?.split(',')?.filter { it.isNotBlank() }?.takeIf { "spent" !in it }?.let { saved ->
+                val at = saved.indexOf("networth") + 1
+                p[orderKey(TabLayouts.HOME)] = (saved.take(at) + "spent" + saved.drop(at)).joinToString(",")
+            }
+        }
+        // 2.9: Net worth leaves Home (it stays in Portfolio); "Spent this month" leads, also for a saved order.
+        if (p[NETWORTH_LEFT_HOME] != true) {
+            p[NETWORTH_LEFT_HOME] = true
+            p[orderKey(TabLayouts.HOME)]?.split(',')?.filter { it.isNotBlank() }?.let { saved ->
+                p[orderKey(TabLayouts.HOME)] = (listOf("spent") + saved.filter { it != "spent" && it != "networth" }).joinToString(",")
+            }
+        }
         if (p[SEEDED] == true) return@edit
         p[SEEDED] = true
         p.remove(orderKey(TabLayouts.HOME))
@@ -129,6 +144,8 @@ class TabLayoutStore @Inject constructor(@ApplicationContext context: Context) {
     private companion object {
         val HIDDEN = stringSetPreferencesKey("hidden")
         val SEEDED = androidx.datastore.preferences.core.booleanPreferencesKey("home_v2_seeded")
+        val SPENT_ADDED = androidx.datastore.preferences.core.booleanPreferencesKey("home_spent_added")
+        val NETWORTH_LEFT_HOME = androidx.datastore.preferences.core.booleanPreferencesKey("home_networth_left")
         val WHEN_LAST = androidx.datastore.preferences.core.booleanPreferencesKey("analytics_when_last")
     }
 }

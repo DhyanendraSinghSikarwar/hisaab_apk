@@ -1,5 +1,7 @@
 package com.hisaab.app.ui.home
 
+import com.hisaab.app.ui.ledger.NetWorth
+import com.hisaab.app.ui.ledger.Book
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -35,6 +37,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -160,8 +165,16 @@ private fun usageColor(fraction: Float, pos: Color, warn: Color, neg: Color) = w
 /** The net figure, change over about 30 days, its history as a line, and assets against liabilities. */
 @Composable
 fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit?) {
-    val nw = w.netWorth
-    WidgetCard(t("Net worth"), action = t("Portfolio ›"), onAction = onOpenPortfolio, edit = edit, hero = true) {
+    NetWorthHeroCard(w.netWorth, w.netWorthBefore, action = t("Portfolio ›"), onAction = onOpenPortfolio, edit = edit)
+}
+
+/** The net worth card: [before] is the net figure about 30 days ago, for the change pill. Shown in Portfolio. */
+@Composable
+fun NetWorthHeroCard(
+    nw: NetWorth, before: Long?, modifier: Modifier = Modifier, action: String? = null, onAction: (() -> Unit)? = null, edit: WidgetEdit? = null,
+    periodLabel: String = "30d", rangeLabels: List<String>? = null, range: Int = 0, onRange: (Int) -> Unit = {}, chart: List<Float>? = null,
+) {
+    WidgetCard(t("Net worth") + if (nw.book != Book.ALL) " · ${t(nw.book.label)}" else "", modifier, action = action, onAction = onAction, edit = edit, hero = true) {
         if (nw.loaded && nw.assetsMinor == 0L && nw.liabilitiesMinor == 0L) {
             Hint(t("Add account balances, deposits or holdings to see your net worth."))
             return@WidgetCard
@@ -171,17 +184,21 @@ fun NetWorthWidget(w: HomeWidgets, onOpenPortfolio: () -> Unit, edit: WidgetEdit
                 nw.netMinor, Modifier.weight(1f, fill = false), style = androidx.compose.ui.text.TextStyle(fontSize = 28.sp),
                 color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, format = ::signedMoney,
             )
-            w.netWorthBefore?.let { before ->
+            before?.let { before ->
                 val diff = nw.netMinor - before
                 val text = if (before != 0L) "%s %.1f%%".format(if (diff >= 0) "▲" else "▼", abs(diff) * 100.0 / abs(before))
                 else "${if (diff >= 0) "▲" else "▼"} ${Money.compact(abs(diff))}"
                 Spacer(Modifier.width(10.dp))
-                Delta(t("{change} · 30d", "change" to text), good = diff >= 0)
+                Delta(t("{change} · {period}", "change" to text, "period" to periodLabel), good = diff >= 0)
             }
         }
-        // The last year, recorded days plus months estimated from transactions.
+        if (rangeLabels != null) {
+            Spacer(Modifier.height(10.dp))
+            com.hisaab.app.ui.components.Segmented(rangeLabels, range, onRange)
+        }
+        // The last year (or the chosen range), recorded days plus months estimated from transactions.
         val yearAgo = java.time.LocalDate.now().minusDays(365)
-        val points = nw.history.filter { !it.day.isBefore(yearAgo) }.map { it.netMinor.toFloat() }
+        val points = chart ?: nw.history.filter { !it.day.isBefore(yearAgo) }.map { it.netMinor.toFloat() }
         if (points.size >= 2) {
             Spacer(Modifier.height(8.dp))
             Sparkline(points, color = Hx.accent, height = 46.dp)
@@ -450,14 +467,41 @@ fun BudgetsWidget(w: HomeWidgets, onOpenBudgets: () -> Unit, edit: WidgetEdit?) 
 @Composable
 fun CreditCardsWidget(w: HomeWidgets, onOpenCard: (Long) -> Unit, edit: WidgetEdit?) {
     val cards = w.netWorth.cards
+    // Folded by default: the header shows the total still to pay, a tap shows each card.
+    var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val totalBilled = cards.sumOf { it.owedMinor }
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, label = "cards-chevron")
     WidgetCard(t("Credit cards"), edit = edit) {
         if (cards.isEmpty()) {
             Hint(t("No credit cards yet."))
             return@WidgetCard
         }
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { open = !open }.padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (cards.size == 1) t("1 card") else t("{n} cards", "n" to cards.size), Modifier.weight(1f),
+                fontSize = 13.sp, color = Hx.text2,
+            )
+            if (totalBilled > 0) {
+                Text(Money.format(totalBilled, showPaise = false), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Hx.neg, maxLines = 1)
+                Spacer(Modifier.width(6.dp))
+            } else Text(t("No dues"), fontSize = 13.sp, color = Hx.text2, modifier = Modifier.padding(end = 6.dp))
+            Icon(
+                Icons.Filled.KeyboardArrowDown, if (open) t("Collapse") else t("Expand"), tint = Hx.text2,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
+            )
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            open,
+            enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(170)) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(120)),
+            exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(130)) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(80)),
+        ) {
         Column {
             cards.forEach { c ->
                 val billed = c.billedMinor?.takeIf { it > 0 }
+                val outstanding = c.outstandingMinor?.takeIf { billed == null && it > 0 }
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpenCard(c.id) }.padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -470,17 +514,20 @@ fun CreditCardsWidget(w: HomeWidgets, onOpenCard: (Long) -> Unit, edit: WidgetEd
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                         c.availableMinor?.let {
-                            Text(t("Limit left {amount}", "amount" to Money.format(it, showPaise = false)), fontSize = 11.sp, color = Hx.text2, maxLines = 1)
+                            Text(t("Limit left {amount}", "amount" to Money.format(it, showPaise = false)) + if (c.availableEstimated) " · " + t("est.") else "", fontSize = 11.sp, color = Hx.text2, maxLines = 1)
                         }
                     }
                     Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.End) {
                         if (billed != null) Text(Money.format(billed, showPaise = false), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Hx.neg, maxLines = 1)
-                        else Text(t("No dues"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.text2, maxLines = 1)
+                        else if (outstanding != null) {
+                            Text(Money.format(outstanding, showPaise = false), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Hx.warn, maxLines = 1)
+                            Text(t("Outstanding"), fontSize = 11.sp, color = Hx.warn, maxLines = 1)
+                        } else Text(t("No dues"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Hx.text2, maxLines = 1)
                         c.dueDay?.takeIf { billed != null }?.let { due ->
                             val days = java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), due)
                             Text(
-                                t("Due {date}", "date" to due.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))), fontSize = 11.sp, maxLines = 1,
+                                t("Pay by {date}", "date" to due.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))) + (if (days < 0) " · " + t("Overdue") else " · " + t("{n} days left", "n" to days.toString())) + if (c.estimated) " · " + t("est.") else "", fontSize = 11.sp, maxLines = 1,
                                 color = when { days < 0 -> Hx.neg; days <= 5 -> Hx.warn; else -> Hx.text2 },
                             )
                         }
@@ -489,7 +536,9 @@ fun CreditCardsWidget(w: HomeWidgets, onOpenCard: (Long) -> Unit, edit: WidgetEd
                         }
                     }
                 }
+                com.hisaab.app.ui.accounts.CardDueActions(c.id, c.dueDay, c.billedMinor, Modifier.padding(start = 48.dp))
             }
+        }
         }
     }
 }

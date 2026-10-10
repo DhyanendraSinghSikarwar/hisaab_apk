@@ -115,10 +115,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           sha=$(sha256sum "$APK" | cut -d' ' -f1)
+          range="$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)"..HEAD
+          # What's new for people: the "- " feature lines from the commit messages (the in-app "What's new" shows these);
+          # commits without such lines fall back to their subject, minus the "feat: vX.Y.Z - " prefix.
+          features=$(git log --pretty='%b' $range | grep -E '^- ' | head -40)
+          if [ -z "$features" ]; then
+            features=$(git log --pretty='- %s' $range | sed -E 's/^- (feat|fix|chore|docs|refactor)(\([^)]*\))?: (v[0-9.]+ - )?/- /' | head -30)
+          fi
           {
             echo "DhanKosh ${{ steps.version.outputs.name }}"
             echo
-            git log --pretty='- %s' "$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)"..HEAD | head -30
+            echo "$features"
             echo
             echo "sha256: $sha"
           } > notes.md

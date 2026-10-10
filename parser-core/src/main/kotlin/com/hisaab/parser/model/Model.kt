@@ -26,6 +26,8 @@ data class HoldingSnapshot(
      * the amount invested when [investedMinor] is not stated.
      */
     val contributionMinor: Long? = null,
+    /** The app or broker the figures came from (Groww, Zerodha ...), kept as the holding's note. */
+    val platform: String? = null,
 )
 
 enum class TransactionType {

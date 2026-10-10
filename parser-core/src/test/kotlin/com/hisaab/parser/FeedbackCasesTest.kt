@@ -183,4 +183,20 @@ class FeedbackCasesTest {
         val keys = registry.parsers.flatMap { it.senderKeys }
         assertEquals(keys.size, keys.toSet().size)
     }
+
+    @Test
+    fun `axis card spend in the newer multi-line layout`() {
+        val tx = registry.parse(
+            "Spent INR 1234.56\nAxis Bank Card no. XX4821\n07-10-26 23:16:18 IST\nCroma Retail\nAvl Limit: INR 185432.10\nNot you? SMS BLOCK 4821 to 919951860002",
+            "VK-AXISBK-S", Fixture.RECEIVED_AT, Source.SMS,
+        )
+        assertNotNull(tx)
+        assertEquals("Axis Bank", tx!!.bankName)
+        assertEquals(TransactionType.DEBIT, tx.type)
+        assertEquals(123456L, tx.amountMinor)
+        assertEquals("4821", tx.accountLast4)
+        assertEquals(AccountKind.CARD, tx.accountKind)
+        assertEquals("Croma", tx.merchant)
+        assertEquals(18543210L, tx.availableLimitMinor)
+    }
 }
