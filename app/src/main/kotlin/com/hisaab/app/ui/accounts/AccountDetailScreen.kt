@@ -313,6 +313,18 @@ private fun CardSummaryGrid(c: CardSummary, onAdjust: () -> Unit) {
     fun money(v: Long?) = v?.let { Money.format(it, showPaise = false) } ?: "—"
     val due = p.dueDay?.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        HCard(Modifier.fillMaxWidth(), padding = 14.dp, onClick = onAdjust) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(t("Total outstanding"), fontSize = 12.sp, color = Hx.text2, maxLines = 1)
+                if (p.edited) Text("  " + t("Edited"), fontSize = 10.sp, color = Hx.text2, maxLines = 1)
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onAdjust, modifier = Modifier.size(36.dp)) { Icon(Icons.Filled.Edit, t("Edit amounts"), tint = Hx.accent, modifier = Modifier.size(18.dp)) }
+            }
+            Text(
+                p.totalMinor?.takeIf { it > 0 }?.let { money(it) } ?: t("No dues"), fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                color = if ((p.totalMinor ?: 0L) > 0) Hx.neg else Hx.text2, maxLines = 1,
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             CardStat(t("Total limit"), money(limit), MaterialTheme.colorScheme.onSurface, null, Modifier.weight(1f))
             CardStat(t("Limit left"), money(avail), Hx.pos, if (c.availableEstimated) t("est.") else null, Modifier.weight(1f))
@@ -331,7 +343,7 @@ private fun CardSummaryGrid(c: CardSummary, onAdjust: () -> Unit) {
                     CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f), p.unbilledEdited, onAdjust)
                 }
                 outstanding != null -> {
-                    CardStat(t("Outstanding"), money(outstanding), Hx.warn, t("No statement yet"), Modifier.weight(1f))
+                    CardStat(t("Outstanding"), money(outstanding), Hx.warn, t("No statement yet"), Modifier.weight(1f), p.outstandingEdited, onAdjust)
                     CardStat(t("Billed to pay"), "—", Hx.text2, null, Modifier.weight(1f), false, onAdjust)
                 }
                 else -> {
@@ -339,6 +351,9 @@ private fun CardSummaryGrid(c: CardSummary, onAdjust: () -> Unit) {
                     CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f), p.unbilledEdited, onAdjust)
                 }
             }
+        }
+        androidx.compose.material3.FilledTonalButton(onClick = onAdjust, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Filled.Edit, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(t("Edit amounts"))
         }
         if (limit != null && limit > 0 && avail != null) {
             val used = ((limit - avail).toFloat() / limit).coerceIn(0f, 1f)
@@ -356,16 +371,13 @@ private fun CardSummaryGrid(c: CardSummary, onAdjust: () -> Unit) {
 
 @Composable
 private fun CardStat(label: String, value: String, color: Color, note: String?, modifier: Modifier, edited: Boolean = false, onAdjust: (() -> Unit)? = null) {
-    HCard(modifier, padding = 14.dp) {
+    HCard(modifier, padding = 14.dp, onClick = onAdjust) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 12.sp, color = Hx.text2, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
             if (edited) Text("  " + t("Edited"), fontSize = 10.sp, color = Hx.text2, maxLines = 1)
             Spacer(Modifier.weight(1f))
             onAdjust?.let {
-                androidx.compose.material3.TextButton(
-                    onClick = it, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                    modifier = Modifier.height(24.dp),
-                ) { Text(t("Adjust"), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Hx.accent) }
+                IconButton(onClick = it, modifier = Modifier.size(36.dp)) { Icon(Icons.Filled.Edit, t("Edit amounts"), tint = Hx.accent, modifier = Modifier.size(16.dp)) }
             }
         }
         Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)

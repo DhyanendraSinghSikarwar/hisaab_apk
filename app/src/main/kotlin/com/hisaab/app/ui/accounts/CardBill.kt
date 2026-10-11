@@ -68,7 +68,7 @@ class CardBillViewModel @Inject constructor(accounts: AccountDao, statements: St
 
 /** A credit card, as opposed to a bank account, debit card or deposit. */
 internal val AccountWithActivity.isCreditCardRow: Boolean
-    get() = kind == AccountKind.CARD && !isDebitCard && (accountType == AccountType.CREDIT_CARD || (accountType == null && (availableLimitMinor != null || latestBalanceMinor == null)))
+    get() = kind == AccountKind.CARD && !isDebitCard && (accountType == AccountType.CREDIT_CARD || (accountType == null && availableLimitMinor != null))
 
 /** The billing figures for card [id], or null for none. */
 @Composable

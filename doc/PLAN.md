@@ -190,3 +190,5 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] UPI payment via PhonePe not tracked: notification listener reads title/text/big/sub/lines and parses any layout (amount/payee split, no symbol, failed/pending/offers skipped, bill pay as debit), logs every payment-app notification with a skip reason, Data sources warning card when off, PhonePe/GPay/Paytm email+SMS receipt parser, tests
 - [x] Home credit cards rows decluttered (2 lines); card detail: edit billed/unbilled (override); Transactions: remove income/expense bar
 - [x] Spent this month: follows the global Period and Book filters; in-card eye removed
+- [x] Home: card renamed Credit card dues; only credit cards listed (debit cards excluded)
+- [x] Card detail: Edit amounts reachable from every tile, Total outstanding field and headline

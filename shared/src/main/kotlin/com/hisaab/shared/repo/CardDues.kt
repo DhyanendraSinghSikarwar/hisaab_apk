@@ -32,10 +32,14 @@ data class CardPosition(
     val minDueEdited: Boolean = false,
     val dueEdited: Boolean = false,
     val unbilledEdited: Boolean = false,
+    val outstandingEdited: Boolean = false,
     /** The app-calculated position when an override is applied, for "Calculated ₹x" notes. */
     val calculated: CardPosition? = null,
 ) {
-    val edited: Boolean get() = billedEdited || minDueEdited || dueEdited || unbilledEdited
+    val edited: Boolean get() = billedEdited || minDueEdited || dueEdited || unbilledEdited || outstandingEdited
+
+    /** Everything owed now: billed plus unbilled when either is known, else the outstanding figure. */
+    val totalMinor: Long? get() = if (billedMinor != null || unbilledMinor != null) (billedMinor ?: 0L) + (unbilledMinor ?: 0L) else outstandingMinor
     /** What the card owes now: the billed amount, else the outstanding figure. */
     val owedMinor: Long get() = billedMinor?.takeIf { it > 0 } ?: outstandingMinor?.takeIf { it > 0 } ?: 0L
     val known: Boolean get() = billedMinor != null || unbilledMinor != null || outstandingMinor != null
@@ -52,8 +56,10 @@ data class CardOverride(
     val dueEpochDay: Long? = null,
     val unbilledMinor: Long? = null,
     val setAtEpochMs: Long,
+    /** Total owed when no statement is known; replaces the computed outstanding (stored in `openingMinor`). */
+    val outstandingMinor: Long? = null,
 ) {
-    val isEmpty: Boolean get() = billedMinor == null && minDueMinor == null && dueEpochDay == null && unbilledMinor == null
+    val isEmpty: Boolean get() = billedMinor == null && minDueMinor == null && dueEpochDay == null && unbilledMinor == null && outstandingMinor == null
 }
 
 /** Computes [CardPosition]s and records card due messages as statement rows. */
@@ -66,7 +72,7 @@ object CardDues {
     /** The override held by [rows], if any. [cardId] is carried through unchanged. */
     fun overrideOf(rows: List<StatementEntity>, cardId: Long = 0): CardOverride? =
         rows.filter { it.kind == KIND_OVERRIDE }.maxByOrNull { it.processedAt }?.let {
-            CardOverride(cardId, it.totalDueMinor, it.minDueMinor, it.dueEpochDay, it.closingMinor, it.processedAt).takeIf { o -> !o.isEmpty }
+            CardOverride(cardId, it.totalDueMinor, it.minDueMinor, it.dueEpochDay, it.closingMinor, it.processedAt, it.openingMinor).takeIf { o -> !o.isEmpty }
         }
 
     /** [StatementEntity.kind] of a payment the issuer acknowledged; its amount is in `debitsMinor`, its day in `statementEpochDay`. */
@@ -114,6 +120,8 @@ object CardDues {
         val billed = o.billedMinor?.let { it - paid }
         // Paid off: the manual figures are done with.
         if (billed != null && billed <= 0L) return base
+        val outstanding = o.outstandingMinor?.let { it - paid }
+        if (outstanding != null && outstanding <= 0L) return base
         val spent = net(flow, o.setAtEpochMs)
         return base.copy(
             billedMinor = billed ?: base.billedMinor,
@@ -123,6 +131,7 @@ object CardDues {
             estimated = if (o.billedMinor != null) false else base.estimated,
             billedEdited = o.billedMinor != null, minDueEdited = o.minDueMinor != null, dueEdited = o.dueEpochDay != null,
             unbilledEdited = o.unbilledMinor != null, calculated = base,
+            outstandingMinor = outstanding?.let { it + spent } ?: base.outstandingMinor, outstandingEdited = outstanding != null,
         )
     }
 
@@ -193,7 +202,7 @@ class CardOverrideStore @Inject constructor(private val statements: StatementDao
                 id = existing?.id ?: 0, key = key, source = "MANUAL", sender = bank.orEmpty(), subject = null, fileName = "", receivedAt = now,
                 status = StatementEntity.PARSED, transactionCount = 0, holdingCount = 0, filePath = null, bankName = bank, last4 = last4,
                 processedAt = now, kind = CardDues.KIND_OVERRIDE, totalDueMinor = o.billedMinor, minDueMinor = o.minDueMinor,
-                dueEpochDay = o.dueEpochDay, closingMinor = o.unbilledMinor,
+                dueEpochDay = o.dueEpochDay, closingMinor = o.unbilledMinor, openingMinor = o.outstandingMinor,
             ),
         )
     }

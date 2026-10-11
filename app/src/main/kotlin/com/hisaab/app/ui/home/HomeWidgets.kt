@@ -471,7 +471,7 @@ fun CreditCardsWidget(w: HomeWidgets, onOpenCard: (Long) -> Unit, edit: WidgetEd
     var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     val totalBilled = cards.sumOf { it.owedMinor }
     val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, label = "cards-chevron")
-    WidgetCard(t("Credit cards"), edit = edit) {
+    WidgetCard(t("Credit card dues"), edit = edit) {
         if (cards.isEmpty()) {
             Hint(t("No credit cards yet."))
             return@WidgetCard

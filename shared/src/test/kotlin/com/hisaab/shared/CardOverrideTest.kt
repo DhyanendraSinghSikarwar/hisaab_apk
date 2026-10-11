@@ -96,6 +96,41 @@ class CardOverrideTest {
         assertTrue(p.unbilledEdited)
     }
 
+    private fun overrideWith(billed: Long? = null, unbilled: Long? = null, outstanding: Long? = null) =
+        override(billed = billed, unbilled = unbilled).copy(openingMinor = outstanding)
+
+    @Test
+    fun `card with no statement - override is the only row`() {
+        val p = pos(listOf(override(billed = 500_000, unbilled = 120_000)))
+        assertEquals(500_000L, p.billedMinor)
+        assertEquals(120_000L, p.unbilledMinor)
+        assertEquals(620_000L, p.totalMinor)
+        assertTrue(p.billedEdited && p.unbilledEdited)
+    }
+
+    @Test
+    fun `total-only edit replaces outstanding and adds later spends`() {
+        val flow = listOf(CardFlow(ms(LocalDate.of(2026, 9, 24)), TransactionType.DEBIT, 30_000))
+        val p = pos(listOf(overrideWith(outstanding = 800_000)), flow)
+        assertEquals(830_000L, p.outstandingMinor)
+        assertEquals(830_000L, p.totalMinor)
+        assertTrue(p.outstandingEdited)
+    }
+
+    @Test
+    fun `billed and unbilled edit changes the total`() {
+        val p = pos(listOf(bill, override(billed = 700_000, unbilled = 100_000)))
+        assertEquals(800_000L, p.totalMinor)
+    }
+
+    @Test
+    fun `outstanding override clears on full payment and on a newer statement`() {
+        val pay = base(CardDues.KIND_PAYMENT, "cardpay:z", day = LocalDate.of(2026, 9, 24), paid = 800_000)
+        assertFalse(pos(listOf(pay, overrideWith(outstanding = 800_000))).outstandingEdited)
+        val newer = base(CardDues.KIND_DUE, "carddue:n", 900_000, LocalDate.of(2026, 10, 28), LocalDate.of(2026, 9, 24))
+        assertFalse(pos(listOf(newer, overrideWith(outstanding = 800_000))).edited)
+    }
+
     @Test
     fun `without the override row the calculated position returns`() {
         val flow = listOf(CardFlow(ms(LocalDate.of(2026, 9, 24)), TransactionType.DEBIT, 30_000))

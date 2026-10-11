@@ -69,9 +69,10 @@ private fun rupees(minor: Long?) = minor?.let { if (it % 100 == 0L) (it / 100).t
 private fun currentOverride(p: CardPosition) = Four(
     p.billedMinor.takeIf { p.billedEdited }, p.minDueMinor.takeIf { p.minDueEdited },
     p.dueDay?.toEpochDay().takeIf { p.dueEdited }, p.unbilledMinor.takeIf { p.unbilledEdited },
+    p.outstandingMinor.takeIf { p.outstandingEdited },
 )
 
-private data class Four(val billed: Long?, val minDue: Long?, val due: Long?, val unbilled: Long?)
+private data class Four(val billed: Long?, val minDue: Long?, val due: Long?, val unbilled: Long?, val outstanding: Long?)
 
 /**
  * "Edit amounts": billed, minimum due, due date and unbilled for one card. A value left equal to the calculated one is
@@ -89,12 +90,24 @@ internal fun CardAmountsSheet(cardId: Long, bank: String, last4: String, positio
 
     fun parse(s: String): Long? = if (s.isBlank()) null else Money.parseInput(s)
     fun bad(s: String) = s.isNotBlank() && (Money.parseInput(s)?.let { it < 0 } ?: true)
-    val invalid = bad(billed) || bad(minDue) || bad(unbilled)
+    // The total follows billed and unbilled until it is typed in.
+    var totalText by remember { mutableStateOf<String?>(null) }
+    val bV = parse(billed)
+    val uV = parse(unbilled)
+    val derivedTotal = if (bV != null || uV != null) (bV ?: 0L) + (uV ?: 0L) else position.totalMinor
+    val total = totalText ?: rupees(derivedTotal)
+    val typedTotal = totalText?.let(::parse)
+    val invalid = bad(billed) || bad(minDue) || bad(unbilled) || bad(total)
+    // A typed total sets unbilled to the rest when billed or unbilled is known and unbilled was not edited; else it is the outstanding.
+    val known = bV != null || uV != null
+    val splitUnbilled = if (typedTotal != null && known && uV == position.unbilledMinor) (typedTotal - (bV ?: 0L)).coerceAtLeast(0L) else uV
+    val outstandingValue = if (typedTotal != null && !known) typedTotal else null
     // Equal to the calculated value: nothing to override.
     fun keep(v: Long?, c: Long?) = v?.takeIf { it != c }
     val next = Four(
-        keep(parse(billed), calc.billedMinor), keep(parse(minDue), calc.minDueMinor),
-        keep(due, calc.dueDay?.toEpochDay()), keep(parse(unbilled), calc.unbilledMinor),
+        keep(bV, calc.billedMinor), keep(parse(minDue), calc.minDueMinor),
+        keep(due, calc.dueDay?.toEpochDay()), keep(splitUnbilled, calc.unbilledMinor),
+        keep(outstandingValue, calc.outstandingMinor),
     )
     val changed = next != currentOverride(position)
 
@@ -104,7 +117,11 @@ internal fun CardAmountsSheet(cardId: Long, bank: String, last4: String, positio
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text(t("Edit amounts"), style = MaterialTheme.typography.titleLarge)
-            AmountField(t("Billed amount (₹)"), billed, { billed = it }, calc.billedMinor?.let { Money.format(it, showPaise = false) }, bad(billed), parse(billed) != calc.billedMinor) { billed = rupees(calc.billedMinor) }
+            AmountField(
+                t("Total outstanding (₹)"), total, { totalText = it }, calc.totalMinor?.let { Money.format(it, showPaise = false) }, bad(total),
+                derivedTotal != calc.totalMinor,
+            ) { totalText = null; billed = rupees(calc.billedMinor); unbilled = rupees(calc.unbilledMinor) }
+            AmountField(t("Billed amount (₹)"), billed, { billed = it; totalText = null }, calc.billedMinor?.let { Money.format(it, showPaise = false) }, bad(billed), parse(billed) != calc.billedMinor) { billed = rupees(calc.billedMinor) }
             AmountField(t("Minimum due (₹, optional)"), minDue, { minDue = it }, calc.minDueMinor?.let { Money.format(it, showPaise = false) }, bad(minDue), parse(minDue) != calc.minDueMinor) { minDue = rupees(calc.minDueMinor) }
             // Payment due date.
             val press = remember { MutableInteractionSource() }
@@ -117,12 +134,12 @@ internal fun CardAmountsSheet(cardId: Long, bank: String, last4: String, positio
                 )
                 NoteRow(calc.dueDay?.format(SHEET_DATE), due != calc.dueDay?.toEpochDay()) { due = calc.dueDay?.toEpochDay() }
             }
-            AmountField(t("Unbilled amount (₹)"), unbilled, { unbilled = it }, calc.unbilledMinor?.let { Money.format(it, showPaise = false) }, bad(unbilled), parse(unbilled) != calc.unbilledMinor) { unbilled = rupees(calc.unbilledMinor) }
+            AmountField(t("Unbilled amount (₹)"), unbilled, { unbilled = it; totalText = null }, calc.unbilledMinor?.let { Money.format(it, showPaise = false) }, bad(unbilled), parse(unbilled) != calc.unbilledMinor) { unbilled = rupees(calc.unbilledMinor) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = onDismiss, Modifier.weight(1f)) { Text(t("Cancel")) }
                 Button(
                     onClick = {
-                        vm.save(cardId, bank, last4, CardOverride(cardId, next.billed, next.minDue, next.due, next.unbilled, System.currentTimeMillis()), onDismiss)
+                        vm.save(cardId, bank, last4, CardOverride(cardId, next.billed, next.minDue, next.due, next.unbilled, System.currentTimeMillis(), next.outstanding), onDismiss)
                     },
                     Modifier.weight(1f), enabled = changed && !invalid,
                 ) { Text(t("Save")) }

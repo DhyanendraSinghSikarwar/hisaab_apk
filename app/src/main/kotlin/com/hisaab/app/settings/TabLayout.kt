@@ -26,7 +26,7 @@ object TabLayouts {
 
     val DEFAULTS: Map<String, List<Section>> = mapOf(
         HOME to listOf(
-            Section("spent", "Spent this month"), Section("cards", "Credit cards"), Section("cashflow", "Cash flow"),
+            Section("spent", "Spent this month"), Section("cards", "Credit card dues"), Section("cashflow", "Cash flow"),
             Section("upcoming", "Upcoming"), Section("insights", "Insights"), Section("categories", "Spend by category"),
             Section("recent", "Recent transactions"), Section("budgets", "Budgets"),
         ),

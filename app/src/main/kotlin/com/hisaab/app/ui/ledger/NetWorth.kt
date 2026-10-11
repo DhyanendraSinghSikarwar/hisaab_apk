@@ -187,8 +187,9 @@ class NetWorthSource @Inject constructor(
     }
 
     private fun isCreditCard(a: AccountWithActivity) =
-        a.kind == AccountKind.CARD && (a.accountType == AccountType.CREDIT_CARD ||
-            (a.accountType == null && (a.availableLimitMinor != null || a.latestBalanceMinor == null)))
+        // An untyped card is a credit card only with a limit in its alerts; debit cards carry balances, never limits.
+        a.kind == AccountKind.CARD && !a.isDebitCard && (a.accountType == AccountType.CREDIT_CARD ||
+            (a.accountType == null && a.availableLimitMinor != null))
 
     private fun cardFor(st: StatementEntity, accs: List<AccountWithActivity>): AccountWithActivity? =
         accs.firstOrNull { it.kind == AccountKind.CARD && it.last4 == st.last4 && it.bankName.equals(st.bankName, ignoreCase = true) }
