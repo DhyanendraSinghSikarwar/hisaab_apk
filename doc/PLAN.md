@@ -199,3 +199,4 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] Support: amounts 100/200/500/custom; cup icon instead of heart
 - [x] More brand logos in transactions (popular spend brands)
 - [x] Card bill payments never counted as spend (shown in transactions as "Credit card bill"); card and account spends to others counted; one shared definition (type TRANSFER, which every spend/income query and LedgerMath/MonthSpend already exclude). Detection: `parser-core/.../rules/CardBill.kt` (bank SMS, email, payment-app notifications kept as transfers, typed entries), 5-day pairing with card-side payment, one-time sweep `cardbill_v1`; tests in `CardBillTest`; shared/app build unverified
+- [x] Home credit card rows: due amount at the right edge

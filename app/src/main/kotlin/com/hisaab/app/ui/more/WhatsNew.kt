@@ -41,6 +41,17 @@ data class ChangeEntry(val version: String, val points: List<String>)
 
 /** Notes shipped inside the app, newest first. Strings go through [t] when the list is built. */
 fun bundledChangelog(): List<ChangeEntry> = listOf(
+    ChangeEntry("2.9.0", listOf(
+        t("Spent this month card on Home, following Period and Book"),
+        t("Credit card dues with billed, unbilled and limit, editable on the card page"),
+        t("Card bill reminders with Mark paid"),
+        t("Payments linked to loans, and duplicate loans merged"),
+        t("Holdings files from Groww, Zerodha, Kuvera and INDmoney"),
+        t("Untracked payments detected from the next balance"),
+        t("Transfers between your accounts and cards; card bills never counted as spend"),
+        t("One transaction per payment across SMS, email and notifications"),
+        t("49 more brand logos"),
+    )),
     ChangeEntry("2.7.0", listOf(
         t("Sync also re-reads the last 14 days of SMS"),
         t("Separate Credit cards card on Home with the billed amount to pay"),

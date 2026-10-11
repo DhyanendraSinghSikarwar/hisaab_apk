@@ -39,3 +39,8 @@ The repo is on OneDrive, so builds run in a mirror outside it:
 - Push to `main`; `.github/workflows/release.yml` publishes a GitHub release when `versionName` is new
   (needs secrets `HISAAB_RELEASE_KEYSTORE`, `HISAAB_KEYSTORE_PASSWORD`, `HISAAB_DEBUG_KEYSTORE`, `HISAAB_KEY_LINEAGE`).
 - Commit messages: `feat: vX.Y.Z - <short summary>`.
+
+## Docs
+- Each release adds a `CHANGELOG.md` entry (newest first, Added/Changed/Fixed) and the in-app list in `ui/more/WhatsNew.kt`.
+- Update `FEATURES.md` for anything user-visible; it describes the app as it is now.
+- `doc/PLAN.md` stays the request log.

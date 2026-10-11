@@ -548,16 +548,17 @@ private fun CardHomeRow(c: com.hisaab.app.ui.ledger.CardLimit, onOpenCard: (Long
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 c.last4.takeIf { it.isNotBlank() }?.let { Text(" ••$it", fontSize = 12.sp, color = Hx.text2, maxLines = 1) }
-                Spacer(Modifier.width(8.dp))
-                if (owed != null) {
-                    Text(
-                        (if (c.estimated && billed != null) "~" else "") + cardAmount(owed), fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                        color = amountColour, maxLines = 1,
-                    )
-                } else Text(t("No dues"), fontSize = 13.sp, color = Hx.text2, maxLines = 1)
             }
             status?.let { Text(it, fontSize = 11.sp, color = statusColour, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
+        Spacer(Modifier.width(8.dp))
+        // The amount owed sits at the right edge of the row.
+        if (owed != null) {
+            Text(
+                (if (c.estimated && billed != null) "~" else "") + cardAmount(owed), fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                color = amountColour, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            )
+        } else Text(t("No dues"), fontSize = 13.sp, color = Hx.text2, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.End)
         if (canPay && due != null) com.hisaab.app.ui.accounts.MarkPaidButton(c.id, due)
     }
 }
