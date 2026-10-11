@@ -221,7 +221,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
             composable("compare/{a}/{b}", arguments = listOf(navArgument("a") { type = NavType.LongType }, navArgument("b") { type = NavType.LongType })) {
                 CompareRoute(onBack = nav::popBackStack)
             }
-            composable("add") { AddTransactionRoute(onDone = nav::popBackStack) }
+            composable("add?gap={gap}", arguments = listOf(navArgument("gap") { type = NavType.StringType; defaultValue = "" })) { AddTransactionRoute(onDone = nav::popBackStack) }
             composable(
                 "statements?unlock={unlock}",
                 arguments = listOf(navArgument("unlock") { type = NavType.LongType; defaultValue = -1L }),
@@ -244,7 +244,7 @@ fun HisaabNavHost(nav: NavHostController = rememberNavController()) {
                 "account/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType }),
                 deepLinks = listOf(navDeepLink { uriPattern = "hisaab://account/{id}" }),
             ) {
-                com.hisaab.app.ui.accounts.AccountDetailRoute(onBack = nav::popBackStack, onOpenTransactions = { nav.navigate("transactions?accountId=$it") })
+                com.hisaab.app.ui.accounts.AccountDetailRoute(onBack = nav::popBackStack, onOpenTransactions = { nav.navigate("transactions?accountId=$it") }, onAddForGap = { nav.navigate(it) })
             }
             composable("loans") {
                 com.hisaab.app.ui.loans.LoansRoute(onBack = nav::popBackStack, onOpenLoan = { nav.navigate(com.hisaab.app.ui.loans.loanRoute(it)) })

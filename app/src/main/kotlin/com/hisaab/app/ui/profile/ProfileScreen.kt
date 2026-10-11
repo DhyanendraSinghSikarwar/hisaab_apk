@@ -28,7 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Check
@@ -235,7 +235,7 @@ fun ProfileRoute(
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back")) } },
             actions = {
                 if (com.hisaab.app.ui.more.SupportConfig.available(LocalContext.current)) {
-                    IconButton(onClick = onOpenSupport) { Icon(Icons.Filled.Favorite, t("Support"), tint = Hx.accent) }
+                    IconButton(onClick = onOpenSupport) { Icon(Icons.Filled.LocalCafe, t("Support"), tint = Hx.accent) }
                 }
             },
         )

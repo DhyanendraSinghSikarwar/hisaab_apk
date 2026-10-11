@@ -74,7 +74,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import com.hisaab.shared.db.StatementDao
 import com.hisaab.shared.repo.CardDues
 import com.hisaab.shared.repo.CardPosition
@@ -94,8 +96,21 @@ sealed interface AccountRange {
 }
 
 @HiltViewModel
-class AccountDetailViewModel @Inject constructor(handle: SavedStateHandle, accounts: AccountDao, private val dao: TransactionDao, statements: StatementDao) : ViewModel() {
+class AccountDetailViewModel @Inject constructor(
+    handle: SavedStateHandle, accounts: AccountDao, private val dao: TransactionDao, statements: StatementDao,
+    private val gaps: GapTracker, private val repository: com.hisaab.shared.repo.TransactionRepository,
+) : ViewModel() {
     val id: Long = checkNotNull(handle.get<Long>("id"))
+
+    /** Money that moved on this account with no message, with rows that may be it. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val gap = gaps.open.mapLatest { list -> list.firstOrNull { it.accountId == id }?.let { GapUi(it, gaps.candidates(it)) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun ignoreGap(g: com.hisaab.shared.insight.UntrackedGap) { viewModelScope.launch { gaps.dismiss(g) } }
+
+    /** Puts account-less rows (payment-app notifications) on this account; balances follow. */
+    fun assign(ids: List<Long>) { viewModelScope.launch { ids.forEach { repository.setAccount(it, id) } } }
     val account = accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())).map { all -> all.firstOrNull { it.id == id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val range = MutableStateFlow<AccountRange>(AccountRange.SixMonths)
@@ -149,8 +164,9 @@ private val com.hisaab.shared.db.AccountWithActivity.isCreditCard: Boolean get()
 /** One account: its balance, and spending and income month by month as two lines. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, vm: AccountDetailViewModel = hiltViewModel()) {
+fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, onAddForGap: (String) -> Unit = {}, vm: AccountDetailViewModel = hiltViewModel()) {
     val a by vm.account.collectAsStateWithLifecycle()
+    val gap by vm.gap.collectAsStateWithLifecycle()
     val months by vm.months.collectAsStateWithLifecycle()
     val range by vm.range.collectAsStateWithLifecycle()
     val card by vm.card.collectAsStateWithLifecycle()
@@ -170,6 +186,9 @@ fun AccountDetailRoute(onBack: () -> Unit, onOpenTransactions: (Long) -> Unit, v
             Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            gap?.let { g ->
+                GapCard(g, "${acc.nickname ?: acc.bankName} ••${acc.last4}", onAdd = { onAddForGap(gapRoute(g.gap)) }, onIgnore = { vm.ignoreGap(g.gap) }, onAssign = vm::assign)
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AccountAvatar(acc.bankName, acc.kind, acc.accountType, business = acc.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = acc.cardNetwork, size = 52.dp)
                 Spacer(Modifier.width(14.dp))

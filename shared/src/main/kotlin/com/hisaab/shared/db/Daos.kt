@@ -341,6 +341,10 @@ interface TransactionSourceDao {
     @Query("SELECT DISTINCT transactionId, source FROM transaction_sources WHERE transactionId IN (:ids)")
     suspend fun sourcesOf(ids: List<Long>): List<SourceOfTransaction>
 
+    /** Transactions with a source message id starting [prefix] (the legs of a transfer the user entered, see [TransferLegs]). */
+    @Query("SELECT transactionId FROM transaction_sources WHERE sourceMessageId LIKE :prefix || '%'")
+    suspend fun idsWithPrefix(prefix: String): List<Long>
+
     @Query("SELECT * FROM transaction_sources WHERE id = :id")
     suspend fun getById(id: Long): TransactionSourceEntity?
 
@@ -465,6 +469,7 @@ interface AccountDao {
                   COALESCE((SELECT SUM(CASE WHEN t.type = 'CREDIT' THEN t.inrMinor
                                             WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.inrMinor
                                             WHEN t.type = 'TRANSFER' AND a.kind = 'CARD' THEN t.inrMinor
+                                            WHEN t.type = 'TRANSFER' THEN ${TransferLegs.SIGNED_SQL}
                                             ELSE 0 END)
                             FROM transactions t
                             WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id OR c.mergedIntoId = a.id OR c.linkedAccountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = a.id)))
@@ -473,6 +478,7 @@ interface AccountDao {
                   COALESCE((SELECT SUM(CASE WHEN t.type = 'CREDIT' THEN t.inrMinor
                                             WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.inrMinor
                                             WHEN t.type = 'TRANSFER' AND a.kind = 'CARD' THEN t.inrMinor
+                                            WHEN t.type = 'TRANSFER' THEN ${TransferLegs.SIGNED_SQL}
                                             ELSE 0 END)
                             FROM transactions t
                             WHERE (t.accountId = a.id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = a.id OR c.mergedIntoId = a.id OR c.linkedAccountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = a.id)))
@@ -545,8 +551,9 @@ interface ReconcileDao {
         """SELECT COALESCE(SUM(CASE WHEN t.type = 'CREDIT' THEN t.inrMinor
                                     WHEN t.type IN ('DEBIT', 'INVESTMENT') THEN -t.inrMinor
                                     WHEN t.type = 'TRANSFER' AND :card THEN t.inrMinor
+                                    WHEN t.type = 'TRANSFER' THEN ${TransferLegs.SIGNED_SQL}
                                     ELSE 0 END), 0) AS net,
-                  COALESCE(SUM(CASE WHEN t.inrMinor IS NULL OR (t.type = 'TRANSFER' AND NOT :card) THEN 1 ELSE 0 END), 0) AS unclear
+                  COALESCE(SUM(CASE WHEN t.inrMinor IS NULL OR (t.type = 'TRANSFER' AND NOT :card AND ${TransferLegs.SIGNED_SQL} = 0) THEN 1 ELSE 0 END), 0) AS unclear
            FROM transactions t
            WHERE (t.accountId = :id OR t.accountId IN (SELECT c.id FROM accounts c WHERE c.linkedAccountId = :id OR c.mergedIntoId = :id OR c.linkedAccountId IN (SELECT m.id FROM accounts m WHERE m.mergedIntoId = :id)))
              AND t.timestamp > :from AND t.timestamp <= :to AND t.needsReview = 0""",

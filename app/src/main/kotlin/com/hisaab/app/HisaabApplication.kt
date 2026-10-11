@@ -56,6 +56,12 @@ class HisaabApplication : Application(), Configuration.Provider {
             if (prefs.getBoolean(APP_ROWS_KEY, false)) return@launch
             runCatching { transactions.reattributeAppRows() }.onSuccess { prefs.edit().putBoolean(APP_ROWS_KEY, true).apply() }
         }
+        // Credit card bill payments stored as spends become transfers, once.
+        appScope.launch {
+            val prefs = getSharedPreferences("maintenance", MODE_PRIVATE)
+            if (prefs.getBoolean(CARD_BILL_KEY, false)) return@launch
+            runCatching { transactions.reclassifyCardBills() }.onSuccess { prefs.edit().putBoolean(CARD_BILL_KEY, true).apply() }
+        }
         // Folds the same investment seen from several statements into one holding.
         appScope.launch { runCatching { holdings.dedupe() } }
         // The user's own mobile numbers never become accounts from messages; keep the guard current as the profile changes.
@@ -88,5 +94,6 @@ class HisaabApplication : Application(), Configuration.Provider {
     private companion object {
         const val REPARSE_KEY = "reparse_v1"
         const val APP_ROWS_KEY = "app_rows_v1"
+        const val CARD_BILL_KEY = "cardbill_v1"
     }
 }

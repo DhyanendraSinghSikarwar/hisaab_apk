@@ -298,7 +298,8 @@ fun DataSourcesRoute(
                         s.appNotifications -> t("Needs access") to Hx.warn
                         else -> t("Off") to Hx.text2
                     },
-                    detail = t("UPI payments from GPay, PhonePe, Paytm and others that send no bank SMS."),
+                    detail = t("UPI payments from GPay, PhonePe, Paytm and others that send no bank SMS. Bank apps such as YONO SBI are read too.") +
+                        if (s.appNotifications) "" else " " + t("Turn on if a transfer left no message."),
                     toggle = s.appNotifications,
                     onToggle = { v -> settings.setAppNotifications(v); if (v && !notifAccess) openNotifAccess() },
                 ) {

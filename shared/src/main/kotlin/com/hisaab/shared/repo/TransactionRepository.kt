@@ -8,12 +8,15 @@ import com.hisaab.parser.bank.DepositInfo
 import com.hisaab.parser.dedup.DedupDecision
 import com.hisaab.parser.dedup.DedupLookup
 import com.hisaab.parser.dedup.DuplicateMatcher
+import com.hisaab.parser.dedup.MatchReason
 import com.hisaab.parser.dedup.StoredTransaction
 import com.hisaab.parser.model.AccountKind
 import com.hisaab.parser.model.ParsedTransaction
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.model.TransactionType
 import com.hisaab.parser.registry.ParserRegistry
+import com.hisaab.parser.rules.CardBill
+import com.hisaab.parser.text.TextNormalizer
 import com.hisaab.parser.model.Category
 import com.hisaab.parser.model.Channel
 import com.hisaab.shared.db.AccountEntity
@@ -25,6 +28,7 @@ import com.hisaab.shared.db.ProcessedEmailEntity
 import com.hisaab.shared.db.RuleMatch
 import com.hisaab.shared.db.TransactionEntity
 import com.hisaab.shared.db.TransactionSourceEntity
+import com.hisaab.shared.db.TransferLegs
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -169,14 +173,21 @@ class TransactionRepository @Inject constructor(
         m: IncomingMessage, now: Long, manual: List<MerchantRuleEntity>, gaps: MutableList<BalanceGap> = ArrayList(),
     ): IngestOutcome {
         // A category the user set for this merchant wins over the parser's guess.
-        val rule = ruleFor(m.parsed, manual)
-        val tx = rule?.let { m.parsed.copy(category = it.category) } ?: m.parsed
+        // Paying a credit card's bill (typed in, or any message the parser read as a plain debit) is a transfer, never a spend.
+        val parsed = CardBill.mark(m.parsed, m.rawText)
+        // Money that left a bank account or wallet for a card is noted as such, so its direction stays known.
+        val billMarked = parsed.type == TransactionType.TRANSFER && parsed.accountKind == AccountKind.ACCOUNT &&
+            (m.parsed.type == TransactionType.DEBIT || CardBill.isBill(m.rawText, parsed.merchant, parsed.upiId))
+        val rule = ruleFor(parsed, manual)
+        val tx = rule?.let { parsed.copy(category = it.category) } ?: parsed
         fun TransactionEntity.filed() = if (rule == null) this else copy(subcategory = rule.subcategory, customCategoryId = rule.customCategoryId)
         if (sourceDao.exists(m.sourceName, m.sourceMessageId)) return IngestOutcome.ALREADY_PROCESSED
         if (deletedDao.exists(m.sourceName, m.sourceMessageId)) return IngestOutcome.ALREADY_PROCESSED
 
-        val decision = DuplicateMatcher.decide(tx, lookup)
+        val decided = DuplicateMatcher.decide(tx, lookup)
         var accountId = ensureAccount(tx, m.rawText)
+        // The bank's own message for a transfer the user entered by hand joins that leg instead of counting twice.
+        val decision = if (decided is DedupDecision.Duplicate) decided else manualLegFor(tx, accountId)?.let { DedupDecision.Duplicate(it, MatchReason.FUZZY) } ?: decided
         if (accountId == null && tx.source == Source.APP) accountId = rememberedAccount(tx)
         val txId: Long
         val outcome: IngestOutcome
@@ -218,7 +229,10 @@ class TransactionRepository @Inject constructor(
                 }
             }
         }
-        if (outcome == IngestOutcome.INSERTED) pairTransfers(txId)
+        if (outcome == IngestOutcome.INSERTED) {
+            if (billMarked) txDao.getById(txId)?.takeIf { it.note == null }?.let { txDao.update(it.copy(note = CARD_BILL_NOTE)) }
+            pairTransfers(txId)
+        }
         sourceDao.insert(
             TransactionSourceEntity(
                 transactionId = txId, source = m.sourceName, sourceMessageId = m.sourceMessageId, sender = tx.sender,
@@ -322,16 +336,18 @@ class TransactionRepository @Inject constructor(
                 }
                 // A bank debit that pays a card bill already recorded on the card side.
                 if (t.type == TransactionType.DEBIT && t.accountKind == AccountKind.ACCOUNT) {
-                    txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - 72 * hour, t.timestamp + 72 * hour)
-                        .firstOrNull { it.type == TransactionType.TRANSFER && it.accountKind == AccountKind.CARD }
-                        ?.let { markTransfer(t, "Credit card bill payment") }
+                    txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - CARD_PAIR_WINDOW, t.timestamp + CARD_PAIR_WINDOW)
+                        .firstOrNull { it.id != t.id && it.type == TransactionType.TRANSFER && (it.accountKind == AccountKind.CARD || it.note?.startsWith(CARD_BILL_NOTE) == true) }
+                        ?.let { markTransfer(t, CARD_BILL_NOTE); return }
                 }
                 if (t.type == TransactionType.DEBIT) pairEmi(t, accountId)
             }
             t.type == TransactionType.TRANSFER && t.accountKind == AccountKind.CARD -> {
-                txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - 72 * hour, t.timestamp + 72 * hour)
-                    .firstOrNull { it.type == TransactionType.DEBIT && it.accountKind == AccountKind.ACCOUNT }
-                    ?.let { markTransfer(it, "Credit card bill payment") }
+                // The bank's debit for this payment, whatever its wording: the nearest one in time becomes the bill payment's other leg.
+                txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - CARD_PAIR_WINDOW, t.timestamp + CARD_PAIR_WINDOW)
+                    .filter { it.id != t.id && it.type == TransactionType.DEBIT && it.accountKind == AccountKind.ACCOUNT }
+                    .minByOrNull { kotlin.math.abs(it.timestamp - t.timestamp) }
+                    ?.let { markTransfer(it, CARD_BILL_NOTE) }
             }
         }
     }
@@ -398,6 +414,57 @@ class TransactionRepository @Inject constructor(
 
     private suspend fun markTransfer(t: TransactionEntity, note: String) {
         txDao.update(t.copy(type = TransactionType.TRANSFER, category = Category.TRANSFER, note = t.note ?: note))
+    }
+
+    /** The id of a hand-entered transfer leg that a bank [tx] on [accountId] is the message for: same amount, direction and account within 36 hours. */
+    private suspend fun manualLegFor(tx: ParsedTransaction, accountId: Long?): Long? {
+        if (accountId == null || (tx.type != TransactionType.DEBIT && tx.type != TransactionType.CREDIT)) return null
+        val span = 36 * 60 * 60 * 1000L
+        val legs = txDao.findPotentialDuplicates(tx.amountMinor, tx.transactionTime - span, tx.transactionTime + span)
+            .filter { it.type == TransactionType.TRANSFER && it.accountId == accountId }
+        if (legs.isEmpty()) return null
+        val marked = sourceDao.idsWithPrefix(if (tx.type == TransactionType.DEBIT) TransferLegs.OUT_PREFIX else TransferLegs.IN_PREFIX).toSet()
+        return legs.filter { it.id in marked }.minByOrNull { kotlin.math.abs(it.timestamp - tx.transactionTime) }?.id
+    }
+
+    /**
+     * A transfer between the user's own accounts or cards that no bank message reported: a debit leg on [fromId] and a
+     * credit leg on [toId] (one of them may be null when the other side is not tracked). Both legs are TRANSFER rows, so
+     * neither counts as spending or income; a credit card on the receiving side counts it as a bill payment (its billed
+     * amount falls and its available limit rises), a bank account's balance moves by the leg's direction. The legs are
+     * MANUAL, so the bank's message for the same payment, when it comes, merges into the leg. Returns the leg ids.
+     */
+    suspend fun addOwnTransfer(fromId: Long?, toId: Long?, amountMinor: Long, time: Long, note: String? = null): List<Long> {
+        require(amountMinor > 0 && (fromId != null || toId != null))
+        val ids = ArrayList<Long>()
+        write {
+            val from = fromId?.let { accountDao.getById(it) }
+            val to = toId?.let { accountDao.getById(it) }
+            val now = System.currentTimeMillis()
+            val pair = java.util.UUID.randomUUID().toString()
+            suspend fun leg(a: AccountEntity, other: AccountEntity?, out: Boolean) {
+                val label = other?.let { BalanceReconciler.accountLabel(it.bankName, it.last4, it.nickname) }
+                val hash = "manual-xfer:$pair:${if (out) "out" else "in"}"
+                val id = txDao.insert(
+                    TransactionEntity(
+                        amountMinor = amountMinor, currency = "INR", type = TransactionType.TRANSFER, bankName = a.bankName, accountLast4 = a.last4,
+                        accountKind = a.kind, accountId = a.id, merchant = label?.let { (if (out) "To " else "From ") + it }, upiId = null, referenceNumber = null,
+                        channel = Channel.OTHER, balanceMinor = null, availableLimitMinor = null, timestamp = time, hasExplicitTime = true,
+                        category = Category.TRANSFER, transactionHash = hash, confidence = 1f, note = note, createdAt = now,
+                    ),
+                )
+                sourceDao.insert(
+                    TransactionSourceEntity(
+                        transactionId = id, source = "MANUAL", sourceMessageId = (if (out) TransferLegs.OUT_PREFIX else TransferLegs.IN_PREFIX) + pair,
+                        sender = "Manual", parsedHash = hash, rawText = null, receivedAt = now,
+                    ),
+                )
+                ids += id
+            }
+            from?.let { leg(it, to, out = true) }
+            to?.let { leg(it, from, out = false) }
+        }
+        return ids
     }
 
     /** A transaction typed in, or read from a screenshot. Goes through dedup like any message. */
@@ -730,7 +797,60 @@ class TransactionRepository @Inject constructor(
         db.useWriterConnection { it.immediateTransaction { block() } }
     }
 
+    /**
+     * One-off (and safe to repeat) sweep for credit card bill payments stored as spends: a bank, wallet or app DEBIT whose payee
+     * or stored message reads as a card bill becomes a TRANSFER, and every card-side payment is paired with the bank debit of
+     * the same amount near it. Rows the user filed in their own category are left alone. Returns how many rows changed.
+     */
+    suspend fun reclassifyCardBills(): Int {
+        val bills = ArrayList<Long>()
+        var after = 0L
+        while (true) {
+            val page = txDao.pageAfter(after, REPARSE_PAGE)
+            if (page.isEmpty()) break
+            after = page.last().id
+            val debits = page.filter { it.type == TransactionType.DEBIT && it.category != Category.TRANSFER && it.customCategoryId == null }
+            if (debits.isEmpty()) continue
+            val sources = sourceDao.forTransactions(debits.map { it.id }).groupBy { it.transactionId }
+            for (t in debits) {
+                val byPayee = t.accountKind != AccountKind.CARD && CardBill.isPayee(t.merchant, t.upiId)
+                val byText = !byPayee && sources[t.id].orEmpty().any { s ->
+                    val raw = s.rawText?.takeIf { '#' !in s.sourceMessageId } ?: return@any false
+                    val text = TextNormalizer.normalize(raw).let { if (s.source == "EMAIL") TextNormalizer.trimEmail(it) else it }
+                    CardBill.inText(text)
+                }
+                if (byPayee || byText) bills += t.id
+            }
+        }
+        var changed = 0
+        write {
+            for (id in bills) {
+                val t = txDao.getById(id) ?: continue
+                if (t.type != TransactionType.DEBIT) continue
+                markTransfer(t, CARD_BILL_NOTE); changed++
+            }
+            var cursor = 0L
+            while (true) {
+                val page = txDao.pageAfter(cursor, REPARSE_PAGE)
+                if (page.isEmpty()) break
+                cursor = page.last().id
+                for (t in page) if (t.type == TransactionType.TRANSFER && t.accountKind == AccountKind.CARD && t.accountId != null) {
+                    val before = txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - CARD_PAIR_WINDOW, t.timestamp + CARD_PAIR_WINDOW)
+                        .count { it.type == TransactionType.TRANSFER && it.accountKind == AccountKind.ACCOUNT }
+                    pairTransfers(t.id)
+                    val now = txDao.findPotentialDuplicates(t.amountMinor, t.timestamp - CARD_PAIR_WINDOW, t.timestamp + CARD_PAIR_WINDOW)
+                        .count { it.type == TransactionType.TRANSFER && it.accountKind == AccountKind.ACCOUNT }
+                    changed += (now - before).coerceAtLeast(0)
+                }
+            }
+        }
+        return changed
+    }
+
     private companion object {
+        const val CARD_BILL_NOTE = "Credit card bill payment"
+        /** A card's "payment received" and the bank's debit for it can be days apart. */
+        const val CARD_PAIR_WINDOW = 5 * 24 * 60 * 60 * 1000L
         const val RAW_TEXT_CAP = 20_000
         const val CSV = "CSV"
         const val SQLITE_MAX_ARGS = 900

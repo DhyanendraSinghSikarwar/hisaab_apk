@@ -10,6 +10,7 @@ import com.hisaab.parser.model.AccountKind
 import com.hisaab.parser.model.Category
 import com.hisaab.parser.model.Channel
 import com.hisaab.parser.model.TransactionType
+import com.hisaab.parser.rules.CardBill
 import com.hisaab.shared.db.TransactionEntity
 import com.hisaab.shared.insight.Subcategories
 import java.time.format.DateTimeFormatter
@@ -38,6 +39,7 @@ object TxStyle {
 
     /** "Food & Dining › Food delivery", or just the category when there is no telling sub-category. */
     fun category(tx: TransactionEntity): String {
+        if (isCardBill(tx)) return t("Credit card bill")
         if (tx.type == TransactionType.TRANSFER || tx.category == Category.TRANSFER) return t("Transfer")
         val sub = Subcategories.of(tx.category, tx.subcategory, tx.merchant, tx.upiId)
         return if (sub == Subcategories.OTHER || sub.equals(tx.category.label, ignoreCase = true)) t(tx.category.label) else "${t(tx.category.label)} › ${t(sub)}"
@@ -49,6 +51,11 @@ object TxStyle {
         // Payment method and sources show on the transaction's own page, not in lists.
         return listOfNotNull(whenText, category(tx)).joinToString(" · ")
     }
+
+    /** A credit card bill payment (from an account) or the card's "payment received": a transfer that settles the card. */
+    fun isCardBill(tx: TransactionEntity): Boolean =
+        (tx.type == TransactionType.TRANSFER || tx.category == Category.TRANSFER) &&
+            (tx.accountKind == AccountKind.CARD || tx.note?.startsWith(CardBill.LABEL) == true || CardBill.isPayee(tx.merchant, tx.upiId))
 
     private fun isTransfer(tx: TransactionEntity) = tx.type == TransactionType.TRANSFER || tx.category == Category.TRANSFER
 

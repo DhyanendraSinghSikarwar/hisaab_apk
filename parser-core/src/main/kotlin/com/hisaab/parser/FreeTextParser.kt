@@ -17,6 +17,7 @@ import com.hisaab.parser.model.Channel
 import com.hisaab.parser.model.ParsedTransaction
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.model.TransactionType
+import com.hisaab.parser.rules.CardBill
 import com.hisaab.parser.rules.RejectionRules
 import com.hisaab.parser.text.TextNormalizer
 import com.hisaab.parser.text.rx
@@ -98,27 +99,32 @@ class FreeTextParser(private val config: ParserConfig = ParserConfig()) {
         val lower = text.lowercase()
         val signal = SIGNAL.find(text) ?: return skip("no payment wording")
         val type = if (signal.groups["cr"] != null) TransactionType.CREDIT else TransactionType.DEBIT
-        if (TypeClassifier.classify(text, lower = lower) == TransactionType.TRANSFER) return skip("own transfer or card bill")
+        val transferText = TypeClassifier.classify(text, lower = lower) == TransactionType.TRANSFER
         val money = AmountExtractor.extract(text) ?: return skip("no amount")
         if (money.minor <= 0) return skip("no amount")
 
         var (name, vpa) = payee(kept, type)
+        // Paying a card's bill is kept, as a transfer, so it shows in Transactions without counting as a spend.
+        val cardBill = type == TransactionType.DEBIT && (CardBill.inText(text, lower) || CardBill.paidToCard(text) || CardBill.isPayee(name, vpa))
+        if (transferText && !cardBill) return skip("own transfer or card bill")
         if (name == null && vpa == null && type == TransactionType.DEBIT) {
             name = BILL_KIND.find(text)?.let { it.groupValues[1].replaceFirstChar(Char::uppercase) + " bill" }
                 ?: if (RECHARGE.containsMatchIn(text)) "Recharge" else null
         }
         val channel = ChannelDetector.detect(text, lower).let { if (it == Channel.OTHER && appName in UPI_APPS) Channel.UPI else it }
-        val merchant = MerchantNormalizer.normalize(RawMerchant(name, vpa), type, channel, text)
+        val outType = if (cardBill) TransactionType.TRANSFER else type
+        val merchant = MerchantNormalizer.normalize(RawMerchant(name, vpa), outType, channel, text)
         val account = AccountExtractor.extract(text)
         val draft = TransactionDraft(
-            amountMinor = money.minor, currency = money.currency, type = type, merchant = GenericPhrases.clean(merchant.name),
+            amountMinor = money.minor, currency = money.currency, type = outType,
+            merchant = if (cardBill && !CardBill.isPayee(name, vpa)) CardBill.LABEL else GenericPhrases.clean(merchant.name),
             upiId = vpa ?: VPA.find(text)?.value?.lowercase(), reference = UTR.find(text)?.groupValues?.get(1) ?: ReferenceExtractor.normalize(ReferenceExtractor.extract(text, lower)),
             bankName = bankIn(text), last4 = account?.last4, accountKind = account?.kind ?: AccountKind.ACCOUNT,
             channel = channel, category = merchant.category,
             // A notification is about now: dates in it are usually "valid till" or offer dates.
             time = postedAt, hasExplicitTime = false,
         )
-        return NotificationRead(toParsed(draft, type, source, appName, postedAt, confidence = 0.55f), null)
+        return NotificationRead(toParsed(draft, outType, source, appName, postedAt, confidence = 0.55f), null)
     }
 
     /** "Paid 250 to X", "250 sent": gives a bare amount next to a payment verb the symbol the extractor needs. */

@@ -81,7 +81,7 @@ object NotificationCases {
         NotificationCase("BHIM", "123456 is your OTP to pay ₹500", null),
         NotificationCase("BHIM", "Enter UPI PIN to pay ₹250", null),
         NotificationCase("PhonePe", "Scheduled payment", "₹199 will be debited tomorrow for Netflix"),
-        NotificationCase("CRED", "Credit card bill paid", "₹5,000 paid towards your HDFC Bank Credit Card"),
+        NotificationCase("CRED", "Credit card bill paid", "₹5,000 paid towards your HDFC Bank Credit Card", TransactionType.TRANSFER, 5000.0),
         NotificationCase("PhonePe", "Check your balance", "Tap to view"),
         NotificationCase("PhonePe", "New message", "Hi"),
     )

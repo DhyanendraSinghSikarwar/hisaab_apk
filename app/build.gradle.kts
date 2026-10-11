@@ -15,8 +15,8 @@ android {
         applicationId = "com.hisaab"
         minSdk = 26
         targetSdk = 36
-        versionCode = 29
-        versionName = "2.9.4"
+        versionCode = 30
+        versionName = "2.9.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Phones only: drops the emulator (x86) copies of ML Kit's text reader, about 23 MB.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }

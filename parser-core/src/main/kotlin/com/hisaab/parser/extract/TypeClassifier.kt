@@ -17,6 +17,9 @@ object TypeClassifier {
     /** A credit-card bill payment or a move between the user's own accounts: neither income nor spend. */
     private val TRANSFER = Guarded(
         """\bpayment\b.{0,60}?\breceived\b.{0,60}?card\b|\breceived\s+(?:your\s+)?payment\b.{0,70}?card\b|""" +
+            // Card side, other wordings: "Payment of Rs.500 credited/posted to your Credit Card XX1", "Rs.500 credited to your credit card against bill payment".
+            """\bpayment\b.{0,60}?\b(?:credited|posted|reflected)\b.{0,60}?\bcredit\s+card\b|""" +
+            """\bcredit\s+card\b.{0,40}?\bpayment\b.{0,40}?\b(?:credited|posted|reflected|received)\b|""" +
             """\bthank\s+you\s+for\s+(?:your\s+|the\s+)?payment\b|\bself[\s-]transfer\b|\bown\s+account\b|""" +
             """\bbetween\s+your\s+(?:own\s+)?accounts\b|""" +
             // Bank side of a card bill: "debited ... towards your HDFC Bank Credit Card XX5678", "CC bill payment".

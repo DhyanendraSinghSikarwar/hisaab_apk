@@ -57,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -68,6 +69,10 @@ import com.hisaab.app.i18n.t
 import com.hisaab.app.security.AppLockGate
 import com.hisaab.app.ui.components.AccountAvatar
 import com.hisaab.app.ui.components.CategoryBadge
+import com.hisaab.app.ui.accounts.GapTracker
+import com.hisaab.app.ui.accounts.gapSummary
+import com.hisaab.app.ui.accounts.parseGap
+import com.hisaab.app.ui.accounts.rowLine
 import com.hisaab.app.ui.components.CategorySheet
 import com.hisaab.app.ui.format.Money
 import com.hisaab.app.ui.format.Periods
@@ -80,6 +85,10 @@ import com.hisaab.parser.model.Source
 import com.hisaab.parser.model.TransactionType
 import com.hisaab.shared.db.AccountDao
 import com.hisaab.shared.db.AccountEntity
+import com.hisaab.shared.db.TransactionEntity
+import com.hisaab.shared.insight.GapChoice
+import com.hisaab.shared.insight.GapPrefill
+import com.hisaab.shared.insight.UntrackedGap
 import com.hisaab.shared.repo.IngestOutcome
 import com.hisaab.shared.repo.TransactionRepository
 import com.hisaab.shared.repo.TransactionsChangedNotifier
@@ -117,6 +126,14 @@ data class AddState(
     val saved: Boolean = false,
     /** A loan payment was saved: ask which loan it belongs to before leaving. */
     val loanAsk: Boolean = false,
+    /** Own transfer (type TRANSFER): the account the money left and the one it reached; either may be left out. */
+    val fromId: Long? = null,
+    val toId: Long? = null,
+    /** Set when the form was opened from an untracked change (see GapCard). */
+    val gap: GapPrefill? = null,
+    val gapCard: Boolean = false,
+    /** Existing account-less rows that could be that change. */
+    val candidates: List<List<TransactionEntity>> = emptyList(),
 )
 
 @HiltViewModel
@@ -125,13 +142,43 @@ class AddTransactionViewModel @Inject constructor(
     private val repository: TransactionRepository,
     private val notifier: TransactionsChangedNotifier,
     accountDao: AccountDao,
+    handle: SavedStateHandle,
+    private val tracker: GapTracker,
 ) : ViewModel() {
     private val parser = FreeTextParser()
     private val _state = MutableStateFlow(AddState())
     val state = _state.asStateFlow()
     val accounts = accountDao.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    init {
+        parseGap(handle.get<String>("gap"))?.let { g ->
+            viewModelScope.launch {
+                val p = GapPrefill.of(g, tracker.lastChoice(g.accountId))
+                val amount = (p.amountMinor / 100.0).toBigDecimal().stripTrailingZeros().toPlainString()
+                _state.update { it.withChoice(p, p.choice).copy(amount = amount, time = p.time, gap = p, gapCard = g.card) }
+                _state.update { it.copy(candidates = tracker.candidates(g)) }
+            }
+        }
+    }
+
     fun edit(transform: (AddState) -> AddState) = _state.update { transform(it).copy(message = null) }
+
+    /** Payment, money received or own transfer for the gap's account; a transfer puts the account on its side. */
+    private fun AddState.withChoice(p: GapPrefill, choice: GapChoice): AddState = when (choice) {
+        GapChoice.PAYMENT -> copy(type = TransactionType.DEBIT, accountId = p.accountId, fromId = null, toId = null)
+        GapChoice.RECEIVED -> copy(type = TransactionType.CREDIT, accountId = p.accountId, fromId = null, toId = null)
+        GapChoice.TRANSFER -> copy(type = TransactionType.TRANSFER, accountId = null, fromId = p.fromAccountId, toId = p.toAccountId)
+    }
+
+    fun choose(choice: GapChoice) = _state.update { s -> s.gap?.let { s.withChoice(it, choice).copy(message = null) } ?: s }
+
+    /** Puts the account-less rows that look like the gap on its account; nothing else to type. */
+    fun assign(ids: List<Long>) = viewModelScope.launch {
+        val account = _state.value.gap?.accountId ?: return@launch
+        ids.forEach { repository.setAccount(it, account) }
+        notifier.onTransactionsChanged()
+        _state.update { it.copy(saved = true, message = null) }
+    }
 
     /** Reads the screenshot on the device (ML Kit, no network) and fills in whatever the parser finds. */
     fun scan(uri: Uri) = viewModelScope.launch {
@@ -170,6 +217,17 @@ class AddTransactionViewModel @Inject constructor(
             _state.update { it.copy(message = t("Enter the amount")) }
             return@launch
         }
+        if (s.type == TransactionType.TRANSFER) {
+            if ((s.fromId == null && s.toId == null) || s.fromId == s.toId) {
+                _state.update { it.copy(message = t("Choose the accounts the money moved between")) }
+                return@launch
+            }
+            repository.addOwnTransfer(s.fromId, s.toId, minor, s.time, s.note.ifBlank { null })
+            s.gap?.let { tracker.rememberChoice(it.accountId, GapChoice.TRANSFER) }
+            notifier.onTransactionsChanged()
+            _state.update { it.copy(saved = true) }
+            return@launch
+        }
         val account = accounts.value.firstOrNull { it.id == s.accountId }
         val draft = TransactionDraft(
             amountMinor = minor, currency = s.currency, type = s.type, merchant = s.merchant.trim().ifEmpty { null }, upiId = s.upiId,
@@ -179,6 +237,7 @@ class AddTransactionViewModel @Inject constructor(
         val source = if (s.scannedText != null) Source.SCREENSHOT else Source.MANUAL
         val tx = parser.toParsed(draft, s.type, source, sender = account?.bankName ?: "Cash / other", messageTimestamp = System.currentTimeMillis())
         val outcome = repository.addManual(tx, s.scannedText ?: s.note.ifBlank { null })
+        s.gap?.let { tracker.rememberChoice(it.accountId, if (s.type == TransactionType.CREDIT) GapChoice.RECEIVED else GapChoice.PAYMENT) }
         notifier.onTransactionsChanged()
         _state.update {
             it.copy(
@@ -234,22 +293,54 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
             }
             if (s.saved) { Button(onClick = onDone, Modifier.fillMaxWidth()) { Text(t("Done")) }; return@Column }
 
-            val types = listOf(TransactionType.DEBIT to t("Spent"), TransactionType.CREDIT to t("Received"), TransactionType.TRANSFER to t("Transfer"))
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                types.forEachIndexed { i, (ty, label) ->
-                    SegmentedButton(selected = s.type == ty, onClick = { vm.edit { it.copy(type = ty) } }, shape = SegmentedButtonDefaults.itemShape(i, types.size)) { Text(label) }
+            val gap = s.gap
+            if (gap != null) {
+                val untracked = UntrackedGap(gap.accountId, gap.fromTime, gap.toTime, if (gap.outgoing) -gap.amountMinor else gap.amountMinor, 0, 0, s.gapCard)
+                Card(colors = CardDefaults.cardColors(containerColor = com.hisaab.app.ui.theme.Hx.warn.copy(alpha = 0.12f))) {
+                    Text(t("Untracked change · {summary}", "summary" to gapSummary(untracked)), Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+                s.candidates.forEach { rows ->
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(t("Looks like: {rows}", "rows" to rows.joinToString(" + ") { rowLine(it) }), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { vm.assign(rows.map { it.id }) }) { Text(t("Assign")) }
+                        }
+                    }
+                }
+                if (gap.choices.size > 1) {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        gap.choices.forEachIndexed { i, c ->
+                            val label = when (c) {
+                                GapChoice.PAYMENT -> t("Payment")
+                                GapChoice.TRANSFER -> t("Transfer to my account")
+                                GapChoice.RECEIVED -> t("Money received")
+                            }
+                            SegmentedButton(selected = choiceOf(s.type) == c, onClick = { vm.choose(c) }, shape = SegmentedButtonDefaults.itemShape(i, gap.choices.size)) { Text(label, maxLines = 1) }
+                        }
+                    }
+                }
+            } else {
+                val types = listOf(TransactionType.DEBIT to t("Spent"), TransactionType.CREDIT to t("Received"), TransactionType.TRANSFER to t("Transfer"))
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    types.forEachIndexed { i, (ty, label) ->
+                        SegmentedButton(selected = s.type == ty, onClick = { vm.edit { it.copy(type = ty) } }, shape = SegmentedButtonDefaults.itemShape(i, types.size)) { Text(label) }
+                    }
                 }
             }
+            val transfer = s.type == TransactionType.TRANSFER
             OutlinedTextField(
                 s.amount, { v -> vm.edit { it.copy(amount = v) } }, Modifier.fillMaxWidth(), label = { Text(t("Amount")) },
                 prefix = { Text(if (s.currency == "INR") "₹" else s.currency + " ") }, singleLine = true,
                 textStyle = MaterialTheme.typography.headlineSmall,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             )
-            OutlinedTextField(s.merchant, { v -> vm.edit { it.copy(merchant = v) } }, Modifier.fillMaxWidth(),
+            if (transfer) {
+                AccountPicker(accounts.filter { it.kind == AccountKind.ACCOUNT }, s.fromId, t("From"), t("Other account")) { id -> vm.edit { it.copy(fromId = id) } }
+                AccountPicker(accounts, s.toId, t("To"), t("Other account")) { id -> vm.edit { it.copy(toId = id) } }
+            } else OutlinedTextField(s.merchant, { v -> vm.edit { it.copy(merchant = v) } }, Modifier.fillMaxWidth(),
                 label = { Text(if (s.type == TransactionType.CREDIT) t("From") else t("Paid to")) }, singleLine = true)
 
-            Card(Modifier.fillMaxWidth().clickable { pickingCategory = true }) {
+            if (!transfer) Card(Modifier.fillMaxWidth().clickable { pickingCategory = true }) {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     CategoryBadge(s.category, size = 36)
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -260,7 +351,7 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
                 }
             }
 
-            AccountPicker(accounts, s.accountId) { id -> vm.edit { it.copy(accountId = id) } }
+            if (!transfer) AccountPicker(accounts, s.accountId, t("Account"), t("None (cash or other)")) { id -> vm.edit { it.copy(accountId = id) } }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedCard(Modifier.weight(1f).clickable { pickingDate = true }) {
@@ -324,7 +415,7 @@ fun AddTransactionRoute(onDone: () -> Unit, vm: AddTransactionViewModel = hiltVi
 }
 
 @Composable
-private fun AccountPicker(accounts: List<AccountEntity>, selected: Long?, onPick: (Long?) -> Unit) {
+private fun AccountPicker(accounts: List<AccountEntity>, selected: Long?, label: String, noneLabel: String, onPick: (Long?) -> Unit) {
     var open by remember { mutableStateOf(false) }
     val current = accounts.firstOrNull { it.id == selected }
     Column {
@@ -333,13 +424,13 @@ private fun AccountPicker(accounts: List<AccountEntity>, selected: Long?, onPick
                 if (current != null) AccountAvatar(current.bankName, current.kind, current.accountType, business = current.usage == com.hisaab.shared.db.AccountUsage.BUSINESS, network = current.cardNetwork, size = 32.dp)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(t("Account"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(current?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: t("None (cash or other)"), style = MaterialTheme.typography.bodyLarge)
+                    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(current?.let { "${it.nickname ?: it.bankName} ••${it.last4}" } ?: noneLabel, style = MaterialTheme.typography.bodyLarge)
                 }
             }
         }
         DropdownMenu(open, { open = false }) {
-            DropdownMenuItem(text = { Text(t("None (cash or other)")) }, onClick = { onPick(null); open = false })
+            DropdownMenuItem(text = { Text(noneLabel) }, onClick = { onPick(null); open = false })
             accounts.filter { it.mergedIntoId == null }.forEach { a ->
                 DropdownMenuItem(
                     text = { Text("${a.nickname ?: a.bankName} ••${a.last4}") },
@@ -349,4 +440,10 @@ private fun AccountPicker(accounts: List<AccountEntity>, selected: Long?, onPick
             }
         }
     }
+}
+
+private fun choiceOf(type: TransactionType): GapChoice = when (type) {
+    TransactionType.CREDIT -> GapChoice.RECEIVED
+    TransactionType.TRANSFER -> GapChoice.TRANSFER
+    else -> GapChoice.PAYMENT
 }

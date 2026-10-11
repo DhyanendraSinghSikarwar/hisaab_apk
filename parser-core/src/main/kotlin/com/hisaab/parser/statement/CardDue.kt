@@ -97,7 +97,7 @@ object CardDueParser {
     private val MIN = rx("""min(?:imum)?\.?(?:\s+(?:amt|amount|payment))?\.?\s+(?:due|payable)\b[^\d]{0,25}?$NUMX""")
     private val TOTAL = rx(
         """(?:total\s+(?:(?:amount|amt|payment)\.?\s+)?(?:due|payable|outstanding)|(?:total\s+)?amount\s+(?:due|payable)|""" +
-            """total\s+dues?|new\s+balance|outstanding\s+(?:balance|amount)|bill\s+amount)\b[^\d]{0,25}?$NUMX""",
+            """total\s+(?:amt|amount)(?!\s+(?:due|payable|outstanding))|total\s+dues?|new\s+balance|outstanding\s+(?:balance|amount)|bill\s+amount)\b[^\d]{0,25}?$NUMX""",
     )
     private val DUE_DATE = rx("""(?:due\s+(?:date|on|by)|pay(?:ment)?\s+(?:by|before)|payable\s+by|on\s+or\s+before)\s*(?:is|:|-)?\s*($DATE)""")
     private val STATEMENT_DATE = rx("""(?:statement|bill)\s+(?:dated|date|generated\s+on|generated\s+for|of)\s*(?:is|:|-)?\s*($DATE)""")

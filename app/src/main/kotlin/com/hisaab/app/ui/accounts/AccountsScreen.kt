@@ -291,6 +291,7 @@ fun AccountsRoute(
     vm: AccountsViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
+    val gapIds by androidx.hilt.navigation.compose.hiltViewModel<GapDotsViewModel>().accountIds.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(initialTab.coerceIn(0, 2)) }
     var editing by remember { mutableStateOf<AccountWithActivity?>(null) }
     var adding by remember { mutableStateOf(false) }
@@ -351,7 +352,7 @@ fun AccountsRoute(
                 }
             }
             items(list, key = { it.id }) { a ->
-                AccountCard(a, linked = a.linkedAccountId?.let(s.byId::get), onClick = { if (a.accountType == AccountType.LOAN) onOpenLoan(a.id) else onOpenAccount(a.id) }, onEdit = { editing = a },
+                AccountCard(a, linked = a.linkedAccountId?.let(s.byId::get), hasGap = a.id in gapIds, onClick = { if (a.accountType == AccountType.LOAN) onOpenLoan(a.id) else onOpenAccount(a.id) }, onEdit = { editing = a },
                     modifier = Modifier.animateItem())
             }
             val hiddenHere = s.hidden.filter {
@@ -539,7 +540,7 @@ private fun SuggestionCard(s: LinkSuggestion, onLink: () -> Unit, onDismiss: () 
 private fun title(a: AccountWithActivity) = a.nickname ?: a.bankName
 
 @Composable
-private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, onClick: () -> Unit, onEdit: () -> Unit, modifier: Modifier = Modifier) {
+private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, hasGap: Boolean, onClick: () -> Unit, onEdit: () -> Unit, modifier: Modifier = Modifier) {
     val accent = a.colorArgb?.let { Color(it) }
     Card(
         modifier.fillMaxWidth().pressable(onClick = onClick),
@@ -551,7 +552,10 @@ private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, on
             val credit = a.isCreditCardRow
             val bill = if (credit) cardBill(a.id) else null
             Column(Modifier.weight(1f)) {
-                Text(title(a), style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title(a), style = MaterialTheme.typography.titleMedium, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    if (hasGap) GapDot()
+                }
                 val kindLabel = t(a.accountType?.label ?: if (a.kind == AccountKind.CARD) "Card" else "Bank account")
                 Text(kindLabel + (a.last4.takeIf { it.isNotBlank() }?.let { " · ••$it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = KindColors.of(a.kind, a.accountType), maxLines = 1)
                 val muted = MaterialTheme.colorScheme.onSurfaceVariant

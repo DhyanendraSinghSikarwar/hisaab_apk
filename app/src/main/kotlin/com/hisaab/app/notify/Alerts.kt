@@ -52,6 +52,7 @@ class AlertsChecker @Inject constructor(
     private val accounts: AccountDao,
     private val settings: AppSettingsStore,
     private val manual: com.hisaab.shared.db.RecurringDao,
+    private val gaps: com.hisaab.app.ui.accounts.GapTracker,
 ) {
     private val lock = Mutex()
 
@@ -121,6 +122,28 @@ class AlertsChecker @Inject constructor(
         }
     }
 
+    /**
+     * Money that moved on an account with no message (see UntrackedGap): one notification per gap, never repeated, that opens
+     * the account. Follows the transaction alerts switch; only recent gaps are announced, older ones wait on the account.
+     */
+    suspend fun checkGaps() = lock.withLock {
+        if (!settings.settings.first().transactionNotifications) return@withLock
+        val recent = System.currentTimeMillis() - GAP_ALERT_DAYS * 24 * 60 * 60 * 1000
+        for (g in gaps.openNow().filter { it.toTime >= recent }.take(3)) {
+            val a = accounts.getById(g.accountId) ?: continue
+            if (!gaps.markNotified(g)) continue
+            val who = com.hisaab.shared.repo.BalanceReconciler.accountLabel(a.bankName, a.last4, a.nickname)
+            val amount = Money.format(kotlin.math.abs(g.deltaMinor), showPaise = false)
+            val text = when {
+                g.card && g.moneyLeft -> t("{account}: {amount} of limit used with no message. Add it?", "account" to who, "amount" to amount)
+                g.card -> t("{account}: {amount} of limit freed with no message. Add it?", "account" to who, "amount" to amount)
+                g.moneyLeft -> t("{account}: {amount} left the account with no message. Add it?", "account" to who, "amount" to amount)
+                else -> t("{account}: {amount} came in with no message. Add it?", "account" to who, "amount" to amount)
+            }
+            notify("gap:${g.key}", t("Untracked change"), text, "hisaab://account/${g.accountId}")
+        }
+    }
+
     private fun notify(key: String, title: String, text: String, link: String) {
         val manager = NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) return
@@ -141,6 +164,7 @@ class AlertsChecker @Inject constructor(
 
     private companion object {
         const val CHANNEL = BILLS_CHANNEL
+        const val GAP_ALERT_DAYS = 14L
     }
 }
 
@@ -181,6 +205,7 @@ class AlertsWorker @AssistedInject constructor(
         runCatching { cardDues.check() }
         runCatching { alerts.checkUpcoming() }
         runCatching { alerts.checkBudgets() }
+        runCatching { alerts.checkGaps() }
         return Result.success()
     }
 

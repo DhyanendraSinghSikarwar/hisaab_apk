@@ -49,7 +49,7 @@ class NewTransactionNotifier @Inject constructor(
         if (!settings.settings.first().transactionNotifications) return
         val id = sources.transactionIdFor(source, messageId) ?: return
         val tx = transactions.getById(id) ?: return
-        if (tx.type == TransactionType.TRANSFER) return
+        if (tx.type == TransactionType.TRANSFER || tx.category == Category.TRANSFER) return
         val manager = NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) return
         ensureChannel()

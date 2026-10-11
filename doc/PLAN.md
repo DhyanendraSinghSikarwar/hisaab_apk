@@ -195,3 +195,7 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] Card detail: one labelled Edit amounts control; tiles plain (cleaner)
 - [x] Payments from cards/accounts via PhonePe/GPay etc. tracked correctly: app notifications never create accounts, merge into bank SMS/email rows (adopt bank account, exact paise, payee name, balance-safe time), balance/promo/pay-now lines ignored, Account row on Transaction detail is a picker with Remember for payee, one-time sweep merges old account-less app rows (tests; build unverified)
 - [x] Support page: UPI ID set
+- [~] Transfers/payments with no message (SBI to Axis, silent UPI): untracked-change detection from stated balances/limits (BalanceGaps), amber card on account detail with Assign/Add/Ignore, dot in Accounts, daily alert, Add flow with Payment / Transfer to my account / Money received and own-transfer legs; tests written, build unverified
+- [x] Support: amounts 100/200/500/custom; cup icon instead of heart
+- [x] More brand logos in transactions (popular spend brands)
+- [x] Card bill payments never counted as spend (shown in transactions as "Credit card bill"); card and account spends to others counted; one shared definition (type TRANSFER, which every spend/income query and LedgerMath/MonthSpend already exclude). Detection: `parser-core/.../rules/CardBill.kt` (bank SMS, email, payment-app notifications kept as transfers, typed entries), 5-day pairing with card-side payment, one-time sweep `cardbill_v1`; tests in `CardBillTest`; shared/app build unverified

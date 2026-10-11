@@ -21,6 +21,7 @@ import com.hisaab.parser.model.ParsedTransaction
 import com.hisaab.parser.model.Source
 import com.hisaab.parser.model.TransactionType
 import com.hisaab.parser.registry.SenderKeys
+import com.hisaab.parser.rules.CardBill
 import com.hisaab.parser.rules.RejectionRules
 import com.hisaab.parser.template.Template
 import com.hisaab.parser.text.TextNormalizer
@@ -90,6 +91,8 @@ abstract class BaseBankParser(protected val config: ParserConfig) : BankParser {
         ) {
             type = TransactionType.INVESTMENT
         }
+        // A bank debit that pays a credit card's bill settles spends already counted on the card: a transfer, not a spend.
+        if (type == TransactionType.DEBIT && CardBill.isBill(text, raw.name, raw.vpa)) type = TransactionType.TRANSFER
         val merchant = MerchantNormalizer.normalize(raw, type, channel, text)
 
         val balance = hit?.balance?.let(Money::parseSigned) ?: BalanceExtractor.balance(text, lower)

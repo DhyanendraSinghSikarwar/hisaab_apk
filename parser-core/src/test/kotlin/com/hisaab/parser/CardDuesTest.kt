@@ -343,4 +343,19 @@ class CardDuesTest {
         assertNull(registry.cardDue("Payment of Rs.5,000.00 towards your HDFC Bank Credit Card XX5521 failed.", "VM-HDFCBK", at))
         assertNull(registry.cardDue("Your A/c XX1234 balance is Rs 1,000.00. Minimum balance Rs 500.", "VM-HDFCBK", at))
     }
+
+    @Test
+    fun `Axis statement generated SMS with Total amt and Min amt due`() {
+        val body = "Your statement for Axis Bank Credit Card no. XX4821 is generated.\nDue on: 30-10-26\nTotal amt: INR  Dr. 5432.10\nMin amt due: INR  Dr. 109.00\nPay at axis.bank.in/ccpaynow\nTo view fees & charges: axis.bank.in/kfs\nTo view/download statement: https://ccm.axis.bank.in/AXISBK/Xy12AbCd"
+        val d = registry.cardDue(body, "VK-AXISBK-S", at)
+        assertNotNull(d)
+        assertEquals("Axis Bank", d!!.bank)
+        assertEquals("4821", d.last4)
+        assertEquals(543210L, d.totalDueMinor)
+        assertEquals(10900L, d.minDueMinor)
+        assertEquals(java.time.LocalDate.of(2026, 10, 30).toEpochDay(), d.dueEpochDay)
+        // It is a bill notice, never a spend or a payment.
+        assertNull(d.paymentMinor)
+        assertNull(registry.parse(body, "VK-AXISBK-S", at, com.hisaab.parser.model.Source.SMS))
+    }
 }

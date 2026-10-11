@@ -27,7 +27,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -90,7 +90,7 @@ fun SupportRoute(onBack: () -> Unit) {
     val context = LocalContext.current
     var chip by rememberSaveable { mutableStateOf(-1) } // -1 none, 0..2 preset, 3 custom
     var custom by rememberSaveable { mutableStateOf("") }
-    val presets = listOf(20, 50, 100)
+    val presets = listOf(100, 200, 500)
     val amount: Int? = when (chip) { in 0..2 -> presets[chip]; 3 -> custom.toIntOrNull(); else -> null }
     val hasId = SupportConfig.UPI_ID.isNotBlank()
 
@@ -102,7 +102,7 @@ fun SupportRoute(onBack: () -> Unit) {
             HCard {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(Hx.accentSoft), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.Favorite, null, tint = Hx.accent, modifier = Modifier.size(26.dp))
+                        Icon(Icons.Filled.LocalCafe, null, tint = Hx.accent, modifier = Modifier.size(26.dp))
                     }
                     Text(t("Support DhanKosh"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text(

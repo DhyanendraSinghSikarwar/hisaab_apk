@@ -226,4 +226,26 @@ class DuplicateMatcherTest {
         val b = registry.parse(cardSms.replace("144.93", "144.00"), "VM-SBICRD", t0 + 5 * minute, Source.SMS)!!
         assertEquals(DedupDecision.New, ingest(Store(), a, b)[1])
     }
+
+    // A payment the user typed in or assigned to an account (no message existed), then the bank's SMS for it.
+    private fun typed(sources: Set<String>, last4: String?, tx: ParsedTransaction) =
+        StoredTransaction(1, tx.amountMinor, tx.type, last4, "Ravi Kumar", null, tx.transactionTime - 5 * minute, sources)
+
+    @Test
+    fun `a typed payment on the account merges with the bank sms that comes later`() {
+        val bank = sms(smsWithRef)
+        val store = Store().apply { rows += typed(setOf("MANUAL"), "1234", bank) }
+        val d = runBlocking { DuplicateMatcher.decide(bank, store) }
+        assertEquals(1L, (d as DedupDecision.Duplicate).existingId)
+    }
+
+    @Test
+    fun `a notification assigned to the account merges with its bank sms once`() {
+        val bank = sms(smsWithRef)
+        val store = Store().apply { rows += typed(setOf("APP"), "1234", bank) }
+        assertInstanceOf(DedupDecision.Duplicate::class.java, runBlocking { DuplicateMatcher.decide(bank, store) })
+        // Assigned to another account, the same amount is a different payment.
+        val other = Store().apply { rows += typed(setOf("APP"), "9999", bank) }
+        assertEquals(DedupDecision.New, runBlocking { DuplicateMatcher.decide(bank, other) })
+    }
 }
