@@ -47,6 +47,15 @@ class HisaabApplication : Application(), Configuration.Provider {
             if (gmailSettings.settings.first().enabled) GmailScheduler.schedulePeriodic(this@HisaabApplication)
         }
         appScope.launch { reparseOnce() }
+        // "Remember for this payee" choices live in plain preferences, on the phone.
+        val payeePrefs = getSharedPreferences("payee_accounts", MODE_PRIVATE)
+        transactions.payeeAccounts = payeePrefs.all.mapNotNull { (k, v) -> (v as? Long)?.let { k to it } }.toMap()
+        transactions.onPayeeAccountRemembered = { key, id -> payeePrefs.edit().putLong(key, id).apply() }
+        appScope.launch {
+            val prefs = getSharedPreferences("maintenance", MODE_PRIVATE)
+            if (prefs.getBoolean(APP_ROWS_KEY, false)) return@launch
+            runCatching { transactions.reattributeAppRows() }.onSuccess { prefs.edit().putBoolean(APP_ROWS_KEY, true).apply() }
+        }
         // Folds the same investment seen from several statements into one holding.
         appScope.launch { runCatching { holdings.dedupe() } }
         // The user's own mobile numbers never become accounts from messages; keep the guard current as the profile changes.
@@ -78,5 +87,6 @@ class HisaabApplication : Application(), Configuration.Provider {
 
     private companion object {
         const val REPARSE_KEY = "reparse_v1"
+        const val APP_ROWS_KEY = "app_rows_v1"
     }
 }

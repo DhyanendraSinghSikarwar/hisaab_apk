@@ -11,7 +11,10 @@ import com.hisaab.shared.db.TransactionEntity
  * Fields already set are kept, except where the message is strictly more specific.
  */
 fun TransactionEntity.mergedWith(tx: ParsedTransaction): TransactionEntity = copy(
-    merchant = merchant ?: tx.merchant,
+    // A payment app often drops the paise ("₹144" for 144.93): the message that has them is the exact figure.
+    amountMinor = if (amountMinor % 100 == 0L && tx.amountMinor % 100 != 0L && tx.amountMinor / 100 == amountMinor / 100 &&
+        currency == tx.currency) tx.amountMinor else amountMinor,
+    merchant = betterMerchant(merchant, tx.merchant),
     upiId = upiId ?: tx.upiId,
     referenceNumber = referenceNumber ?: tx.referenceNumber,
     accountLast4 = longerOf(accountLast4, tx.accountLast4),
@@ -25,13 +28,37 @@ fun TransactionEntity.mergedWith(tx: ParsedTransaction): TransactionEntity = cop
         category
     },
     // Prefer a time printed in a message over the time a message arrived.
-    timestamp = if (!hasExplicitTime && tx.hasExplicitTime) tx.transactionTime else timestamp,
+    timestamp = mergedTime(tx),
     hasExplicitTime = hasExplicitTime || tx.hasExplicitTime,
     confidence = maxOf(confidence, tx.confidence),
 )
 
+private const val SAME_PAYMENT_MILLIS = 30 * 60 * 1000L
+
+/**
+ * The time of the merged record: a printed time beats an arrival time. A message that states a balance or limit
+ * is the reference point for it, so the record never sits after that message's time (the payment would
+ * otherwise be applied on top of a balance that already includes it).
+ */
+private fun TransactionEntity.mergedTime(tx: ParsedTransaction): Long {
+    val chosen = if (!hasExplicitTime && tx.hasExplicitTime) tx.transactionTime else timestamp
+    val states = tx.balanceMinor != null || tx.availableLimitMinor != null
+    return if (states && tx.source.name != "STATEMENT" && chosen > tx.transactionTime && chosen - tx.transactionTime <= SAME_PAYMENT_MILLIS) tx.transactionTime else chosen
+}
+
+/**
+ * The better of two merchant names for one payment: a real payee name beats a UPI id or a generic phrase,
+ * otherwise the stored one stays.
+ */
+internal fun betterMerchant(stored: String?, incoming: String?): String? {
+    if (stored == null) return incoming
+    if (incoming == null) return stored
+    fun weak(s: String) = '@' in s || s.count(Char::isDigit) > s.length / 2 || com.hisaab.parser.extract.GenericPhrases.isGeneric(s)
+    return if (weak(stored) && !weak(incoming)) incoming else stored
+}
+
 fun TransactionEntity.mergedWith(other: TransactionEntity): TransactionEntity = copy(
-    merchant = merchant ?: other.merchant,
+    merchant = betterMerchant(merchant, other.merchant),
     upiId = upiId ?: other.upiId,
     referenceNumber = referenceNumber ?: other.referenceNumber,
     accountLast4 = accountLast4 ?: other.accountLast4,

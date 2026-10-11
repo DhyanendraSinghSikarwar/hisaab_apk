@@ -194,6 +194,33 @@ class DuplicateMatcherTest {
     }
 
     @Test
+    fun `phonepe notification and bank sms merge in either order`() {
+        val app = notification("₹450", title = "Paid ₹450", body = "to Swiggy", at = t0 + 2 * minute)
+        val bank = sms(smsWithRef)
+        val s1 = Store()
+        assertInstanceOf(DedupDecision.Duplicate::class.java, ingest(s1, app, bank)[1])
+        assertEquals(1, s1.rows.size)
+        val s2 = Store()
+        assertInstanceOf(DedupDecision.Duplicate::class.java, ingest(s2, bank, app)[1])
+        assertEquals(1, s2.rows.size)
+        assertEquals(setOf("SMS", "APP"), s2.rows.single().sources)
+    }
+
+    @Test
+    fun `same amount to a different payee minutes apart is another payment`() {
+        val app = notification("₹450", title = "Paid ₹450", body = "to Ravi Kumar", at = t0 + 5 * minute)
+        assertEquals(DedupDecision.New, ingest(Store(), sms(smsWithRef), app)[1])
+    }
+
+    @Test
+    fun `same card same amount hours apart without a reference is not a silent duplicate`() {
+        val morning = sms("Rs.1500.00 spent on HDFC Bank Card x5678 at AMAZON PAY INDIA on 2026-09-24:09:22:10.")
+        val evening = mail("Dear Card Member,\nThank you for using your HDFC Bank Credit Card ending 5678 for Rs 1,500.00 at AMAZON PAY INDIA on 24-09-2026 20:40:00.")
+        val d = ingest(Store(), morning, evening)[1]
+        assertEquals(false, d is DedupDecision.Duplicate)
+    }
+
+    @Test
     fun `two bank sms with different paise are not merged`() {
         val a = registry.parse(cardSms, "VM-SBICRD", t0, Source.SMS)!!
         val b = registry.parse(cardSms.replace("144.93", "144.00"), "VM-SBICRD", t0 + 5 * minute, Source.SMS)!!

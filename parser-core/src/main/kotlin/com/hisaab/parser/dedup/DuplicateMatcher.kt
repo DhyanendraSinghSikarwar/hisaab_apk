@@ -79,7 +79,13 @@ object DuplicateMatcher {
             if (tx.referenceNumber == null && tx.source.name in h.sources) {
                 return DedupDecision.PossibleDuplicate(h.id, "Same amount, account and day, no reference number")
             }
-            return DedupDecision.Duplicate(h.id, MatchReason.HASH)
+            // Hours apart with no shared reference they are two purchases (a 9am and an 8pm order of the same
+            // amount on one card); the fuzzy rules below decide, sending it to review when unsure.
+            val apart = abs(h.transactionTime - tx.transactionTime) > WINDOW_MILLIS
+            val dated = tx.source.name == STATEMENT || STATEMENT in h.sources
+            if (!(apart && !dated && (tx.referenceNumber == null || h.referenceNumber == null))) {
+                return DedupDecision.Duplicate(h.id, MatchReason.HASH)
+            }
         }
 
         val candidates = lookup.potentialDuplicates(
@@ -116,10 +122,11 @@ object DuplicateMatcher {
 
             when {
                 close && crossSource && (sameAccount || sameMerchant) -> return DedupDecision.Duplicate(c.id, MatchReason.FUZZY)
-                close && crossSource && loose && accountless -> return DedupDecision.Duplicate(c.id, MatchReason.FUZZY)
+                // Same amount to a different payee a few minutes apart is another payment, not this one.
+                close && crossSource && loose && accountless && merchantsAgree(c.merchant, tx.merchant) -> return DedupDecision.Duplicate(c.id, MatchReason.FUZZY)
                 review != null -> Unit
                 close && (sameAccount || sameMerchant) -> review = c to "Same amount and ${if (sameAccount) "account" else "merchant"} within 30 minutes"
-                close && crossSource -> review = c to "Same amount from SMS and email within 30 minutes"
+                close && crossSource && (!loose || merchantsAgree(c.merchant, tx.merchant)) -> review = c to "Same amount from SMS and email within 30 minutes"
                 crossSource && sameAccount -> review = c to "Same amount and account on the same day, from SMS and email"
             }
         }
@@ -160,11 +167,14 @@ object DuplicateMatcher {
     }
 
     /** True unless both name a real merchant and the names differ (one containing the other counts as the same). */
-    private fun merchantsAgree(a: String?, b: String?): Boolean {
+    fun merchantsAgree(a: String?, b: String?): Boolean {
         if (a == null || b == null || GenericPhrases.isGeneric(a) || GenericPhrases.isGeneric(b)) return true
         val x = a.lowercase().filter { it.isLetterOrDigit() }
         val y = b.lowercase().filter { it.isLetterOrDigit() }
-        return x.isEmpty() || y.isEmpty() || x.contains(y) || y.contains(x)
+        if (x.isEmpty() || y.isEmpty() || x.contains(y) || y.contains(x)) return true
+        // "Ravi Kumar" and "R Kumar" share a name part.
+        val words = { s: String -> s.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 3 }.toSet() }
+        return words(a).intersect(words(b)).isNotEmpty()
     }
 
     /** "123" (ICICI prints 3 digits) matches "0123". */

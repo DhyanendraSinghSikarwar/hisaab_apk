@@ -318,7 +318,9 @@ private fun CardSummaryGrid(c: CardSummary, onAdjust: () -> Unit) {
                 Text(t("Total outstanding"), fontSize = 12.sp, color = Hx.text2, maxLines = 1)
                 if (p.edited) Text("  " + t("Edited"), fontSize = 10.sp, color = Hx.text2, maxLines = 1)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onAdjust, modifier = Modifier.size(36.dp)) { Icon(Icons.Filled.Edit, t("Edit amounts"), tint = Hx.accent, modifier = Modifier.size(18.dp)) }
+                androidx.compose.material3.TextButton(onClick = onAdjust, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                    Text(t("Edit amounts"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Hx.accent)
+                }
             }
             Text(
                 p.totalMinor?.takeIf { it > 0 }?.let { money(it) } ?: t("No dues"), fontSize = 26.sp, fontWeight = FontWeight.Bold,
@@ -338,22 +340,19 @@ private fun CardSummaryGrid(c: CardSummary, onAdjust: () -> Unit) {
                             due?.let { t("Pay by {date}", "date" to it) + if (p.estimated) " · " + t("est.") else "" },
                             p.minDueMinor?.takeIf { it > 0 }?.let { t("Min {amount}", "amount" to money(it)) },
                         ).joinToString(" · ").ifBlank { null },
-                        Modifier.weight(1f), p.billedEdited || p.minDueEdited || p.dueEdited, onAdjust,
+                        Modifier.weight(1f), p.billedEdited || p.minDueEdited || p.dueEdited,
                     )
-                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f), p.unbilledEdited, onAdjust)
+                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f), p.unbilledEdited)
                 }
                 outstanding != null -> {
-                    CardStat(t("Outstanding"), money(outstanding), Hx.warn, t("No statement yet"), Modifier.weight(1f), p.outstandingEdited, onAdjust)
-                    CardStat(t("Billed to pay"), "—", Hx.text2, null, Modifier.weight(1f), false, onAdjust)
+                    CardStat(t("Outstanding"), money(outstanding), Hx.warn, t("No statement yet"), Modifier.weight(1f), p.outstandingEdited)
+                    CardStat(t("Billed to pay"), "—", Hx.text2, null, Modifier.weight(1f))
                 }
                 else -> {
-                    CardStat(t("Billed to pay"), t("No dues"), Hx.text2, null, Modifier.weight(1f), false, onAdjust)
-                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f), p.unbilledEdited, onAdjust)
+                    CardStat(t("Billed to pay"), t("No dues"), Hx.text2, null, Modifier.weight(1f))
+                    CardStat(t("Unbilled"), money(p.unbilledMinor), Hx.warn, null, Modifier.weight(1f), p.unbilledEdited)
                 }
             }
-        }
-        androidx.compose.material3.FilledTonalButton(onClick = onAdjust, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Filled.Edit, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(t("Edit amounts"))
         }
         if (limit != null && limit > 0 && avail != null) {
             val used = ((limit - avail).toFloat() / limit).coerceIn(0f, 1f)
@@ -375,10 +374,6 @@ private fun CardStat(label: String, value: String, color: Color, note: String?, 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 12.sp, color = Hx.text2, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
             if (edited) Text("  " + t("Edited"), fontSize = 10.sp, color = Hx.text2, maxLines = 1)
-            Spacer(Modifier.weight(1f))
-            onAdjust?.let {
-                IconButton(onClick = it, modifier = Modifier.size(36.dp)) { Icon(Icons.Filled.Edit, t("Edit amounts"), tint = Hx.accent, modifier = Modifier.size(16.dp)) }
-            }
         }
         Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
         note?.let { Text(it, fontSize = 11.sp, color = Hx.text2, maxLines = 1) }

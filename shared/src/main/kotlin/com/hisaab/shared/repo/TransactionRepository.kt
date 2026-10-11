@@ -86,6 +86,7 @@ class TransactionRepository @Inject constructor(
         override suspend fun byReference(referenceNumber: String) = stored(txDao.findByReference(referenceNumber))
         override suspend fun byHash(transactionHash: String) = txDao.findByHash(transactionHash)?.let { stored(listOf(it)).first() }
         override suspend fun potentialDuplicates(amountMinor: Long, from: Long, to: Long) = stored(txDao.findPotentialDuplicates(amountMinor, from, to))
+        override suspend fun potentialDuplicatesInRange(minMinor: Long, maxMinor: Long, from: Long, to: Long) = stored(txDao.findInRange(minMinor, maxMinor, from, to))
     }
 
     private suspend fun stored(rows: List<TransactionEntity>): List<StoredTransaction> {
@@ -175,13 +176,21 @@ class TransactionRepository @Inject constructor(
         if (deletedDao.exists(m.sourceName, m.sourceMessageId)) return IngestOutcome.ALREADY_PROCESSED
 
         val decision = DuplicateMatcher.decide(tx, lookup)
-        val accountId = ensureAccount(tx, m.rawText)
+        var accountId = ensureAccount(tx, m.rawText)
+        if (accountId == null && tx.source == Source.APP) accountId = rememberedAccount(tx)
         val txId: Long
         val outcome: IngestOutcome
         when (decision) {
             is DedupDecision.Duplicate -> {
                 val existing = txDao.getById(decision.existingId)!!
-                val merged = existing.mergedWith(tx).copy(accountId = existing.accountId ?: accountId)
+                // A bank message names the account for real; a row whose account was only guessed (no digits of its
+                // own: a payment-app notification, a remembered payee default) takes the bank's.
+                val adopt = accountId != null && tx.source != Source.APP && (existing.accountId == null || existing.accountLast4 == null)
+                var merged = existing.mergedWith(tx)
+                if (adopt) merged = merged.copy(accountId = accountId, bankName = tx.bankName, accountKind = tx.accountKind)
+                else merged = merged.copy(accountId = existing.accountId ?: accountId)
+                // Balances and limits go to the account the record ends up on.
+                accountId = merged.accountId
                 // The rule's sub-category follows only when the record still has no placement of the user's own.
                 val keepsOwn = existing.subcategory != null || existing.customCategoryId != null || merged.category != tx.category
                 txDao.update(if (keepsOwn) merged else merged.filed())
@@ -244,9 +253,37 @@ class TransactionRepository @Inject constructor(
      */
     @Volatile var phoneLast4s: Set<String> = emptySet()
 
+    /**
+     * Account (payee key to account id) the user chose with "Remember for this payee"; fills account-less payment-app
+     * rows. Fed from the app's settings at start-up, and kept up to date by [setAccount].
+     */
+    @Volatile var payeeAccounts: Map<String, Long> = emptyMap()
+
+    /** Called with (payee key, account id) when the user asks to remember a choice, so the app can persist it. */
+    @Volatile var onPayeeAccountRemembered: ((String, Long) -> Unit)? = null
+
+    private suspend fun rememberedAccount(tx: ParsedTransaction): Long? {
+        val key = MerchantRuleEntity.keyOf(tx.merchant, tx.upiId) ?: return null
+        val id = payeeAccounts[key] ?: return null
+        return accountDao.getById(id)?.id
+    }
+
+    /** An account the user already has for [bank] and [last4]; a bank name that is just an app name matches by digits only when they are unique. */
+    private suspend fun existingAccountOf(bank: String, last4: String, kind: AccountKind): Long? {
+        accountDao.find(bank, last4)?.let { return it.id }
+        val same = accountDao.all().filter { it.mergedIntoId == null && it.kind == kind && DuplicateMatcher.last4Match(it.last4, last4) }
+        val bankKey = bank.lowercase().filter(Char::isLetterOrDigit)
+        same.filter { bankKey.isNotEmpty() && (it.bankName.lowercase().filter(Char::isLetterOrDigit).let { b -> b.startsWith(bankKey) || bankKey.startsWith(b) }) }
+            .singleOrNull()?.let { return it.id }
+        return null
+    }
+
     /** The account of [tx], created when new. [force] skips the [phoneLast4s] guard (restoring accounts from stored messages). */
     private suspend fun ensureAccount(tx: ParsedTransaction, rawText: String? = null, force: Boolean = false): Long? {
         val last4 = tx.accountLast4 ?: return null
+        // A payment-app notification never creates an account (its "bank" is the app's own name): it only
+        // points at one the user already has, by bank and last 4.
+        if (tx.source == Source.APP) return existingAccountOf(tx.bankName, last4, tx.accountKind)
         accountDao.find(tx.bankName, last4)?.let { existing ->
             if (existing.accountType == null && tx.isDebitCard) accountDao.setType(existing.id, AccountType.DEBIT_CARD, existing.cardNetwork)
             if (existing.accountType == null && Lenders.isLender(tx.bankName)) accountDao.setType(existing.id, AccountType.LOAN, null)
@@ -630,6 +667,63 @@ class TransactionRepository @Inject constructor(
             }
         }
         return restored.size
+    }
+
+    /**
+     * The user sets the account of a transaction (a payment-app row with none, or a wrong one). Balances and card limits
+     * follow, since they are worked out from the transactions' accounts. With [remember], the payee's future
+     * payment-app notifications default to this account too.
+     */
+    suspend fun setAccount(transactionId: Long, accountId: Long, remember: Boolean = false) = write {
+        val t = txDao.getById(transactionId) ?: return@write
+        val a = accountDao.getById(accountId) ?: return@write
+        txDao.update(t.copy(accountId = a.id, accountLast4 = a.last4, accountKind = a.kind, bankName = a.bankName))
+        if (remember) MerchantRuleEntity.keyOf(t.merchant, t.upiId)?.let { key ->
+            payeeAccounts = payeeAccounts + (key to a.id)
+            onPayeeAccountRemembered?.invoke(key, a.id)
+        }
+    }
+
+    /**
+     * One-off repair of rows older versions left behind: a payment-app notification kept account-less (or filed
+     * under an app name) while a bank message for the same payment sat as its own row. Folds the notification into
+     * that row (bank account, exact amount, all sources) and deletes the extra. Safe to run again. Returns how many merged.
+     */
+    suspend fun reattributeAppRows(): Int {
+        var merged = 0
+        write {
+            var after = 0L
+            val apps = ArrayList<TransactionEntity>()
+            while (true) {
+                val page = txDao.orphansAfter(after, REPARSE_PAGE)
+                if (page.isEmpty()) break
+                after = page.last().id
+                val sources = sourceDao.forTransactions(page.map { it.id }).groupBy { it.transactionId }
+                apps += page.filter { t -> sources[t.id].orEmpty().let { s -> s.isNotEmpty() && s.all { it.source == "APP" } } && !t.needsReview }
+            }
+            for (app in apps) {
+                val whole = app.amountMinor % 100 == 0L
+                val span = 36 * 60 * 60 * 1000L
+                val candidates = txDao.findInRange(app.amountMinor, if (whole) app.amountMinor + 99 else app.amountMinor, app.timestamp - span, app.timestamp + span)
+                val mates = candidates.filter { it.id != app.id && it.accountId != null && !it.needsReview && it.duplicateOfId == null && it.type.direction == app.type.direction }
+                val sources = sourceDao.sourcesOf(mates.map { it.id }).groupBy({ it.transactionId }, { it.source })
+                val day = 24 * 60 * 60 * 1000L
+                val target = mates.filter { c ->
+                    val s = sources[c.id].orEmpty()
+                    val gap = kotlin.math.abs(c.timestamp - app.timestamp)
+                    s.any { it != "APP" } && "APP" !in s &&
+                        (if (c.amountMinor == app.amountMinor) gap <= DuplicateMatcher.WINDOW_MILLIS else gap <= DuplicateMatcher.ROUNDED_WINDOW_MILLIS && gap < day) &&
+                        (c.referenceNumber == null || app.referenceNumber == null || c.referenceNumber == app.referenceNumber) &&
+                        DuplicateMatcher.merchantsAgree(c.merchant, app.merchant)
+                }.minByOrNull { kotlin.math.abs(it.timestamp - app.timestamp) } ?: continue
+                val exact = target.amountMinor
+                txDao.update(target.mergedWith(app).copy(amountMinor = exact))
+                sourceDao.reassign(app.id, target.id)
+                txDao.delete(app.id)
+                merged++
+            }
+        }
+        return merged
     }
 
     private suspend fun write(block: suspend () -> Unit) {

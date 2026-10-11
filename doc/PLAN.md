@@ -192,3 +192,5 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] Spent this month: follows the global Period and Book filters; in-card eye removed
 - [x] Home: card renamed Credit card dues; only credit cards listed (debit cards excluded)
 - [x] Card detail: Edit amounts reachable from every tile, Total outstanding field and headline
+- [x] Card detail: one labelled Edit amounts control; tiles plain (cleaner)
+- [x] Payments from cards/accounts via PhonePe/GPay etc. tracked correctly: app notifications never create accounts, merge into bank SMS/email rows (adopt bank account, exact paise, payee name, balance-safe time), balance/promo/pay-now lines ignored, Account row on Transaction detail is a picker with Remember for payee, one-time sweep merges old account-less app rows (tests; build unverified)

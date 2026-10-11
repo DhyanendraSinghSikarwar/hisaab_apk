@@ -73,7 +73,12 @@ class TransactionDetailViewModel @Inject constructor(
     private val dao: TransactionDao,
     sources: TransactionSourceDao,
     private val repository: TransactionRepository,
+    accountDao: com.hisaab.shared.db.AccountDao,
 ) : ViewModel() {
+    val accounts = accountDao.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Balances and card limits follow the new account; [remember] also defaults this payee's app payments to it. */
+    fun setAccount(accountId: Long, remember: Boolean) = viewModelScope.launch { repository.setAccount(id, accountId, remember) }
     val id: Long = checkNotNull(handle.get<Long>("id"))
     val transaction = dao.observeById(id).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val sources = sources.observeForTransaction(id).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -91,6 +96,7 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
     val tx by vm.transaction.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
+    var pickAccount by remember { mutableStateOf(false) }
     Scaffold(containerColor = androidx.compose.ui.graphics.Color.Transparent, topBar = {
         TopAppBar(colors = com.hisaab.app.ui.theme.clearTopBar(),
             title = { Text(t("Transaction")) },
@@ -108,6 +114,35 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
             )
         }
         val t = tx ?: return@Scaffold
+        if (pickAccount) {
+            val accounts by vm.accounts.collectAsStateWithLifecycle()
+            var again by remember { mutableStateOf(false) }
+            val payee = t.merchant ?: t.upiId
+            AlertDialog(
+                onDismissRequest = { pickAccount = false },
+                title = { Text(com.hisaab.app.i18n.t("Account for this payment")) },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        accounts.filter { it.mergedIntoId == null && !it.hidden }.forEach { a ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { vm.setAccount(a.id, again && payee != null); pickAccount = false }.padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                com.hisaab.app.ui.components.AccountAvatar(a.bankName, a.kind, a.accountType, network = a.cardNetwork, size = 32.dp)
+                                Spacer(Modifier.padding(6.dp))
+                                Text("${a.nickname ?: a.bankName} •• ${a.last4}", style = MaterialTheme.typography.bodyLarge)
+                            }
+                        }
+                        if (payee != null) Row(Modifier.fillMaxWidth().clickable { again = !again }.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.Checkbox(again, { again = it })
+                            Text(com.hisaab.app.i18n.t("Remember for {payee}", "payee" to payee), style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { pickAccount = false }) { Text(com.hisaab.app.i18n.t("Cancel")) } },
+            )
+        }
         Column(Modifier.padding(inner).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 com.hisaab.app.ui.components.TransactionAvatar(t, size = 52.dp)
@@ -123,7 +158,13 @@ fun TransactionDetailRoute(onBack: () -> Unit, vm: TransactionDetailViewModel = 
                     Field("Type", com.hisaab.app.i18n.t(t.type.name.lowercase().replaceFirstChar { it.uppercase() }))
                     if (t.currency != "INR") Field("In rupees", t.inrMinor?.let { "≈ " + Money.format(it) } ?: com.hisaab.app.i18n.t("Add a rate in Settings › Forex rates"))
                     Field("When", Periods.dateTime(t.timestamp))
-                    Field(if (t.accountKind.name == "CARD") "Card" else "Account", "${t.bankName}${t.accountLast4?.let { " •• $it" }.orEmpty()}")
+                    Row(Modifier.clickable { pickAccount = true }) {
+                        Text(com.hisaab.app.i18n.t(if (t.accountKind.name == "CARD") "Card" else "Account"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(0.4f))
+                        Text(
+                            if (t.accountId == null) com.hisaab.app.i18n.t("Not set. Tap to choose") else "${t.bankName}${t.accountLast4?.let { " •• $it" }.orEmpty()}",
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(0.6f),
+                        )
+                    }
                     if (t.channel.name != "OTHER") Field("Channel", t.channel.name.replace('_', ' '))
                     t.upiId?.let { Field("UPI id", it) }
                     t.referenceNumber?.let { Field("Reference", it) }

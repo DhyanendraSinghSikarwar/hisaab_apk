@@ -89,7 +89,9 @@ class FreeTextParser(private val config: ParserConfig = ParserConfig()) {
         if (OTP.containsMatchIn(whole)) return skip("otp or security text")
         if (FAILED.containsMatchIn(whole)) return skip("failed or pending payment")
         if (REMINDER.containsMatchIn(whole)) return skip("request, reminder or due notice")
-        val kept = segments.filterNot { PROMO.containsMatchIn(it) || UI_TEXT.containsMatchIn(it) }
+        // A balance, a promo amount ("Rs 5 off", "Pay now ₹1,299") or a cashback line is never the payment.
+        val kept = segments.filterNot { PROMO.containsMatchIn(it) || UI_TEXT.containsMatchIn(it) || CALL_TO_PAY.containsMatchIn(it) }
+            .map { BALANCE_TAIL.replace(it, "").trim(' ', ',', ';', '-', '(') }.filter { it.isNotBlank() }
             .map { addCurrency(it) }
         if (kept.isEmpty()) return skip("offer or promotion")
         val text = kept.joinToString(" . ")
@@ -194,13 +196,19 @@ class FreeTextParser(private val config: ParserConfig = ParserConfig()) {
         )
         val REMINDER = Regex(
             """\b(?:requested|requesting|payment\s+request|collect\s+request|requests?\s+(?:you|money)|remind(?:er|s)?|due|overdue|expir(?:es|ing|ed)|""" +
-                """valid\s+(?:till|until)|bill\s+(?:is\s+)?generated|pay\s+(?:now|again|later)|recharge\s+now|pay\s+bill|scheduled|upcoming|""" +
+                """valid\s+(?:till|until)|bill\s+(?:is\s+)?generated|scheduled|upcoming|""" +
                 """will\s+be\s+(?:debited|deducted|charged)|set\s*up\s+autopay)\b""", I,
         )
         /** Offers, rewards and promotions: the sentence is dropped, the rest of the notification still counts. */
         val PROMO = Regex(
             """\b(?:cash\s*back|rewards?|scratch(?:\s*card)?|offers?|coupons?|vouchers?|won|win|claim|refer(?:ral)?|earn(?:ed|s)?|bonus|""" +
-                """discount|get\s+up\s*to|lucky|spin|\d+\s*points?)\b|\d+\s*%""", I,
+                """discount|get\s+up\s*to|lucky|spin|\d+\s*points?)\b|\d+\s*%|\d\s*off\b|\boff\s+on\b|\bflat\s+(?:₹|rs|inr)""", I,
+        )
+        /** Calls to pay that carry an amount ("Pay now ₹1,299"): dropped alone, so a payment sharing the notification still counts. */
+        val CALL_TO_PAY = Regex("""\b(?:pay\s+(?:now|again|later|bill)|recharge\s+now|set\s*up\s+autopay|pay\s+(?:₹|rs\.?|inr)\s*\d)""", I)
+        /** "Avl bal Rs 4,000", "Balance: ₹500" at the end of a sentence: figures that are not the payment. */
+        val BALANCE_TAIL = Regex(
+            """(?:[,;(\-]\s*)?\b(?:(?:avl|avail|available|total|closing|wallet|new|updated|remaining)\.?\s+)*(?:bal(?:ance)?|limit)\b.*$""", I,
         )
         /** Buttons and links that notifications append. */
         val UI_TEXT = Regex(

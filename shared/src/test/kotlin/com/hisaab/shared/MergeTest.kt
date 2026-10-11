@@ -25,6 +25,33 @@ class MergeTest {
         assertEquals(TransactionType.INVESTMENT, merged.type)
     }
 
+    private val parser = com.hisaab.parser.FreeTextParser()
+    private fun app(body: String, at: Long = now) = parser.readNotification("PhonePe", listOf(body), at).tx!!
+
+    @Test
+    fun `a bank sms gives the exact paise a payment app dropped`() {
+        val sms = registry.parse("Rs.144.93 spent on your SBI Credit Card ending 5678 at JIOHOTSTAR on 07/10/26.", "VM-SBICRD", now, Source.SMS)!!
+        val merged = app("Paid ₹144 to Jiohotstar").toEntity(null, now).mergedWith(sms)
+        assertEquals(14493L, merged.amountMinor)
+        // the reverse never rounds the exact figure
+        assertEquals(14493L, sms.toEntity(1, now).mergedWith(app("Paid ₹144 to Jiohotstar")).amountMinor)
+    }
+
+    @Test
+    fun `a real payee name replaces a upi id`() {
+        val sms = registry.parse("Rs.450.00 debited from HDFC Bank A/c XX1234 on 25-09-26 to VPA ravi.k@ybl. UPI Ref 526812345678", "VM-HDFCBK", now, Source.SMS)!!
+        val named = app("Paid ₹450 to Ravi Kumar")
+        val stored = sms.toEntity(1, now).copy(merchant = "ravi.k@ybl")
+        assertEquals("Ravi Kumar", stored.mergedWith(named).merchant)
+    }
+
+    @Test
+    fun `a merged payment never sits after the balance its message states`() {
+        val sms = registry.parse("Rs.450.00 debited from HDFC Bank A/c XX1234 on 25-09-26 to VPA swiggy@icici. UPI Ref 526812345678. Avl bal:INR 9,550.00", "VM-HDFCBK", now, Source.SMS)!!
+        val stored = app("Paid ₹450 to Swiggy", at = sms.transactionTime + 20_000).toEntity(null, now)
+        assertEquals(true, stored.mergedWith(sms).timestamp <= sms.transactionTime)
+    }
+
     @Test
     fun `merge never overwrites a field that is already set`() {
         val a = registry.parse("Rs.450.00 debited from HDFC Bank A/c XX1234 on 25-09-26 to VPA swiggy@icici. UPI Ref 526812345678", "VM-HDFCBK", now, Source.SMS)!!

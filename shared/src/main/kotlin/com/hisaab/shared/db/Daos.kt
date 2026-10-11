@@ -42,6 +42,10 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE amountMinor = :amountMinor AND timestamp BETWEEN :from AND :to")
     suspend fun findPotentialDuplicates(amountMinor: Long, from: Long, to: Long): List<TransactionEntity>
 
+    /** An amount in [minMinor]..[maxMinor] in a time window: a payment app's rounded amount against the exact one. */
+    @Query("SELECT * FROM transactions WHERE amountMinor BETWEEN :minMinor AND :maxMinor AND timestamp BETWEEN :from AND :to")
+    suspend fun findInRange(minMinor: Long, maxMinor: Long, from: Long, to: Long): List<TransactionEntity>
+
     /**
      * The transactions list. Every filter is optional (null = any); [limit] grows as the user scrolls,
      * so the UI never loads the whole table.
