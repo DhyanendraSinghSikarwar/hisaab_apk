@@ -59,11 +59,11 @@ import com.hisaab.app.ui.components.Pill
 import com.hisaab.app.ui.theme.Hx
 
 /**
- * The one place to configure donations. Fill [UPI_ID] and/or drop a QR image at
- * `app/src/main/assets/support_qr.webp`; until one exists the Support button stays hidden.
+ * The one place to configure donations. Fill [UPI_ID]; until then the Support button stays hidden. The id is
+ * only used inside the `upi://pay` link and is never shown.
  */
 object SupportConfig {
-    const val UPI_ID = ""
+    const val UPI_ID = "8054276810@ybl"
     const val PAYEE_NAME = "DhanKosh"
     const val QR_ASSET = "support_qr.webp"
 
@@ -84,11 +84,10 @@ object SupportConfig {
     }
 }
 
-/** "Support DhanKosh": QR, UPI id and a one-tap UPI app launch. */
+/** "Support DhanKosh": an amount and a one-tap launch of any UPI app; the UPI id is never shown. */
 @Composable
 fun SupportRoute(onBack: () -> Unit) {
     val context = LocalContext.current
-    val asset = remember { SupportConfig.loadAsset(context) }
     var chip by rememberSaveable { mutableStateOf(-1) } // -1 none, 0..2 preset, 3 custom
     var custom by rememberSaveable { mutableStateOf("") }
     val presets = listOf(20, 50, 100)
@@ -129,38 +128,6 @@ fun SupportRoute(onBack: () -> Unit) {
                 }
             }
 
-            if (asset != null || hasId) {
-                HCard {
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(Modifier.size(220.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).padding(10.dp), contentAlignment = Alignment.Center) {
-                            if (asset != null) {
-                                Image(asset.asImageBitmap(), t("UPI QR code"), contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth())
-                            } else {
-                                val qr = remember(amount) { runCatching { QrCode.encode(SupportConfig.upiUri(amount)) }.getOrNull() }
-                                if (qr != null) QrCanvas(qr)
-                            }
-                        }
-                        Text(t("Scan with any UPI app"), fontSize = 12.sp, color = Hx.text2)
-                        if (hasId) {
-                            Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Hx.surface2).padding(start = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
-                                    Text(t("UPI ID"), fontSize = 11.sp, color = Hx.text2)
-                                    Text(SupportConfig.UPI_ID, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                }
-                                androidx.compose.material3.TextButton(onClick = { copy(context, SupportConfig.UPI_ID) }) {
-                                    Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.size(6.dp))
-                                    Text(t("Copy"))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             if (hasId) {
                 Button(
                     onClick = { pay(context, amount) }, shape = RoundedCornerShape(16.dp),
@@ -173,22 +140,6 @@ fun SupportRoute(onBack: () -> Unit) {
             )
         }
     }
-}
-
-@Composable
-private fun QrCanvas(qr: QrCode) {
-    Canvas(Modifier.fillMaxWidth().aspectRatio(1f)) {
-        val quiet = 2
-        val cell = size.width / (qr.size + quiet * 2)
-        for (y in 0 until qr.size) for (x in 0 until qr.size) {
-            if (qr.dark(x, y)) drawRect(Color.Black, Offset((x + quiet) * cell, (y + quiet) * cell), Size(cell + 0.6f, cell + 0.6f))
-        }
-    }
-}
-
-private fun copy(context: Context, text: String) {
-    (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("UPI ID", text))
-    Toast.makeText(context, t("Copied"), Toast.LENGTH_SHORT).show()
 }
 
 private fun pay(context: Context, amount: Int?) {
