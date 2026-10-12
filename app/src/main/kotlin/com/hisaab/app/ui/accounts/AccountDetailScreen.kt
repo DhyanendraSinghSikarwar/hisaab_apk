@@ -117,10 +117,9 @@ class AccountDetailViewModel @Inject constructor(
 
     /** Credit-card summary: limit, headroom and what the latest statement billed, with spends since it. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val card = combine(account, statements.observeAll()) { a, all ->
+    val card = combine(account, statements.observeAll(), accounts.observeWithActivity(Periods.startOfMonth(System.currentTimeMillis())).map { l -> l.filter { it.isCreditCardRow }.map { CardDues.CardRef(it.bankName, it.last4) } }) { a, all, refs ->
         if (a == null || !a.isCreditCard) return@combine null
-        val mine = all.filter { it.last4 == a.last4 && (it.bankName == null || it.bankName.equals(a.bankName, ignoreCase = true)) }
-        a to mine
+        a to CardDues.rowsFor(all, a.bankName, a.last4, refs)
     }.flatMapLatest { pair ->
         if (pair == null) return@flatMapLatest flow<CardSummary?> { emit(null) }
         val (a, mine) = pair
@@ -345,10 +344,11 @@ private fun CardSummaryGrid(c: CardSummary, onAdjust: () -> Unit) {
                 p.totalMinor?.takeIf { it > 0 }?.let { money(it) } ?: t("No dues"), fontSize = 26.sp, fontWeight = FontWeight.Bold,
                 color = if ((p.totalMinor ?: 0L) > 0) Hx.neg else Hx.text2, maxLines = 1,
             )
+            cardSourceLine(p)?.let { Text(it, fontSize = 11.sp, color = Hx.text2, maxLines = 1) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             CardStat(t("Total limit"), money(limit), MaterialTheme.colorScheme.onSurface, null, Modifier.weight(1f))
-            CardStat(t("Limit left"), money(avail), Hx.pos, if (c.availableEstimated) t("est.") else null, Modifier.weight(1f))
+            CardStat(t("Limit left"), money(p.limitLeft(limit, avail)), Hx.pos, if (c.availableEstimated) t("est.") else null, Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             when {

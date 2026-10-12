@@ -200,3 +200,6 @@ Inspiration, not a copy. Keep settings, profile and every existing feature. Bott
 - [x] More brand logos in transactions (popular spend brands)
 - [x] Card bill payments never counted as spend (shown in transactions as "Credit card bill"); card and account spends to others counted; one shared definition (type TRANSFER, which every spend/income query and LedgerMath/MonthSpend already exclude). Detection: `parser-core/.../rules/CardBill.kt` (bank SMS, email, payment-app notifications kept as transfers, typed entries), 5-day pairing with card-side payment, one-time sweep `cardbill_v1`; tests in `CardBillTest`; shared/app build unverified
 - [x] Home credit card rows: due amount at the right edge
+- [x] Statement mail/SMS must update the credit card figures (trace and fix matching); manual edit wins until a later-arriving statement/SMS replaces it
+- [x] All balance figures (accounts, cards, net worth, Home) read one shared source; card dues total = sum of per-card owed (NetWorth uses CardDues.position)
+- [x] Tax centre: latest Indian rules (new regime no tax to 12 lakh), income collected from the last year or estimated, new vs old regime side by side. `TaxRules`/`TaxCalculator`/`TaxIncome` in shared/insight, tests TaxCalculatorTest (22 pass on JVM) and TaxIncomeTest; app and TaxIncome compile unverified

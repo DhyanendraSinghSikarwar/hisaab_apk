@@ -141,10 +141,12 @@ Sections can be shown, hidden and reordered (More > Customise, or the edit mode 
 
 ## Tax centre
 
-- Estimated tax for the financial year from tracked income and deductions: salary and other income, 80C, 80D, NPS, home-loan interest and others found in your data.
-- Old against new regime comparison, rebate and cess, and a breakdown of how it adds up.
-- Override income or a deduction per year, with reset to calculated.
-- What-if calculator (not saved) and sharing as an HD image or PDF.
+- Period: this financial year, last financial year or the last 12 months.
+- Income collected from tracked credits: salary, interest, dividends, rent and other income; refunds, own-account transfers and reimbursements are left out. With under 12 months of data the year is estimated (salary continues at the latest month's pay, other income scaled by months observed) and marked Estimated.
+- New and old regime side by side: gross income, deductions, taxable income, tax, 87A rebate with marginal relief, surcharge with marginal relief, cess, effective rate and the recommended regime. No tax up to Rs 12 lakh taxable income in the new regime (about Rs 12.75 lakh salary with the standard deduction); capital gains at 111A and 112A rates stay outside the rebate.
+- Expandable slab breakdown per regime. Old-regime deductions found in your data: 80C payments, life and health premiums, NPS.
+- Rules are table-driven per year (FY 2024-25, 2025-26, 2026-27) in `TaxRules`; Budget 2026 left the rates unchanged, so 2026-27 uses the 2025-26 rules. Checked 2026-10-11 against incometax.gov.in (AY 2026-27 rates), Union Budget 2025 and 2026 coverage (BankBazaar, ClearTax, Tata Capital). Capital-gains rates and the old-regime rebate are carried over from FY 2025-26.
+- What-if calculator (income lines, capital gains and deductions; never saved) and sharing as an HD image or PDF.
 
 ## Alerts and reminders
 

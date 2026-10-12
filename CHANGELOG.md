@@ -6,9 +6,22 @@ Version numbers are not contiguous: some numbers were never published. 1.1.0 is 
 
 For the current feature set, see [FEATURES.md](FEATURES.md).
 
-## [2.9.6] - 2026-10-11
+## [2.9.8] - 2026-10-12
 
-Not yet published on GitHub.
+### Added
+- Card page shows where its figures came from, for example "From statement · 2 Oct", "From SMS", "From email" or "Edited · 10 Oct".
+- Tax centre: choose this FY, last FY or the last 12 months; income is collected from your data, or estimated for the full year when there are fewer than 12 months of data.
+
+### Changed
+- Tax centre: latest FY rules, new and old regime side by side with the recommended one, no tax up to ₹12 lakh in the new regime, surcharge with marginal relief, capital-gains rates and per-year rule tables.
+- A manual edit of a card's billed, unbilled or total amount stays until a statement or SMS that arrives later replaces it; one that arrived earlier never overrides it.
+- Net worth card dues now equal the sum of the amounts shown on each card, so balances and dues agree across Home, Accounts, Portfolio and the card page.
+
+### Fixed
+- A statement mail read by the app now reaches the right card even when the bank is spelled differently (for example "Axis" and "Axis Bank"), the card number is missing or masked, or the table separates labels with "|".
+- Statements without a statement date, and locked or unreadable statements, no longer distort a card's due figures.
+
+## [2.9.6] - 2026-10-11
 
 ### Changed
 - Home credit card dues: the amount to pay is right-aligned on each card row.

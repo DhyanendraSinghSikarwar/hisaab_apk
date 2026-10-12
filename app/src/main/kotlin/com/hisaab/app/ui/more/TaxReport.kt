@@ -15,6 +15,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 import com.hisaab.app.i18n.t
 import com.hisaab.app.ui.format.Periods
+import com.hisaab.shared.insight.RegimeTax
 import java.io.File
 import java.text.NumberFormat
 import java.time.LocalDate
@@ -55,7 +56,7 @@ internal object TaxReport {
     private val POS_SOFT = 0xFFE3F4EC.toInt()
 
     private val disclaimer: String
-        get() = t("This is an estimate, not tax advice. It is worked out from the transactions DhanKosh tracked (and any what-if figures entered) for a resident individual under 60, using the slabs, standard deduction, 87A rebate and 4% cess for the year. It leaves out surcharge, capital gains and deductions DhanKosh cannot see; salary credits are after TDS and PF, so taxable salary may be higher. Check with a tax professional before you file.")
+        get() = t("This is an estimate, not tax advice. It is worked out from the transactions DhanKosh tracked (and any what-if figures entered), projected to a full year where less data exists, for a resident individual under 60, using the slabs, standard deduction, 87A rebate, surcharge and 4% cess for the year. It leaves out deductions DhanKosh cannot see; salary credits are after TDS and PF, so taxable salary may be higher. Check with a tax professional before you file.")
 
     /** Writes the summary to cacheDir/shared/ and returns the file. Runs off the main thread. */
     fun export(context: Context, s: TaxState, format: TaxShareFormat): File {
@@ -140,8 +141,8 @@ internal object TaxReport {
         add(card(t("Income"), x, w, emptyList(), incomeRows(s)))
         add(card(t("Deductions"), x, w, emptyList(), deductionRows(s)))
         add(card(t("How it adds up"), x, w, listOf(t("New"), t("Old")), sumRows(s)))
-        add(slabCard(t("New regime · slab breakdown"), s.newRegime, TaxMath.NEW, x, w))
-        add(slabCard(t("Old regime · slab breakdown"), s.oldRegime, TaxMath.OLD, x, w))
+        add(slabCard(t("New regime · slab breakdown"), s.newRegime, s.newSlabs, x, w))
+        add(slabCard(t("Old regime · slab breakdown"), s.oldRegime, s.oldSlabs, x, w))
         add(footer(x, w, generated, pdf))
     }
 
@@ -192,22 +193,27 @@ internal object TaxReport {
         c.drawText(label, x + 12f, y + 22f, text(11f, INK2))
         if (best) pill(c, t("Lower"), x + w - 10f, y + 10f, POS_SOFT, POS, alignRight = true)
         c.drawText(inr(tax), x + 12f, y + 54f, fit(inr(tax), text(22f, INK, bold = true), w - 24f))
-        c.drawText(t("incl. 4% cess"), x + 12f, y + 68f, text(9f, INK2))
+        c.drawText(t("incl. surcharge and 4% cess"), x + 12f, y + 68f, text(9f, INK2))
     }
 
     private fun incomeRows(s: TaxState): List<TRow> = buildList {
+        val e = s.est
         val salarySub = when {
-            s.whatIf.salary != null -> t("What-if figure · calculated {amount}", "amount" to inr(s.projectedSalary))
-            s.salaryMonths in 1..11 -> if (s.salaryMonths == 1) t("Projected from {n} month of credits ({amount} so far)", "n" to s.salaryMonths, "amount" to inr(s.salarySoFar))
-            else t("Projected from {n} months of credits ({amount} so far)", "n" to s.salaryMonths, "amount" to inr(s.salarySoFar))
-            s.salaryMonths > 0 -> t("From salary credits")
+            s.whatIf.salary != null -> t("What-if figure · calculated {amount}", "amount" to inr(e.salary))
+            e.estimated && e.salaryMonths > 0 -> t("Projected from {n} months of credits ({amount} so far)", "n" to e.salaryMonths, "amount" to inr(e.salarySoFar))
+            e.salaryMonths > 0 -> t("From salary credits")
             else -> t("No salary credits found")
         }
-        add(TRow(t("Salary for the year"), listOf(inr(s.salaryUsed)), salarySub))
-        if (s.otherIncomeUsed > 0 || s.whatIf.otherIncome != null) {
-            add(TRow(t("Other income"), listOf(inr(s.otherIncomeUsed)), if (s.whatIf.otherIncome != null) t("What-if figure") else t("Interest, rent and other credits")))
+        add(TRow(t("Salary"), listOf(inr(s.salaryUsed)), salarySub))
+        fun line(label: String, v: Long, edited: Boolean) {
+            if (v > 0 || edited) add(TRow(label, listOf(inr(v)), if (edited) t("What-if figure") else null))
         }
-        add(TRow(t("Gross income"), listOf(inr(s.income)), bold = true, divider = true))
+        line(t("Interest"), s.interestUsed, s.whatIf.interest != null)
+        line(t("Dividends"), s.dividendsUsed, s.whatIf.dividends != null)
+        line(t("Rent"), s.rentUsed, s.whatIf.rent != null)
+        line(t("Other"), s.otherUsed, s.whatIf.otherIncome != null)
+        line(t("Capital gains"), s.capitalGains, s.whatIf.stcg != null || s.whatIf.ltcg != null)
+        add(TRow(t("Gross income"), listOf(inr(s.income + s.capitalGains)), bold = true, divider = true))
     }
 
     private fun deductionRows(s: TaxState): List<TRow> = buildList {
@@ -228,9 +234,10 @@ internal object TaxReport {
             TRow(t("Gross income"), listOf(inr(n.gross), inr(o.gross))),
             TRow(t("Standard deduction"), listOf(neg(n.standardDeduction), neg(o.standardDeduction)), color = INK2),
             TRow(t("Deductions"), listOf(neg(n.deductions), neg(o.deductions)), color = INK2),
-            TRow(t("Taxable income"), listOf(inr(n.taxable), inr(o.taxable)), bold = true, divider = true),
-            TRow(t("Tax on slabs"), listOf(inr(n.slabTax), inr(o.slabTax)), color = INK2),
+            TRow(t("Taxable income"), listOf(inr(n.totalIncome), inr(o.totalIncome)), bold = true, divider = true),
+            TRow(t("Tax on slabs and gains"), listOf(inr(n.slabTax + n.specialTax), inr(o.slabTax + o.specialTax)), color = INK2),
             TRow(t("Rebate u/s 87A"), listOf(neg(n.rebate), neg(o.rebate)), color = INK2),
+            TRow(t("Surcharge"), listOf(inr(n.surcharge), inr(o.surcharge)), color = INK2),
             TRow(t("Health & education cess 4%"), listOf(inr(n.cess), inr(o.cess)), color = INK2),
             TRow(t("Tax payable"), listOf(inr(n.total), inr(o.total)), bold = true, divider = true),
         )
@@ -245,7 +252,9 @@ internal object TaxReport {
                 add(TRow(range, listOf("${l.rate}%", inr(l.taxedPart), inr(l.tax))))
             }
             add(TRow(t("Tax on slabs"), listOf("", inr(r.taxable), inr(r.slabTax)), bold = true, divider = true))
+            if (r.specialTax > 0) add(TRow(t("Tax on capital gains"), listOf("", inr(r.specialIncome), inr(r.specialTax)), color = INK2))
             if (r.rebate > 0) add(TRow(t("Less rebate u/s 87A"), listOf("", "", neg(r.rebate)), color = INK2))
+            if (r.surcharge > 0) add(TRow(t("Surcharge"), listOf("", "", inr(r.surcharge)), color = INK2))
             add(TRow(t("Tax payable with cess"), listOf("", "", inr(r.total)), bold = true))
         }
         return card(title, x, w, listOf(t("Rate"), t("Income"), t("Tax")), rows, colW = listOf(44f, 92f, 84f))

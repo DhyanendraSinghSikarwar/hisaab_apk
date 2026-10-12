@@ -161,23 +161,27 @@ class NetWorthSource @Inject constructor(
     private fun isCounted(a: AccountWithActivity) =
         (a.kind == AccountKind.ACCOUNT && a.accountType?.liquid != false) || a.accountType == AccountType.FD || a.accountType == AccountType.RD
 
-    init {
-        // Save today's all-books figure whenever it changes.
-        inputs.map { compute(it, Book.ALL) }.map { it.assetsMinor to it.liabilitiesMinor }.distinctUntilChanged()
-            .onEach { (a, l) -> if (a > 0 || l > 0) lists.recordWorth(a, l) }.launchIn(scope)
-    }
-
     private val since: Long = YearMonth.now(Periods.zone).minusMonths(WorthHistory.MONTHS.toLong() + 1).atDay(1)
         .atStartOfDay(Periods.zone).toInstant().toEpochMilli()
 
     private val book = filters.filter.map { it.book }.distinctUntilChanged()
 
-    private val current = combine(inputs, book) { i, b -> i to compute(i, b) }
-
-    val netWorth: StateFlow<NetWorth> = combine(current, lists.worth, transactions.observeSince(since), accounts.observeMerged()) { (i, n), recorded, txs, merged ->
-        // A merged account's transactions move its target's balance: count them there.
+    /** Transactions of the last three years; a merged account's count on its target. */
+    private val movements = combine(transactions.observeSince(since), accounts.observeMerged()) { txs, merged ->
         val parent = merged.mapNotNull { m -> m.mergedIntoId?.let { m.id to it } }.toMap()
-        withHistory(i, n, recorded, if (parent.isEmpty()) txs else txs.map { t -> parent[t.accountId]?.let { t.copy(accountId = it) } ?: t })
+        if (parent.isEmpty()) txs else txs.map { t -> parent[t.accountId]?.let { t.copy(accountId = it) } ?: t }
+    }
+
+    init {
+        // Save today's all-books figure whenever it changes.
+        combine(inputs, movements) { i, txs -> compute(i, Book.ALL, txs) }.map { it.assetsMinor to it.liabilitiesMinor }.distinctUntilChanged()
+            .onEach { (a, l) -> if (a > 0 || l > 0) lists.recordWorth(a, l) }.launchIn(scope)
+    }
+
+    private val current = combine(inputs, book, movements) { i, b, txs -> Triple(i, compute(i, b, txs), txs) }
+
+    val netWorth: StateFlow<NetWorth> = combine(current, lists.worth) { (i, n, txs), recorded ->
+        withHistory(i, n, recorded, txs)
     }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(10_000), NetWorth())
 
     private fun inBook(usage: AccountUsage?, b: Book) = when (b) {
@@ -191,11 +195,7 @@ class NetWorthSource @Inject constructor(
         a.kind == AccountKind.CARD && !a.isDebitCard && (a.accountType == AccountType.CREDIT_CARD ||
             (a.accountType == null && a.availableLimitMinor != null))
 
-    private fun cardFor(st: StatementEntity, accs: List<AccountWithActivity>): AccountWithActivity? =
-        accs.firstOrNull { it.kind == AccountKind.CARD && it.last4 == st.last4 && it.bankName.equals(st.bankName, ignoreCase = true) }
-            ?: accs.firstOrNull { it.kind == AccountKind.CARD && it.last4 == st.last4 }
-
-    private fun compute(i: WorthInputs, b: Book): NetWorth {
+    private fun compute(i: WorthInputs, b: Book, txs: List<TransactionEntity>): NetWorth {
         val visible = i.accounts.filter { !it.hidden && inBook(it.usage, b) }
         val hs = if (b == Book.BUSINESS) emptyList() else i.holdings
         val f = i.filter
@@ -205,21 +205,12 @@ class NetWorthSource @Inject constructor(
         val ppf = visible.filter { f.countsAccount(it.id) && it.accountType == AccountType.PPF }.sumOf { it.currentBalanceMinor ?: 0L }
         val loanAccs = visible.filter { it.accountType == AccountType.LOAN && f.countsLiability(LiabilityKind.LOANS) }
         val loans = loanAccs.sumOf { kotlin.math.abs(it.currentBalanceMinor ?: 0L) }
-        // Latest statement per card, kept when the card (or, for an unknown card, the personal book) is in view.
-        val real = i.statements.filter { it.last4 != null && it.kind != CardDues.KIND_PAYMENT && it.kind != CardDues.KIND_OVERRIDE }
-        val overrides = i.statements.filter { it.kind == CardDues.KIND_OVERRIDE && it.totalDueMinor != null }
-        // A manual billed amount stands in for the statement it was set against, until a newer one arrives.
-        val latest = real.groupBy { it.bankName to it.last4 }.values.map { l ->
-            val top = l.maxBy { it.statementEpochDay ?: 0 }
-            val o = overrides.firstOrNull { it.last4 == top.last4 && it.bankName.equals(top.bankName, ignoreCase = true) }
-            val setDay = o?.let { java.time.Instant.ofEpochMilli(it.processedAt).atZone(Periods.zone).toLocalDate().toEpochDay() }
-            if (o != null && (top.statementEpochDay ?: 0L) <= setDay!!) top.copy(totalDueMinor = o.totalDueMinor) else top
-        }
-        val dues = latest.filter { it.totalDueMinor != null }.filter { st ->
-            val card = cardFor(st, i.accounts)
-            (card == null || !card.hidden) && inBook(card?.usage ?: AccountUsage.PERSONAL, b)
-        }
-        val cardDue = if (f.countsLiability(LiabilityKind.CARD_DUES)) dues.sumOf { it.totalDueMinor ?: 0L } else 0L
+        // Credit cards: one position each (CardDues.position), the very figures Home and the card page show. The card dues
+        // total is the sum of what each card owes, so the three can never differ.
+        val refs = i.accounts.filter(::isCreditCard).map { CardDues.CardRef(it.bankName, it.last4) }
+        val byCard = txs.filter { it.duplicateOfId == null && it.accountId != null }.groupBy { it.accountId }
+        val cards = visible.filter(::isCreditCard).map { cardLimit(it, i.statements, refs, byCard[it.id].orEmpty()) }.sortedByDescending { it.availableMinor ?: -1L }
+        val cardDue = if (f.countsLiability(LiabilityKind.CARD_DUES)) cards.sumOf { it.owedMinor } else 0L
 
         val holdingByClass = hs.filter { f.countsClass(AssetClass.of(it.kind).name) }.groupBy { AssetClass.of(it.kind) }.mapValues { (_, l) -> l.sumOf { it.valueMinor ?: 0L } }
         val byClass = holdingByClass.toMutableMap()
@@ -243,17 +234,6 @@ class NetWorthSource @Inject constructor(
             if (cardDue > 0) add(WorthPart("card-dues", "Card dues", cardDue, true, PartKind.CARD_DUE))
         }.sortedByDescending { it.amountMinor }
 
-        val cards = visible.filter(::isCreditCard).map { a ->
-            val mine = latest.filter { it.last4 == a.last4 && (it.bankName == null || it.bankName.equals(a.bankName, ignoreCase = true)) }
-            val st = mine.filter { it.creditLimitMinor != null }.maxByOrNull { it.statementEpochDay ?: 0 }
-            val bill = mine.filter { it.totalDueMinor != null }.maxByOrNull { it.statementEpochDay ?: 0 }
-            CardLimit(
-                a.id, a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName, a.last4, a.currentBalanceMinor, st?.creditLimitMinor,
-                billedMinor = bill?.totalDueMinor, statementDay = bill?.statementEpochDay?.let(LocalDate::ofEpochDay),
-                dueDay = bill?.dueEpochDay?.let(LocalDate::ofEpochDay), network = a.cardNetwork, availableEstimated = a.balanceIsEstimated,
-            )
-        }.sortedByDescending { it.availableMinor ?: -1L }
-
         return NetWorth(
             assetsMinor = byClass.values.sum(), liabilitiesMinor = loans + cardDue, byClass = byClass.filterValues { it > 0 },
             holdings = hs, accounts = visible, investedMinor = hs.sumOf { it.investedMinor ?: it.valueMinor ?: 0L },
@@ -273,27 +253,23 @@ class NetWorthSource @Inject constructor(
         val liabIds = if (f.countsLiability(LiabilityKind.CARD_DUES)) n.accounts.filter(::isCreditCard).map { it.id }.toSet() else emptySet()
         val estimated = WorthHistory.estimate(anchor, txs, assetIds, liabIds, n.holdings.filter { f.countsClass(AssetClass.of(it.kind).name) })
         val tail = if (real.isEmpty()) listOf(todayPoint) else real.dropLastWhile { it.day == today } + todayPoint
-        return n.copy(history = estimated + tail, estimatedBefore = if (estimated.isEmpty()) null else anchor.day, cards = withUnbilled(n.cards, txs, i))
+        return n.copy(history = estimated + tail, estimatedBefore = if (estimated.isEmpty()) null else anchor.day)
     }
 
-    /** Unbilled: spends on each card after its latest statement date. */
-    private fun withUnbilled(cards: List<CardLimit>, txs: List<TransactionEntity>, i: WorthInputs): List<CardLimit> {
+    /** One card's position from its statement rows and spends: billed, unbilled, outstanding, minimum, due date, limit left. */
+    private fun cardLimit(a: AccountWithActivity, statements: List<StatementEntity>, refs: List<CardDues.CardRef>, txs: List<TransactionEntity>): CardLimit {
         val today = LocalDate.now(Periods.zone)
         val from = today.minusDays(CardDues.WINDOW_DAYS).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
-        val byCard = txs.filter { it.duplicateOfId == null && it.accountId != null }.groupBy { it.accountId }
-        return cards.map { c ->
-            val acc = i.accounts.firstOrNull { it.id == c.id } ?: return@map c
-            val rows = i.statements.filter { it.last4 == acc.last4 && (it.bankName == null || it.bankName.equals(acc.bankName, ignoreCase = true)) }
-            val oldest = rows.mapNotNull { it.statementEpochDay }.maxOrNull()?.let { LocalDate.ofEpochDay(it).atStartOfDay(Periods.zone).toInstant().toEpochMilli() }
-            val since = minOf(from, oldest ?: from)
-            val flow = byCard[c.id].orEmpty().filter { it.timestamp >= since }.sortedBy { it.timestamp }
-                .map { CardFlow(it.timestamp, it.type, LedgerMath.rupees(it)) }
-            val p = CardDues.position(rows, c.availableMinor, flow, today, Periods.zone)
-            c.copy(
-                billedMinor = p.billedMinor, statementDay = p.statementDay ?: c.statementDay, dueDay = p.dueDay, unbilledMinor = p.unbilledMinor,
-                minDueMinor = p.minDueMinor, outstandingMinor = p.outstandingMinor, estimated = p.estimated, limitMinor = c.limitMinor ?: p.limitMinor,
-            )
-        }
+        val rows = CardDues.rowsFor(statements, a.bankName, a.last4, refs)
+        val oldest = rows.mapNotNull { it.statementEpochDay }.maxOrNull()?.let { LocalDate.ofEpochDay(it).atStartOfDay(Periods.zone).toInstant().toEpochMilli() }
+        val since = minOf(from, oldest ?: from)
+        val flow = txs.filter { it.timestamp >= since }.sortedBy { it.timestamp }.map { CardFlow(it.timestamp, it.type, LedgerMath.rupees(it)) }
+        val p = CardDues.position(rows, a.currentBalanceMinor, flow, today, Periods.zone)
+        return CardLimit(
+            a.id, a.nickname?.takeIf { it.isNotBlank() } ?: a.bankName, a.last4, p.limitLeft(p.limitMinor, a.currentBalanceMinor), p.limitMinor,
+            billedMinor = p.billedMinor, statementDay = p.statementDay, dueDay = p.dueDay, unbilledMinor = p.unbilledMinor, network = a.cardNetwork,
+            minDueMinor = p.minDueMinor, outstandingMinor = p.outstandingMinor, estimated = p.estimated, availableEstimated = a.balanceIsEstimated,
+        )
     }
 
     private val AccountWithActivity.label: String

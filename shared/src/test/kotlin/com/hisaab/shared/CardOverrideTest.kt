@@ -21,8 +21,8 @@ class CardOverrideTest {
 
     private fun ms(day: LocalDate) = day.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
 
-    private fun base(kind: String, key: String, total: Long? = null, due: LocalDate? = null, day: LocalDate? = null, paid: Long? = null) = StatementEntity(
-        key = key, source = "SMS", sender = "Axis Bank", subject = null, fileName = "", receivedAt = 0, status = StatementEntity.PARSED,
+    private fun base(kind: String, key: String, total: Long? = null, due: LocalDate? = null, day: LocalDate? = null, paid: Long? = null, at: Long = 0) = StatementEntity(
+        key = key, source = "SMS", sender = "Axis Bank", subject = null, fileName = "", receivedAt = at, status = StatementEntity.PARSED,
         transactionCount = 0, holdingCount = 0, filePath = null, bankName = "Axis Bank", last4 = "0775", processedAt = 1, kind = kind,
         totalDueMinor = total, dueEpochDay = due?.toEpochDay(), statementEpochDay = day?.toEpochDay(), debitsMinor = paid,
     )
@@ -57,7 +57,7 @@ class CardOverrideTest {
 
     @Test
     fun `a newer statement drops the override`() {
-        val newer = base(CardDues.KIND_DUE, "carddue:b", 900_000, LocalDate.of(2026, 10, 28), LocalDate.of(2026, 9, 24))
+        val newer = base(CardDues.KIND_DUE, "carddue:b", 900_000, LocalDate.of(2026, 10, 28), LocalDate.of(2026, 9, 24), at = setAt + 3_600_000)
         val p = pos(listOf(bill, newer, override(billed = 750_000)))
         assertEquals(900_000L, p.billedMinor)
         assertFalse(p.edited)
@@ -65,7 +65,7 @@ class CardOverrideTest {
 
     @Test
     fun `an older or same-day statement keeps the override`() {
-        val sameDay = base(CardDues.KIND_DUE, "carddue:c", 900_000, LocalDate.of(2026, 10, 14), setDay)
+        val sameDay = base(CardDues.KIND_DUE, "carddue:c", 900_000, LocalDate.of(2026, 10, 14), setDay, at = setAt - 3_600_000)
         assertEquals(750_000L, pos(listOf(bill, sameDay, override(billed = 750_000))).billedMinor)
     }
 
@@ -127,7 +127,7 @@ class CardOverrideTest {
     fun `outstanding override clears on full payment and on a newer statement`() {
         val pay = base(CardDues.KIND_PAYMENT, "cardpay:z", day = LocalDate.of(2026, 9, 24), paid = 800_000)
         assertFalse(pos(listOf(pay, overrideWith(outstanding = 800_000))).outstandingEdited)
-        val newer = base(CardDues.KIND_DUE, "carddue:n", 900_000, LocalDate.of(2026, 10, 28), LocalDate.of(2026, 9, 24))
+        val newer = base(CardDues.KIND_DUE, "carddue:n", 900_000, LocalDate.of(2026, 10, 28), LocalDate.of(2026, 9, 24), at = setAt + 3_600_000)
         assertFalse(pos(listOf(newer, overrideWith(outstanding = 800_000))).edited)
     }
 

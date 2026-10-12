@@ -358,4 +358,32 @@ class CardDuesTest {
         assertNull(d.paymentMinor)
         assertNull(registry.parse(body, "VK-AXISBK-S", at, com.hisaab.parser.model.Source.SMS))
     }
+
+    @Test
+    fun `statement mail with masked number and pipe separated labels`() {
+        val body = "Statement for your HDFC Bank Credit Card 5241 36XX XXXX 1234\nTotal Amount Due | Rs. 12,345.00\nMinimum Amount Due | Rs. 620.00\nPayment Due Date | 21/10/2026\nStatement Date | 02/10/2026\nCredit Limit Rs. 2,00,000.00"
+        val d = registry.cardDue(body, "HDFC Bank <emailstatements.cards@hdfcbank.net>", at)
+        assertNotNull(d)
+        assertEquals("1234", d!!.last4)
+        assertEquals(1234500L, d.totalDueMinor)
+        assertEquals(62000L, d.minDueMinor)
+        assertEquals(LocalDate.of(2026, 10, 21).toEpochDay(), d.dueEpochDay)
+        assertEquals(LocalDate.of(2026, 10, 2).toEpochDay(), d.statementEpochDay)
+    }
+
+    @Test
+    fun `statement mail naming the card by product only keeps the bank and an empty last4`() {
+        val body = "Your Axis Bank Flipkart Credit Card statement is ready. Total Payment Due: Rs 8,100.50 Min Amt Due: Rs 405.00 Payment Due Date: Oct 21, 2026"
+        val d = registry.cardDue(body, "VK-AXISBK-S", at)
+        assertNotNull(d)
+        assertEquals("Axis Bank", d!!.bank)
+        assertEquals("", d.last4)
+        assertEquals(810050L, d.totalDueMinor)
+        assertEquals(LocalDate.of(2026, 10, 21).toEpochDay(), d.dueEpochDay)
+    }
+
+    @Test
+    fun `a payment notice without a card number is not recorded`() {
+        assertNull(registry.cardDue("Payment of Rs.5,000.00 has been received towards your Axis Bank Credit Card. Thank you.", "VK-AXISBK-S", at))
+    }
 }

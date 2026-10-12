@@ -10,6 +10,7 @@ import java.time.ZoneId
  */
 data class CardDue(
     val bank: String,
+    /** The card's last four digits; empty when the message names the card by its product name only. */
     val last4: String,
     val totalDueMinor: Long?,
     val minDueMinor: Long?,
@@ -99,8 +100,8 @@ object CardDueParser {
         """(?:total\s+(?:(?:amount|amt|payment)\.?\s+)?(?:due|payable|outstanding)|(?:total\s+)?amount\s+(?:due|payable)|""" +
             """total\s+(?:amt|amount)(?!\s+(?:due|payable|outstanding))|total\s+dues?|new\s+balance|outstanding\s+(?:balance|amount)|bill\s+amount)\b[^\d]{0,25}?$NUMX""",
     )
-    private val DUE_DATE = rx("""(?:due\s+(?:date|on|by)|pay(?:ment)?\s+(?:by|before)|payable\s+by|on\s+or\s+before)\s*(?:is|:|-)?\s*($DATE)""")
-    private val STATEMENT_DATE = rx("""(?:statement|bill)\s+(?:dated|date|generated\s+on|generated\s+for|of)\s*(?:is|:|-)?\s*($DATE)""")
+    private val DUE_DATE = rx("""(?:due\s+(?:date|on|by)|pay(?:ment)?\s+(?:by|before)|payable\s+by|on\s+or\s+before)[\s:|–-]*(?:is\s+)?($DATE)""")
+    private val STATEMENT_DATE = rx("""(?:statement|bill)\s+(?:dated|date|generated\s+on|generated\s+for|of)[\s:|–-]*(?:is\s+)?($DATE)""")
     private val STATEMENT_WORD = rx("""\b(?:statement|bill|due)\b""")
     private val FAILED = rx("""\b(?:fail(?:ed|ure)?|declin\w+|unsuccessful|not\s+successful|reversed|reject\w*)\b""")
     private val PAYMENT = listOf(
@@ -126,7 +127,8 @@ object CardDueParser {
     fun parse(body: String, bank: String?, timestamp: Long, zone: ZoneId = ZoneId.of("Asia/Kolkata")): CardDue? {
         val text = body.replace(Regex("""[\s ]+"""), " ").trim()
         if (!CARD.containsMatchIn(text)) return null
-        val last4 = LAST4.find(text)?.groupValues?.get(1) ?: return null
+        // A bill that names the card only by its product name ("Regalia") has no digits: the bank alone places it.
+        val last4 = LAST4.find(text)?.groupValues?.get(1).orEmpty()
         val issuer = bank ?: bankIn(text) ?: return null
         val received = java.time.Instant.ofEpochMilli(timestamp).atZone(zone).toLocalDate()
 
@@ -141,7 +143,7 @@ object CardDueParser {
         if ((total != null || min != null) && STATEMENT_WORD.containsMatchIn(text) && (total != null || due != null)) {
             return CardDue(issuer, last4, total, min, due?.toEpochDay(), stmt?.toEpochDay(), at = timestamp)
         }
-        if (FAILED.containsMatchIn(text)) return null
+        if (FAILED.containsMatchIn(text) || last4.isEmpty()) return null
         for (p in PAYMENT) {
             val paid = p.find(text)?.groupValues?.get(1)?.let(CardFigures::minor)?.takeIf { it > 0 } ?: continue
             return CardDue(issuer, last4, null, null, null, paymentMinor = paid, at = timestamp)

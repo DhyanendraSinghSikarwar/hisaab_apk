@@ -136,8 +136,9 @@ class CardDueReminderChecker @Inject constructor(
         val all = statements.observeAll().first()
         val enabled = settings.settings.first().cardDueReminders
         val from = today.minusDays(CardDues.WINDOW_DAYS).atStartOfDay(Periods.zone).toInstant().toEpochMilli()
+        val refs = cards.map { CardDues.CardRef(it.bankName, it.last4) }
         for (a in cards) {
-            val mine = all.filter { it.last4 == a.last4 && (it.bankName == null || it.bankName.equals(a.bankName, ignoreCase = true)) }
+            val mine = CardDues.rowsFor(all, a.bankName, a.last4, refs)
             val since = mine.mapNotNull { it.statementEpochDay }.maxOrNull()?.let { LocalDate.ofEpochDay(it).atStartOfDay(Periods.zone).toInstant().toEpochMilli() }
             val flow = transactions.cardFlowSince(a.id, minOf(from, since ?: from)).first()
             val p = CardDues.position(mine, a.currentBalanceMinor, flow, today, Periods.zone)

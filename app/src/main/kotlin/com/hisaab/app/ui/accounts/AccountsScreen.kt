@@ -574,7 +574,7 @@ private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, ha
                             Text(t("Unbilled {amount}", "amount" to Money.format(it, showPaise = false)), style = MaterialTheme.typography.bodySmall, color = Hx.warn, maxLines = 1)
                         }
                     }
-                    a.currentBalanceMinor?.let {
+                    (bill?.limitLeftMinor ?: a.currentBalanceMinor)?.let {
                         Text(t("Limit left {amount}", "amount" to Money.format(it, showPaise = false)) + if (a.balanceIsEstimated) " · " + t("est.") else "", style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
                     }
                 } else if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 2)
@@ -599,7 +599,7 @@ private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, ha
                         Text(label, style = MaterialTheme.typography.labelSmall, color = colour)
                     } else Text(if (outstanding != null) t("Outstanding") else if (billed != null && bill?.estimated == true) t("Billed (estimated)") else t("billed"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    val (value, caption) = valueFor(a, linked)
+                    val (value, caption) = valueFor(a, linked, bill?.limitLeftMinor)
                     Text(value, style = MaterialTheme.typography.titleMedium)
                     Text(caption, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -610,12 +610,12 @@ private fun AccountCard(a: AccountWithActivity, linked: AccountWithActivity?, ha
 }
 
 /** What the right-hand figure shows: an account's balance, a credit card's limit left, or a debit card's account balance. */
-private fun valueFor(a: AccountWithActivity, linked: AccountWithActivity?): Pair<String, String> = when {
+private fun valueFor(a: AccountWithActivity, linked: AccountWithActivity?, limitLeft: Long? = null): Pair<String, String> = when {
     a.isDebitCard || (a.kind == AccountKind.CARD && a.accountType == null && a.latestBalanceMinor != null) -> {
         val bal = linked?.currentBalanceMinor ?: a.latestBalanceMinor
         (bal?.let { Money.format(it, showPaise = false) } ?: "—") to t("account balance")
     }
-    a.kind == AccountKind.CARD -> (a.currentBalanceMinor?.let { Money.format(it, showPaise = false) } ?: "—") to t("limit left")
+    a.kind == AccountKind.CARD -> ((limitLeft ?: a.currentBalanceMinor)?.let { Money.format(it, showPaise = false) } ?: "—") to t("limit left")
     else -> (a.currentBalanceMinor?.let { Money.format(it, showPaise = false) } ?: "—") to
         (a.balanceAsOf?.let { (if (a.balanceIsManual) t("set by you") + " · " else "") + Periods.dateTime(it) } ?: t("balance"))
 }

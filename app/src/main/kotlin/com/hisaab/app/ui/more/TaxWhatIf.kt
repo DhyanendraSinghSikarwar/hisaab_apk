@@ -51,7 +51,14 @@ import java.math.BigDecimal
 data class TaxWhatIf(
     /** Annual gross salary. */
     val salary: Long? = null,
+    val interest: Long? = null,
+    val dividends: Long? = null,
+    val rent: Long? = null,
+    /** Freelance, business and other credits. */
     val otherIncome: Long? = null,
+    /** Short-term gain on equity (111A) and long-term gain on equity (112A, before the exemption). */
+    val stcg: Long? = null,
+    val ltcg: Long? = null,
     val c80: Long? = null,
     val d80: Long? = null,
     /** 80CCD(1B), your own NPS contribution beyond 80C. Old regime only. */
@@ -63,7 +70,7 @@ data class TaxWhatIf(
     /** 80CCD(2), the employer's NPS contribution. Both regimes. */
     val employerNps: Long? = null,
 ) {
-    val any: Boolean get() = listOf(salary, otherIncome, c80, d80, nps, homeLoan, hraOther, employerNps).any { it != null }
+    val any: Boolean get() = listOf(salary, interest, dividends, rent, otherIncome, stcg, ltcg, c80, d80, nps, homeLoan, hraOther, employerNps).any { it != null }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -91,11 +98,16 @@ internal fun TaxEditSheet(
     val o = s.whatIf
     val fields = remember {
         listOf(
-            Field("Annual gross salary", s.projectedSalary, "Before TDS and PF, for the whole year", o.salary),
-            Field("Other income", s.otherIncome, "Interest, rent, freelance and the like", o.otherIncome),
+            Field("Annual gross salary", s.est.salary, "Before TDS and PF, for the whole year", o.salary),
+            Field("Interest", s.est.interest, "Bank and deposit interest, for the whole year", o.interest),
+            Field("Dividends", s.est.dividends, "For the whole year", o.dividends),
+            Field("Rent received", s.est.rent, "Before the 30% deduction", o.rent),
+            Field("Other income", s.est.other, "Freelance, business and the like", o.otherIncome),
+            Field("Short-term equity gains", 0, "Section 111A, taxed at 20%", o.stcg),
+            Field("Long-term equity gains", 0, "Section 112A, taxed at 12.5% above ₹1.25 lakh", o.ltcg),
             Field("80C investments", s.c80Calc, "PPF, ELSS, EPF, life cover… capped at ₹1,50,000 · old regime", o.c80),
             Field("80D health insurance", s.d80Calc, "Capped at ₹25,000 · old regime", o.d80),
-            Field("NPS 80CCD(1B)", 0, "Your own NPS, capped at ₹50,000 · old regime only", o.nps),
+            Field("NPS 80CCD(1B)", s.npsDetected, "Your own NPS, capped at ₹50,000 · old regime only", o.nps),
             Field("Home-loan interest 24(b)", 0, "Self-occupied house, capped at ₹2,00,000 · old regime only", o.homeLoan),
             Field("HRA exemption / other deductions", 0, "Old regime only", o.hraOther),
             Field("Employer NPS 80CCD(2)", 0, "Your employer's NPS share · both regimes", o.employerNps),
@@ -103,8 +115,10 @@ internal fun TaxEditSheet(
     }
     val invalid = fields.any { it.invalid }
     val draft = if (invalid) null else TaxWhatIf(
-        salary = fields[0].value, otherIncome = fields[1].value, c80 = fields[2].value, d80 = fields[3].value,
-        nps = fields[4].value, homeLoan = fields[5].value, hraOther = fields[6].value, employerNps = fields[7].value,
+        salary = fields[0].value, interest = fields[1].value, dividends = fields[2].value, rent = fields[3].value,
+        otherIncome = fields[4].value, stcg = fields[5].value, ltcg = fields[6].value,
+        c80 = fields[7].value, d80 = fields[8].value, nps = fields[9].value, homeLoan = fields[10].value,
+        hraOther = fields[11].value, employerNps = fields[12].value,
     )
     // Recompute both regimes live from what is typed so far.
     val preview = draft?.let { s.withWhatIf(it) }
@@ -120,9 +134,9 @@ internal fun TaxEditSheet(
                 fontSize = 13.sp, color = Hx.text2,
             )
             CardTitle(t("Income"), Modifier.padding(top = 6.dp))
-            fields.take(2).forEach { FieldInput(it) }
+            fields.take(7).forEach { FieldInput(it) }
             CardTitle(t("Deductions"), Modifier.padding(top = 6.dp))
-            fields.drop(2).forEach { FieldInput(it) }
+            fields.drop(7).forEach { FieldInput(it) }
 
             Surface(shape = RoundedCornerShape(12.dp), color = Hx.surface2, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {

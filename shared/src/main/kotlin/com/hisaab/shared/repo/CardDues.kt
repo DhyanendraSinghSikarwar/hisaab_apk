@@ -1,6 +1,7 @@
 package com.hisaab.shared.repo
 
 import com.hisaab.parser.model.TransactionType
+import com.hisaab.parser.statement.BankKeys
 import com.hisaab.parser.statement.CardDue
 import com.hisaab.shared.db.CardFlow
 import com.hisaab.shared.db.StatementDao
@@ -35,6 +36,10 @@ data class CardPosition(
     val outstandingEdited: Boolean = false,
     /** The app-calculated position when an override is applied, for "Calculated ₹x" notes. */
     val calculated: CardPosition? = null,
+    /** Where the billed figures came from: SMS, EMAIL, STATEMENT (a file) or MANUAL (an override); null when worked out. */
+    val source: String? = null,
+    /** When that source arrived (epoch ms): the message or statement time, or the moment the figures were edited. */
+    val sourceAtMs: Long? = null,
 ) {
     val edited: Boolean get() = billedEdited || minDueEdited || dueEdited || unbilledEdited || outstandingEdited
 
@@ -43,6 +48,10 @@ data class CardPosition(
     /** What the card owes now: the billed amount, else the outstanding figure. */
     val owedMinor: Long get() = billedMinor?.takeIf { it > 0 } ?: outstandingMinor?.takeIf { it > 0 } ?: 0L
     val known: Boolean get() = billedMinor != null || unbilledMinor != null || outstandingMinor != null
+
+    /** Limit left: the card's own available figure, except that a manual total owed is taken off the limit. */
+    fun limitLeft(limit: Long?, available: Long?): Long? =
+        if ((billedEdited || unbilledEdited || outstandingEdited) && limit != null) totalMinor?.let { (limit - it).coerceAtLeast(0L) } ?: available else available
 }
 
 /**
@@ -107,12 +116,19 @@ object CardDues {
      * movements over the last [WINDOW_DAYS] days.
      */
     fun position(rows: List<StatementEntity>, availableMinor: Long?, flow: List<CardFlow>, today: LocalDate, zone: ZoneId): CardPosition {
-        val real = rows.filter { it.kind != KIND_OVERRIDE }
+        // A locked statement (password not yet entered) or an unreadable one says nothing about the card.
+        val real = rows.filter { it.kind != KIND_OVERRIDE && usable(it) }
+        val o = overrideOf(rows) ?: return basePosition(real, availableMinor, flow, today, zone)
+        // A statement or due message that ARRIVED after the edit replaces the manual figures, whatever date it is for;
+        // one that arrived before the edit never beats it.
+        val fresh = real.filter { carriesBill(it) && arrivalOf(it) > o.setAtEpochMs }
+        if (fresh.isNotEmpty()) {
+            val kept = real.filter { !carriesBill(it) || it in fresh }
+            val b = basePosition(kept, availableMinor, flow, today, zone, trust = true)
+            return if (b.limitMinor != null) b else b.copy(limitMinor = basePosition(real, availableMinor, flow, today, zone).limitMinor)
+        }
         val base = basePosition(real, availableMinor, flow, today, zone)
-        val o = overrideOf(rows) ?: return base
         val setDay = Instant.ofEpochMilli(o.setAtEpochMs).atZone(zone).toLocalDate().toEpochDay()
-        // A newer real statement or due record supersedes the manual figures.
-        if (real.any { it.kind != KIND_PAYMENT && (it.totalDueMinor != null || it.dueEpochDay != null) && (it.statementEpochDay ?: 0L) > setDay }) return base
         val paid = maxOf(
             flow.filter { it.type == TransactionType.TRANSFER && it.timestamp >= o.setAtEpochMs }.sumOf { it.amountMinor },
             real.filter { it.kind == KIND_PAYMENT && (it.statementEpochDay ?: 0L) >= setDay }.sumOf { it.debitsMinor ?: 0L },
@@ -132,12 +148,65 @@ object CardDues {
             billedEdited = o.billedMinor != null, minDueEdited = o.minDueMinor != null, dueEdited = o.dueEpochDay != null,
             unbilledEdited = o.unbilledMinor != null, calculated = base,
             outstandingMinor = outstanding?.let { it + spent } ?: base.outstandingMinor, outstandingEdited = outstanding != null,
+            source = "MANUAL", sourceAtMs = o.setAtEpochMs,
         )
     }
 
-    private fun basePosition(rows: List<StatementEntity>, availableMinor: Long?, flow: List<CardFlow>, today: LocalDate, zone: ZoneId): CardPosition {
-        val newest = compareBy<StatementEntity>({ it.statementEpochDay ?: 0L }, { it.processedAt })
-        val bills = rows.filter { it.kind != KIND_PAYMENT }
+    /** When a row reached the phone: the message or mail time, else the time it was processed. */
+    fun arrivalOf(r: StatementEntity): Long = if (r.receivedAt > 0) r.receivedAt else r.processedAt
+
+    private fun usable(r: StatementEntity) =
+        r.status != StatementEntity.LOCKED && r.status != StatementEntity.UNREADABLE && r.kind != "BANK" && r.kind != "INVESTMENT"
+
+    /** A real statement or due message: carries a total or a due date (not a payment, override or limit-only row). */
+    private fun carriesBill(r: StatementEntity) =
+        r.kind != KIND_PAYMENT && r.kind != KIND_OVERRIDE && (r.totalDueMinor != null || r.dueEpochDay != null)
+
+    /** A card to match statement rows against: its bank and last four digits. */
+    data class CardRef(val bank: String?, val last4: String?)
+
+    private val BANK_NOISE = Regex("""\b(?:bank|ltd|limited|card|cards|credit|india)\b""")
+    private val NON_ALNUM = Regex("""[^a-z0-9]""")
+
+    private fun bankKey(name: String): String = BankKeys.of(name) ?: name.lowercase().replace(BANK_NOISE, "").replace(NON_ALNUM, "")
+
+    /** Whether two bank names are the issuer ("Axis", "AXIS BANK", "HDFC Bank Ltd", "SBI Card"); false when either is blank. */
+    fun bankMatches(a: String?, b: String?): Boolean {
+        if (a.isNullOrBlank() || b.isNullOrBlank()) return false
+        val x = bankKey(a)
+        val y = bankKey(b)
+        if (x.isEmpty() || y.isEmpty()) return false
+        return x == y || (minOf(x.length, y.length) >= 3 && (x.startsWith(y) || y.startsWith(x)))
+    }
+
+    /**
+     * The rows of [all] that belong to the credit card [bank] ••[last4]: rows with its last four (and the same issuer, or
+     * none named), else, when it is the only card of its issuer in [cards], rows of that issuer with no last four or with
+     * one no known card has (a re-issued or supplementary card, a bill that names the card only by product).
+     */
+    fun rowsFor(all: List<StatementEntity>, bank: String?, last4: String?, cards: List<CardRef> = emptyList()): List<StatementEntity> {
+        val sameBank = cards.filter { bankMatches(it.bank, bank) }
+        val sole = sameBank.size <= 1
+        return all.filter { r ->
+            val rl = r.last4?.takeIf { it.isNotBlank() }
+            when {
+                rl != null && rl == last4 -> r.bankName == null || bankMatches(r.bankName, bank)
+                !sole || !bankMatches(r.bankName, bank) -> false
+                rl == null -> true
+                else -> sameBank.none { it.last4 == rl }
+            }
+        }
+    }
+
+    /** [trust]: the newest bill is taken as it is, even when its statement date is older than the usual cycle (it arrived after a manual edit). */
+    private fun basePosition(rows: List<StatementEntity>, availableMinor: Long?, flow: List<CardFlow>, today: LocalDate, zone: ZoneId, trust: Boolean = false): CardPosition {
+        val newest = compareBy<StatementEntity>({ it.statementEpochDay ?: 0L }, { arrivalOf(it) }, { it.processedAt })
+        // A bill without a statement date takes one from its due date, else from the day it arrived, so it is ranked fairly.
+        val bills = rows.filter { it.kind != KIND_PAYMENT }.map {
+            if (carriesBill(it) && it.statementEpochDay == null) {
+                it.copy(statementEpochDay = it.dueEpochDay?.minus(DUE_GAP_DAYS) ?: Instant.ofEpochMilli(arrivalOf(it)).atZone(zone).toLocalDate().toEpochDay())
+            } else it
+        }
         val bill = bills.filter { it.totalDueMinor != null }.maxWithOrNull(newest)
         val limit = bills.filter { it.creditLimitMinor != null }.maxWithOrNull(newest)?.creditLimitMinor
         val dueDay = bill?.dueEpochDay?.let(LocalDate::ofEpochDay)
@@ -154,14 +223,17 @@ object CardDues {
         val ref = bills.filter { it.statementEpochDay != null || it.dueEpochDay != null }.maxWithOrNull(newest)
         val refStmt = ref?.statementEpochDay?.let(LocalDate::ofEpochDay) ?: ref?.dueEpochDay?.let { LocalDate.ofEpochDay(it).minusDays(gap) }
         val expected = refStmt?.let { latestStatement(it.dayOfMonth, today) }
-        val covered = bill != null && !stale && (expected == null || statementDay == null || !statementDay.isBefore(expected))
+        val covered = bill != null && !stale && (trust || expected == null || statementDay == null || !statementDay.isBefore(expected))
         if (covered && bill != null) {
             val billed = ((bill.totalDueMinor ?: 0L) - (statementDay?.let(::paidSince) ?: maxOf(
                 flow.filter { it.type == TransactionType.TRANSFER }.sumOf { it.amountMinor },
                 rows.filter { it.kind == KIND_PAYMENT }.sumOf { it.debitsMinor ?: 0L },
             ))).coerceAtLeast(0L)
             val unbilled = statementDay?.let { net(flow, ms(it.plusDays(1), zone)) }
-            return CardPosition(billed, bill.minDueMinor.takeIf { billed > 0 }, dueDay, statementDay, limit, unbilled, null)
+            return CardPosition(
+                billed, bill.minDueMinor.takeIf { billed > 0 }, dueDay, statementDay, limit, unbilled, null,
+                source = if (bill.kind == KIND_DUE) bill.source else "STATEMENT", sourceAtMs = arrivalOf(bill),
+            )
         }
         if (expected != null && refStmt != null) {
             // No statement seen for the latest cycle: freeze the spends up to its date as an estimated bill.
@@ -186,7 +258,8 @@ object CardDues {
 
     /** The spend and payment keys of a due message, one row per statement or payment so re-reading a message adds nothing. */
     internal fun keyOf(d: CardDue, day: Long) =
-        if (d.paymentMinor != null) "cardpay:${d.bank}:${d.last4}:$day:${d.paymentMinor}" else "carddue:${d.bank}:${d.last4}:$day"
+        if (d.paymentMinor != null) "cardpay:${d.bank}:${d.last4}:$day:${d.paymentMinor}"
+        else "carddue:${d.bank}:${d.last4.ifEmpty { "any" + d.totalDueMinor }}:$day"
 }
 
 /** Saves and clears a card's manual [CardOverride] (a statement row of kind [CardDues.KIND_OVERRIDE]). */
@@ -227,7 +300,7 @@ class CardDueRecorder @Inject constructor(private val statements: StatementDao) 
         statements.upsert(
             StatementEntity(
                 id = existing?.id ?: 0, key = key, source = source, sender = d.bank, subject = null, fileName = "", receivedAt = d.at,
-                status = StatementEntity.PARSED, transactionCount = 0, holdingCount = 0, filePath = null, bankName = d.bank, last4 = d.last4,
+                status = StatementEntity.PARSED, transactionCount = 0, holdingCount = 0, filePath = null, bankName = d.bank, last4 = d.last4.ifBlank { null },
                 processedAt = System.currentTimeMillis(),
                 kind = if (d.paymentMinor != null) CardDues.KIND_PAYMENT else CardDues.KIND_DUE,
                 totalDueMinor = d.totalDueMinor, minDueMinor = d.minDueMinor, dueEpochDay = d.dueEpochDay,
